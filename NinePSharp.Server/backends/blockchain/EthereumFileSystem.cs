@@ -23,7 +23,6 @@ public class EthereumFileSystem : INinePFileSystem
     private readonly ILuxVaultService _vault;
     private List<string> _currentPath = new();
     
-    // Memory-protected private key. Decrypted only momentarily for signing.
     private ProtectedSecret? _protectedPrivateKey;
     private string? _unlockedAccount;
     
@@ -115,8 +114,10 @@ public class EthereumFileSystem : INinePFileSystem
         {
             if (_currentPath[1] == "create")
             {
-                using var password = new SecureString();
                 string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
+                if (string.IsNullOrWhiteSpace(input)) throw new NinePProtocolException("Password is required for wallet creation.");
+
+                using var password = new SecureString();
                 foreach (char c in input) password.AppendChar(c);
                 password.MakeReadOnly();
 
@@ -137,14 +138,14 @@ public class EthereumFileSystem : INinePFileSystem
                 // Format: password:privateKey
                 string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
                 var parts = input.Split(':', 2);
-                if (parts.Length != 2) throw new NinePProtocolException("Invalid format. Use 'password:privateKey'");
+                if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0])) 
+                    throw new NinePProtocolException("Invalid format or missing password. Use 'password:privateKey'");
 
                 using var password = new SecureString();
                 foreach (char c in parts[0]) password.AppendChar(c);
                 password.MakeReadOnly();
 
                 var pk = parts[1];
-                // Validate PK
                 try { new Account(pk); } catch { throw new NinePProtocolException("Invalid private key."); }
 
                 var ciphertext = _vault.Encrypt(pk, password);
@@ -157,8 +158,10 @@ public class EthereumFileSystem : INinePFileSystem
             }
             else if (_currentPath[1] == "unlock")
             {
-                using var password = new SecureString();
                 string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
+                if (string.IsNullOrWhiteSpace(input)) throw new NinePProtocolException("Password is required to unlock wallet.");
+
+                using var password = new SecureString();
                 foreach (char c in input) password.AppendChar(c);
                 password.MakeReadOnly();
 
@@ -181,7 +184,7 @@ public class EthereumFileSystem : INinePFileSystem
                         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                     }
                 }
-                return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                throw new NinePProtocolException("Wallet not found or invalid password.");
             }
         }
 

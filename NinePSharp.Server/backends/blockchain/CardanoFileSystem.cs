@@ -118,8 +118,10 @@ public class CardanoFileSystem : INinePFileSystem
         {
             if (_currentPath[1] == "create")
             {
-                using var password = new SecureString();
                 string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
+                if (string.IsNullOrWhiteSpace(input)) throw new NinePProtocolException("Password is required for wallet creation.");
+
+                using var password = new SecureString();
                 foreach (char c in input) password.AppendChar(c);
                 password.MakeReadOnly();
 
@@ -139,14 +141,14 @@ public class CardanoFileSystem : INinePFileSystem
                 // Format: password:mnemonicWords
                 string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
                 var parts = input.Split(':', 2);
-                if (parts.Length != 2) throw new NinePProtocolException("Invalid format. Use 'password:mnemonicWords'");
+                if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0])) 
+                    throw new NinePProtocolException("Invalid format or missing password. Use 'password:mnemonicWords'");
 
                 using var password = new SecureString();
                 foreach (char c in parts[0]) password.AppendChar(c);
                 password.MakeReadOnly();
 
                 var mnemonicWords = parts[1];
-                // Basic validation: check word count
                 var words = mnemonicWords.Split(' ');
                 if (words.Length != 12 && words.Length != 15 && words.Length != 24) throw new NinePProtocolException("Invalid mnemonic word count. Expected 12, 15, or 24.");
 
@@ -160,8 +162,10 @@ public class CardanoFileSystem : INinePFileSystem
             }
             else if (_currentPath[1] == "unlock")
             {
-                using var password = new SecureString();
                 string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
+                if (string.IsNullOrWhiteSpace(input)) throw new NinePProtocolException("Password is required to unlock wallet.");
+
+                using var password = new SecureString();
                 foreach (char c in input) password.AppendChar(c);
                 password.MakeReadOnly();
 
@@ -182,6 +186,7 @@ public class CardanoFileSystem : INinePFileSystem
                         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                     }
                 }
+                throw new NinePProtocolException("Wallet not found or invalid password.");
             }
         }
         

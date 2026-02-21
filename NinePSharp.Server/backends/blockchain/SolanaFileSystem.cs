@@ -123,8 +123,10 @@ public class SolanaFileSystem : INinePFileSystem
         {
             if (_currentPath[1] == "create")
             {
-                using var password = new SecureString();
                 string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
+                if (string.IsNullOrWhiteSpace(input)) throw new NinePProtocolException("Password is required for wallet creation.");
+
+                using var password = new SecureString();
                 foreach (char c in input) password.AppendChar(c);
                 password.MakeReadOnly();
 
@@ -144,7 +146,8 @@ public class SolanaFileSystem : INinePFileSystem
                 // Format: password:base58PrivKey
                 string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
                 var parts = input.Split(':', 2);
-                if (parts.Length != 2) throw new NinePProtocolException("Invalid format. Use 'password:base58PrivKey'");
+                if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0])) 
+                    throw new NinePProtocolException("Invalid format or missing password. Use 'password:base58PrivKey'");
 
                 using var password = new SecureString();
                 foreach (char c in parts[0]) password.AppendChar(c);
@@ -152,7 +155,7 @@ public class SolanaFileSystem : INinePFileSystem
 
                 var privKeyBase58 = parts[1];
                 try { 
-                    var account = new Account(privKeyBase58, ""); // Solnet.Wallet.Account(privateKey, publicKey)
+                    var account = new Account(privKeyBase58, ""); 
                     var ciphertext = _vault.Encrypt(account.PrivateKey.Key, password);
                     byte[] idSalt = Encoding.UTF8.GetBytes("Solana_Vault_ID_Salt_v1");
                     var seed = _vault.DeriveSeed(password, idSalt);
@@ -164,8 +167,10 @@ public class SolanaFileSystem : INinePFileSystem
             }
             else if (_currentPath[1] == "unlock")
             {
-                using var password = new SecureString();
                 string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
+                if (string.IsNullOrWhiteSpace(input)) throw new NinePProtocolException("Password is required to unlock wallet.");
+
+                using var password = new SecureString();
                 foreach (char c in input) password.AppendChar(c);
                 password.MakeReadOnly();
 
@@ -188,6 +193,7 @@ public class SolanaFileSystem : INinePFileSystem
                         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                     }
                 }
+                throw new NinePProtocolException("Wallet not found or invalid password.");
             }
         }
         

@@ -35,18 +35,35 @@ public class BlockchainSecurityTests
         var config = new EthereumBackendConfig { MountPath = "/eth", RpcUrl = "http://localhost" };
         var fs = new EthereumFileSystem(config, new Mock<Nethereum.Web3.IWeb3>().Object, _vault);
 
-        // 1. Walk to unlock node
-        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "wallets", "unlock" }));
-
-        // 2. We can't easily "prove" GC zeroing from outside without unsafe pointers, 
-        // but we can verify the code path uses the secure pipeline.
-        // This test ensures that writing a password doesn't throw and results in a valid Rwrite.
         var password = "super-secret-password";
+
+        // 1. Create a wallet first so it exists on disk
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "wallets", "create" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        // 2. Walk to unlock node
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "unlock" }));
+
+        // 3. Unlock it
         var twrite = new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password));
         var response = await fs.WriteAsync(twrite);
 
         Assert.IsType<Rwrite>(response);
         Assert.Equal((uint)twrite.Data.Length, ((Rwrite)response).Count);
+    }
+
+    [Fact]
+    public async Task Ethereum_Create_Requires_Password()
+    {
+        var config = new EthereumBackendConfig { MountPath = "/eth", RpcUrl = "http://localhost" };
+        var fs = new EthereumFileSystem(config, new Mock<Nethereum.Web3.IWeb3>().Object, _vault);
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "wallets", "create" }));
+
+        // Empty password
+        var twrite = new Twrite(1, 2, 0, Array.Empty<byte>());
+        
+        await Assert.ThrowsAsync<NinePProtocolException>(async () => await fs.WriteAsync(twrite));
     }
 
     [Fact]
@@ -103,10 +120,6 @@ public class BlockchainSecurityTests
         walkTask.Wait();
         var response = walkTask.Result;
 
-        // In a secure FS, a walk to an invalid/malicious path should either fail (Wqid.Length < paths.Length)
-        // or stay within the virtual root (never allowing actual host file access).
-        // Since we are mocking, we just check that the path state doesn't escape.
-        
         var statTask = fs.StatAsync(new Tstat(1, 1));
         statTask.Wait();
         

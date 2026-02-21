@@ -126,8 +126,10 @@ public class StellarFileSystem : INinePFileSystem
         {
             if (_currentPath[1] == "create")
             {
-                using var password = new SecureString();
                 string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
+                if (string.IsNullOrWhiteSpace(input)) throw new NinePProtocolException("Password is required for wallet creation.");
+
+                using var password = new SecureString();
                 foreach (char c in input) password.AppendChar(c);
                 password.MakeReadOnly();
 
@@ -146,7 +148,8 @@ public class StellarFileSystem : INinePFileSystem
                 // Format: password:secretSeed
                 string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
                 var parts = input.Split(':', 2);
-                if (parts.Length != 2) throw new NinePProtocolException("Invalid format. Use 'password:secretSeed'");
+                if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0])) 
+                    throw new NinePProtocolException("Invalid format or missing password. Use 'password:secretSeed'");
 
                 using var password = new SecureString();
                 foreach (char c in parts[0]) password.AppendChar(c);
@@ -165,8 +168,10 @@ public class StellarFileSystem : INinePFileSystem
             }
             else if (_currentPath[1] == "unlock")
             {
-                using var password = new SecureString();
                 string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
+                if (string.IsNullOrWhiteSpace(input)) throw new NinePProtocolException("Password is required to unlock wallet.");
+
+                using var password = new SecureString();
                 foreach (char c in input) password.AppendChar(c);
                 password.MakeReadOnly();
 
@@ -189,6 +194,7 @@ public class StellarFileSystem : INinePFileSystem
                         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                     }
                 }
+                throw new NinePProtocolException("Wallet not found or invalid password.");
             }
         }
         
