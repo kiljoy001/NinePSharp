@@ -1,0 +1,82 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="protocol/ProtocolHelpers.fs" />
+    <Compile Include="messages/Tversion.fs" />
+    <Compile Include="messages/Rversion.fs" />
+    <Compile Include="messages/Tauth.fs" />
+    <Compile Include="messages/Rauth.fs" />
+    <Compile Include="messages/Rerror.fs" />
+    <Compile Include="messages/Rlerror.fs" />
+    <Compile Include="messages/Tflush.fs" />
+    <Compile Include="messages/Rflush.fs" />
+    <Compile Include="messages/Tattach.fs" />
+    <Compile Include="messages/Rattach.fs" />
+    <Compile Include="messages/Twalk.fs" />
+    <Compile Include="messages/Rwalk.fs" />
+    <Compile Include="messages/Topen.fs" />
+    <Compile Include="messages/Ropen.fs" />
+    <Compile Include="messages/Tcreate.fs" />
+    <Compile Include="messages/Rcreate.fs" />
+    <Compile Include="messages/Tread.fs" />
+    <Compile Include="messages/Rread.fs" />
+    <Compile Include="messages/Twrite.fs" />
+    <Compile Include="messages/Rwrite.fs" />
+    <Compile Include="messages/Tclunk.fs" />
+    <Compile Include="messages/Rclunk.fs" />
+    <Compile Include="messages/Tremove.fs" />
+    <Compile Include="messages/Rremove.fs" />
+    <Compile Include="messages/Tstat.fs" />
+    <Compile Include="messages/Rstat.fs" />
+    <Compile Include="messages/Twstat.fs" />
+    <Compile Include="messages/Rwstat.fs" />
+    <Compile Include="messages/Tstatfs.fs" />
+    <Compile Include="messages/Rstatfs.fs" />
+    <Compile Include="messages/Tlopen.fs" />
+    <Compile Include="messages/Rlopen.fs" />
+    <Compile Include="messages/Tlcreate.fs" />
+    <Compile Include="messages/Rlcreate.fs" />
+    <Compile Include="messages/Tsymlink.fs" />
+    <Compile Include="messages/Rsymlink.fs" />
+    <Compile Include="messages/Tmknod.fs" />
+    <Compile Include="messages/Rmknod.fs" />
+    <Compile Include="messages/Trename.fs" />
+    <Compile Include="messages/Rrename.fs" />
+    <Compile Include="messages/Treadlink.fs" />
+    <Compile Include="messages/Rreadlink.fs" />
+    <Compile Include="messages/Tgetattr.fs" />
+    <Compile Include="messages/Rgetattr.fs" />
+    <Compile Include="messages/Tsetattr.fs" />
+    <Compile Include="messages/Rsetattr.fs" />
+    <Compile Include="messages/Txattrwalk.fs" />
+    <Compile Include="messages/Rxattrwalk.fs" />
+    <Compile Include="messages/Txattrcreate.fs" />
+    <Compile Include="messages/Rxattrcreate.fs" />
+    <Compile Include="messages/Treaddir.fs" />
+    <Compile Include="messages/Rreaddir.fs" />
+    <Compile Include="messages/Tfsync.fs" />
+    <Compile Include="messages/Rfsync.fs" />
+    <Compile Include="messages/Tlock.fs" />
+    <Compile Include="messages/Rlock.fs" />
+    <Compile Include="messages/Tgetlock.fs" />
+    <Compile Include="messages/Rgetlock.fs" />
+    <Compile Include="messages/Tlink.fs" />
+    <Compile Include="messages/Rlink.fs" />
+    <Compile Include="messages/Tmkdir.fs" />
+    <Compile Include="messages/Rmkdir.fs" />
+    <Compile Include="messages/Trenameat.fs" />
+    <Compile Include="messages/Rrenameat.fs" />
+    <Compile Include="messages/Tunlinkat.fs" />
+    <Compile Include="messages/Runlinkat.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
+  </ItemGroup>
+
+</Project>
