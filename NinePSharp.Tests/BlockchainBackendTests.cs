@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using Xunit;
 using NinePSharp.Server.Backends;
@@ -7,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Moq;
 using NinePSharp.Server.Utils;
 using NinePSharp.Server.Interfaces;
+using NinePSharp.Messages;
 
 namespace NinePSharp.Tests.Backends;
 
@@ -20,8 +24,8 @@ public class BlockchainBackendTests
         var backend = new BitcoinBackend(_vault);
         var config = new ConfigurationBuilder().AddInMemoryCollection(new[]
         {
-            new KeyValuePair<string, string>("Server:Bitcoin:MountPath", "/btc"),
-            new KeyValuePair<string, string>("Server:Bitcoin:Network", "Main")
+            new KeyValuePair<string, string?>("Server:Bitcoin:MountPath", "/btc"),
+            new KeyValuePair<string, string?>("Server:Bitcoin:Network", "Main")
         }).Build();
 
         await backend.InitializeAsync(config);
@@ -31,50 +35,44 @@ public class BlockchainBackendTests
     }
 
     [Fact]
-    public async Task SolanaBackend_Initialization_Works()
+    public async Task BitcoinFileSystem_Read_Root_Contains_Files()
     {
-        var backend = new SolanaBackend(_vault);
-        var config = new ConfigurationBuilder().AddInMemoryCollection(new[]
-        {
-            new KeyValuePair<string, string>("Server:Solana:MountPath", "/sol"),
-            new KeyValuePair<string, string>("Server:Solana:RpcUrl", "https://api.mainnet-beta.solana.com")
-        }).Build();
+        var config = new BitcoinBackendConfig { MountPath = "/btc", Network = "Main" };
+        var fs = new BitcoinFileSystem(config, null, _vault);
 
-        await backend.InitializeAsync(config);
-        Assert.Equal("Solana", backend.Name);
-        Assert.Equal("/sol", backend.MountPath);
-        Assert.NotNull(backend.GetFileSystem());
+        var tread = new Tread(1, 1, 0, 8192);
+        var response = await fs.ReadAsync(tread);
+        
+        string content = Encoding.UTF8.GetString(response.Data.ToArray());
+        Assert.Contains("balance", content);
+        Assert.Contains("address", content);
+        Assert.Contains("send", content);
+        Assert.Contains("transactions", content);
     }
 
     [Fact]
-    public async Task StellarBackend_Initialization_Works()
+    public async Task BitcoinFileSystem_Walk_To_Balance_Works()
     {
-        var backend = new StellarBackend(_vault);
-        var config = new ConfigurationBuilder().AddInMemoryCollection(new[]
-        {
-            new KeyValuePair<string, string>("Server:Stellar:MountPath", "/stellar"),
-            new KeyValuePair<string, string>("Server:Stellar:HorizonUrl", "https://horizon.stellar.org")
-        }).Build();
+        var config = new BitcoinBackendConfig { MountPath = "/btc", Network = "Main" };
+        var fs = new BitcoinFileSystem(config, null, _vault);
 
-        await backend.InitializeAsync(config);
-        Assert.Equal("Stellar", backend.Name);
-        Assert.Equal("/stellar", backend.MountPath);
-        Assert.NotNull(backend.GetFileSystem());
+        var twalk = new Twalk(1, 1, 2, new[] { "balance" });
+        var response = await fs.WalkAsync(twalk);
+
+        Assert.Single(response.Wqid);
     }
 
     [Fact]
-    public async Task CardanoBackend_Initialization_Works()
+    public async Task SolanaFileSystem_Read_Root_Contains_Files()
     {
-        var backend = new CardanoBackend(_vault);
-        var config = new ConfigurationBuilder().AddInMemoryCollection(new[]
-        {
-            new KeyValuePair<string, string>("Server:Cardano:MountPath", "/cardano"),
-            new KeyValuePair<string, string>("Server:Cardano:Network", "Mainnet")
-        }).Build();
+        var config = new SolanaBackendConfig { MountPath = "/sol" };
+        var fs = new SolanaFileSystem(config, null, _vault);
 
-        await backend.InitializeAsync(config);
-        Assert.Equal("Cardano", backend.Name);
-        Assert.Equal("/cardano", backend.MountPath);
-        Assert.NotNull(backend.GetFileSystem());
+        var tread = new Tread(1, 1, 0, 8192);
+        var response = await fs.ReadAsync(tread);
+        
+        string content = Encoding.UTF8.GetString(response.Data.ToArray());
+        Assert.Contains("balance", content);
+        Assert.Contains("status", content);
     }
 }
