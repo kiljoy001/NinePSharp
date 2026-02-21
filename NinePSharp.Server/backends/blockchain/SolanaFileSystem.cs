@@ -95,7 +95,7 @@ public class SolanaFileSystem : INinePFileSystem
         }
         else if (_currentPath[0] == "wallets")
         {
-            if (_currentPath.Count == 1) result = "create\nunlock\n";
+            if (_currentPath.Count == 1) result = "create\nimport\nunlock\n";
             else if (_currentPath.Count == 2 && _currentPath[1] == "unlock") result = _unlockedAddress != null ? $"Unlocked: {_unlockedAddress}\n" : "Locked\n";
         }
         else if (_currentPath.Count == 1)
@@ -131,7 +131,6 @@ public class SolanaFileSystem : INinePFileSystem
                 var wallet = new Wallet(new Mnemonic(WordList.English, WordCount.Twelve));
                 var account = wallet.GetAccount(0);
                 
-                // Solana Private Key is a byte array
                 var ciphertext = _vault.Encrypt(account.PrivateKey.Key, password);
                 byte[] idSalt = Encoding.UTF8.GetBytes("Solana_Vault_ID_Salt_v1");
                 var seed = _vault.DeriveSeed(password, idSalt);
@@ -139,6 +138,29 @@ public class SolanaFileSystem : INinePFileSystem
                 
                 File.WriteAllBytes($"sol_vault_{hiddenId}.vlt", ciphertext);
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+            }
+            else if (_currentPath[1] == "import")
+            {
+                // Format: password:base58PrivKey
+                string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
+                var parts = input.Split(':', 2);
+                if (parts.Length != 2) throw new NinePProtocolException("Invalid format. Use 'password:base58PrivKey'");
+
+                using var password = new SecureString();
+                foreach (char c in parts[0]) password.AppendChar(c);
+                password.MakeReadOnly();
+
+                var privKeyBase58 = parts[1];
+                try { 
+                    var account = new Account(privKeyBase58, ""); // Solnet.Wallet.Account(privateKey, publicKey)
+                    var ciphertext = _vault.Encrypt(account.PrivateKey.Key, password);
+                    byte[] idSalt = Encoding.UTF8.GetBytes("Solana_Vault_ID_Salt_v1");
+                    var seed = _vault.DeriveSeed(password, idSalt);
+                    var hiddenId = _vault.GenerateHiddenId(seed);
+                    
+                    File.WriteAllBytes($"sol_vault_{hiddenId}.vlt", ciphertext);
+                    return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                } catch { throw new NinePProtocolException("Invalid Solana private key."); }
             }
             else if (_currentPath[1] == "unlock")
             {
@@ -158,11 +180,10 @@ public class SolanaFileSystem : INinePFileSystem
                     var privKey = _vault.DecryptToBytes(encrypted, password);
                     if (privKey != null)
                     {
-                        // Wrap in hex for ProtectedSecret since it currently takes string
                         _protectedPrivateKey?.Dispose();
                         _protectedPrivateKey = new ProtectedSecret(Convert.ToHexString(privKey));
                         
-                        var account = new Account(privKey, Array.Empty<byte>()); // Account constructor from private key
+                        var account = new Account(privKey, Array.Empty<byte>());
                         _unlockedAddress = account.PublicKey;
                         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                     }
@@ -179,7 +200,10 @@ public class SolanaFileSystem : INinePFileSystem
     {
         var name = _currentPath.LastOrDefault() ?? "solana";
         bool isDir = IsDirectory(_currentPath);
-        uint mode = isDir ? (uint)NinePConstants.FileMode9P.DMDIR | 0x1ED : 0x124;
+        uint mode = 0644;
+        if (isDir) mode = (uint)NinePConstants.FileMode9P.DMDIR | 0x1ED;
+        else if (name == "import" || name == "create" || name == "unlock") mode = 0666;
+
         var stat = new Stat(0, 0, 0, GetQid(_currentPath), mode, 0, 0, 0, name, "scott", "scott", "scott");
         return new Rstat(tstat.Tag, stat);
     }

@@ -43,22 +43,38 @@ public class EthereumFileSystem : INinePFileSystem
         if (twalk.Wname.Length == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>());
 
         var qids = new List<Qid>();
+        var tempPath = new List<string>(_currentPath);
+
         foreach (var name in twalk.Wname)
         {
             if (name == "..")
             {
-                if (_currentPath.Count > 0) _currentPath.RemoveAt(_currentPath.Count - 1);
+                if (tempPath.Count > 0) tempPath.RemoveAt(tempPath.Count - 1);
             }
             else
             {
-                _currentPath.Add(name);
+                tempPath.Add(name);
             }
-            qids.Add(new Qid(QidType.QTDIR, 0, (ulong)name.GetHashCode()));
+            qids.Add(new Qid(IsDirectory(tempPath) ? QidType.QTDIR : QidType.QTFILE, 0, (ulong)name.GetHashCode()));
         }
+
+        if (qids.Count == twalk.Wname.Length)
+        {
+            _currentPath = tempPath;
+        }
+
         return new Rwalk(twalk.Tag, qids.ToArray());
     }
 
-    public async Task<Ropen> OpenAsync(Topen topen) => new Ropen(topen.Tag, new Qid(QidType.QTFILE, 0, 0), 0);
+    private bool IsDirectory(List<string> path)
+    {
+        if (path.Count == 0) return true;
+        if (path[0] == "wallets" && path.Count == 1) return true;
+        if (path[0] == "contracts" && (path.Count == 1 || path.Count == 2)) return true;
+        return false;
+    }
+
+    public async Task<Ropen> OpenAsync(Topen topen) => new Ropen(topen.Tag, new Qid(IsDirectory(_currentPath) ? QidType.QTDIR : QidType.QTFILE, 0, 0), 0);
 
     public async Task<Rread> ReadAsync(Tread tread)
     {
@@ -69,7 +85,7 @@ public class EthereumFileSystem : INinePFileSystem
         }
         else if (_currentPath[0] == "wallets")
         {
-            if (_currentPath.Count == 1) result = "create\nunlock\n";
+            if (_currentPath.Count == 1) result = "create\nimport\nunlock\n";
             else if (_currentPath.Count == 2 && _currentPath[1] == "unlock") result = _unlockedAccount != null ? $"Unlocked: {_unlockedAccount}\n" : "Locked\n";
         }
         else if (_currentPath[0] == "status")
@@ -109,6 +125,29 @@ public class EthereumFileSystem : INinePFileSystem
                 
                 var ciphertext = _vault.Encrypt(pk, password);
                 
+                byte[] idSalt = Encoding.UTF8.GetBytes("NinePSharp_Vault_ID_Salt_v1");
+                var seed = _vault.DeriveSeed(password, idSalt);
+                var hiddenId = _vault.GenerateHiddenId(seed);
+                
+                File.WriteAllBytes($"vault_{hiddenId}.vlt", ciphertext);
+                return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+            }
+            else if (_currentPath[1] == "import")
+            {
+                // Format: password:privateKey
+                string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
+                var parts = input.Split(':', 2);
+                if (parts.Length != 2) throw new NinePProtocolException("Invalid format. Use 'password:privateKey'");
+
+                using var password = new SecureString();
+                foreach (char c in parts[0]) password.AppendChar(c);
+                password.MakeReadOnly();
+
+                var pk = parts[1];
+                // Validate PK
+                try { new Account(pk); } catch { throw new NinePProtocolException("Invalid private key."); }
+
+                var ciphertext = _vault.Encrypt(pk, password);
                 byte[] idSalt = Encoding.UTF8.GetBytes("NinePSharp_Vault_ID_Salt_v1");
                 var seed = _vault.DeriveSeed(password, idSalt);
                 var hiddenId = _vault.GenerateHiddenId(seed);
@@ -185,7 +224,7 @@ public class EthereumFileSystem : INinePFileSystem
     public async Task<Rstat> StatAsync(Tstat tstat)
     {
         var name = _currentPath.LastOrDefault() ?? "eth";
-        var isDir = name != "status" && !name.EndsWith(".vlt"); // Simple heuristic
+        bool isDir = IsDirectory(_currentPath);
         var stat = new Stat(0, 0, 0, new Qid(isDir ? QidType.QTDIR : QidType.QTFILE, 0, 0), 0644 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0), 0, 0, 0, name, "scott", "scott", "scott");
         return new Rstat(tstat.Tag, stat);
     }

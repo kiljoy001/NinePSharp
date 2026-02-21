@@ -95,7 +95,7 @@ public class StellarFileSystem : INinePFileSystem
         }
         else if (_currentPath[0] == "wallets")
         {
-            if (_currentPath.Count == 1) result = "create\nunlock\n";
+            if (_currentPath.Count == 1) result = "create\nimport\nunlock\n";
             else if (_currentPath.Count == 2 && _currentPath[1] == "unlock") result = _unlockedAddress != null ? $"Unlocked: {_unlockedAddress}\n" : "Locked\n";
         }
         else if (_currentPath.Count == 1)
@@ -141,6 +141,28 @@ public class StellarFileSystem : INinePFileSystem
                 File.WriteAllBytes($"xlm_vault_{hiddenId}.vlt", ciphertext);
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
+            else if (_currentPath[1] == "import")
+            {
+                // Format: password:secretSeed
+                string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
+                var parts = input.Split(':', 2);
+                if (parts.Length != 2) throw new NinePProtocolException("Invalid format. Use 'password:secretSeed'");
+
+                using var password = new SecureString();
+                foreach (char c in parts[0]) password.AppendChar(c);
+                password.MakeReadOnly();
+
+                var secretSeed = parts[1];
+                try { KeyPair.FromSecretSeed(secretSeed); } catch { throw new NinePProtocolException("Invalid secret seed."); }
+
+                var ciphertext = _vault.Encrypt(secretSeed, password);
+                byte[] idSalt = Encoding.UTF8.GetBytes("Stellar_Vault_ID_Salt_v1");
+                var seed = _vault.DeriveSeed(password, idSalt);
+                var hiddenId = _vault.GenerateHiddenId(seed);
+                
+                File.WriteAllBytes($"xlm_vault_{hiddenId}.vlt", ciphertext);
+                return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+            }
             else if (_currentPath[1] == "unlock")
             {
                 using var password = new SecureString();
@@ -179,7 +201,10 @@ public class StellarFileSystem : INinePFileSystem
     {
         var name = _currentPath.LastOrDefault() ?? "stellar";
         bool isDir = IsDirectory(_currentPath);
-        uint mode = isDir ? (uint)NinePConstants.FileMode9P.DMDIR | 0x1ED : 0x124;
+        uint mode = 0644;
+        if (isDir) mode = (uint)NinePConstants.FileMode9P.DMDIR | 0x1ED;
+        else if (name == "import" || name == "create" || name == "unlock") mode = 0666;
+
         var stat = new Stat(0, 0, 0, GetQid(_currentPath), mode, 0, 0, 0, name, "scott", "scott", "scott");
         return new Rstat(tstat.Tag, stat);
     }
