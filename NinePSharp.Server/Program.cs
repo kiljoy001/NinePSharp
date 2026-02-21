@@ -54,13 +54,17 @@ public class Program
 
     public static async Task Main(string[] args)
     {
+        // 0. Cleanup vaults on startup
+        LuxVault.CleanupVaults();
+
         // 1. Generate 64-bit seed and wrap in SecureString
         using SecureString secureSeed = Generate64BitSecureSeed();
         
-        // 2. Derive the 256-bit session key for in-memory encryption
+        // 2. Derive the 256-bit session key
         byte[] sessionKey = DeriveSessionKeyFromSecureSeed(secureSeed);
         
-        // 3. Initialize the memory protection system
+        // 3. Initialize the global vault security with this transient key
+        LuxVault.InitializeSessionKey(sessionKey);
         ProtectedSecret.InitializeSessionKey(sessionKey);
 
         var host = Host.CreateDefaultBuilder(args)
@@ -108,9 +112,14 @@ public class Program
             })
             .Build();
 
-        // Securely wipe the temporary session key from the stack
         Array.Clear(sessionKey);
-
-        await host.RunAsync();
+        
+        try {
+            await host.RunAsync();
+        }
+        finally {
+            // Cleanup vaults on shutdown
+            LuxVault.CleanupVaults();
+        }
     }
 }

@@ -8,11 +8,37 @@ namespace NinePSharp.Server.Utils
 {
     public static class LuxVault
     {
+        public const string VaultDirectory = "vaults";
         private const int KeySize = 32;
+
+        public static string GetVaultPath(string filename)
+        {
+            if (!Directory.Exists(VaultDirectory)) Directory.CreateDirectory(VaultDirectory);
+            return Path.Combine(VaultDirectory, filename);
+        }
+
+        public static void CleanupVaults()
+        {
+            if (Directory.Exists(VaultDirectory))
+            {
+                try { Directory.Delete(VaultDirectory, true); } catch { /* Ignore */ }
+            }
+        }
+
         private const int NonceSize = 24; 
         private const int MacSize = 16;
         private const int SaltSize = 16;
         private const int Iterations = 600000;
+
+        // Session-bound key. If not set, operations will still work but won't be ephemeral.
+        private static byte[]? _sessionKey;
+
+        public static void InitializeSessionKey(ReadOnlySpan<byte> sessionKey)
+        {
+            if (_sessionKey != null) return;
+            _sessionKey = GC.AllocateArray<byte>(sessionKey.Length, pinned: true);
+            sessionKey.CopyTo(_sessionKey);
+        }
 
         public static string GenerateHiddenId(byte[] seed)
         {
@@ -30,31 +56,22 @@ namespace NinePSharp.Server.Utils
             }
         }
 
-        private static unsafe T WithSecureString<T>(SecureString secureString, Func<byte[], T> action)
+        private static T WithSecureString<T>(SecureString secureString, Func<byte[], T> action)
         {
             IntPtr ptr = Marshal.SecureStringToGlobalAllocUnicode(secureString);
             try
             {
-                int length = secureString.Length;
-                char* chars = (char*)ptr.ToPointer();
-                
-                // Get byte count for UTF-8 conversion
-                int byteCount = Encoding.UTF8.GetByteCount(chars, length);
-                
-                // Allocate pinned byte array to avoid GC moves
-                byte[] bytes = GC.AllocateArray<byte>(byteCount, pinned: true);
-                fixed (byte* pBytes = bytes)
-                {
-                    Encoding.UTF8.GetBytes(chars, length, pBytes, byteCount);
-                }
-
-                try
-                {
-                    return action(bytes);
-                }
-                finally
-                {
-                    Array.Clear(bytes);
+                unsafe {
+                    int length = secureString.Length;
+                    char* chars = (char*)ptr.ToPointer();
+                    int byteCount = Encoding.UTF8.GetByteCount(chars, length);
+                    byte[] bytes = GC.AllocateArray<byte>(byteCount, pinned: true);
+                    fixed (byte* pBytes = bytes)
+                    {
+                        Encoding.UTF8.GetBytes(chars, length, pBytes, byteCount);
+                    }
+                    try { return action(bytes); }
+                    finally { Array.Clear(bytes); }
                 }
             }
             finally
@@ -63,27 +80,49 @@ namespace NinePSharp.Server.Utils
             }
         }
 
+        private static byte[] MixSessionKey(byte[] input)
+        {
+            if (_sessionKey == null) return input;
+            
+            // HMAC or Blake2b mix: input + sessionKey
+            byte[] mixed = new byte[32];
+            byte[] buffer = new byte[input.Length + _sessionKey.Length];
+            Buffer.BlockCopy(input, 0, buffer, 0, input.Length);
+            Buffer.BlockCopy(_sessionKey, 0, buffer, input.Length, _sessionKey.Length);
+            
+            MonocypherNative.crypto_blake2b(mixed, (nuint)mixed.Length, buffer, (nuint)buffer.Length);
+            Array.Clear(buffer);
+            return mixed;
+        }
+
         public static byte[] DeriveSeed(string password, byte[] nonce)
         {
             if (password == null) throw new ArgumentNullException(nameof(password));
-            return Rfc2898DeriveBytes.Pbkdf2(password, nonce, Iterations, HashAlgorithmName.SHA256, KeySize);
+            var rawSeed = Rfc2898DeriveBytes.Pbkdf2(password, nonce, Iterations, HashAlgorithmName.SHA256, KeySize);
+            // Mix with session key to ensure ephemeral behavior
+            var mixed = MixSessionKey(rawSeed);
+            Array.Clear(rawSeed);
+            return mixed;
         }
 
         public static byte[] DeriveSeed(SecureString password, byte[] nonce)
         {
             return WithSecureString(password, bytes => {
-                // Unfortunately Pbkdf2 still requires a string password in many .NET versions.
-                // We minimize exposure by converting the UTF8 bytes back to a string 
-                // ONLY within this ephemeral block.
-                return Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetString(bytes), nonce, Iterations, HashAlgorithmName.SHA256, KeySize);
+                var rawSeed = Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetString(bytes), nonce, Iterations, HashAlgorithmName.SHA256, KeySize);
+                var mixed = MixSessionKey(rawSeed);
+                Array.Clear(rawSeed);
+                return mixed;
             });
         }
 
         private static void DeriveKeyFromPassword(string password, ReadOnlySpan<byte> salt, byte[] outKey)
         {
             var key = Rfc2898DeriveBytes.Pbkdf2(password, salt.ToArray(), Iterations, HashAlgorithmName.SHA256, KeySize);
-            key.CopyTo(outKey, 0);
+            // Mix with session key
+            var mixed = MixSessionKey(key);
+            mixed.CopyTo(outKey, 0);
             Array.Clear(key);
+            Array.Clear(mixed);
         }
 
         private static void DeriveKeyFromSecureString(SecureString password, ReadOnlySpan<byte> salt, byte[] outKey)
@@ -100,8 +139,16 @@ namespace NinePSharp.Server.Utils
             byte[] mixed = new byte[keyMaterial.Length + salt.Length];
             keyMaterial.CopyTo(mixed);
             salt.CopyTo(mixed.AsSpan(keyMaterial.Length));
-            MonocypherNative.crypto_blake2b(outKey, (nuint)outKey.Length, mixed, (nuint)mixed.Length);
+            
+            byte[] rawKey = new byte[32];
+            MonocypherNative.crypto_blake2b(rawKey, (nuint)rawKey.Length, mixed, (nuint)mixed.Length);
+            
+            var finalKey = MixSessionKey(rawKey);
+            finalKey.CopyTo(outKey, 0);
+            
             Array.Clear(mixed);
+            Array.Clear(rawKey);
+            Array.Clear(finalKey);
         }
 
         public static byte[] Encrypt(byte[] plaintextBytes, string password)
@@ -225,7 +272,6 @@ namespace NinePSharp.Server.Utils
                 byte[] ciphertext = new byte[payload.Length - (SaltSize + NonceSize + MacSize)];
                 payload.AsSpan(SaltSize + NonceSize + MacSize).CopyTo(ciphertext);
 
-                // Use pinned array for cleartext output
                 byte[] plaintextBytes = GC.AllocateArray<byte>(ciphertext.Length, pinned: true);
                 int result = MonocypherNative.crypto_aead_unlock(plaintextBytes, mac, key, nonce, null, 0, ciphertext, (nuint)ciphertext.Length);
                 
@@ -245,36 +291,24 @@ namespace NinePSharp.Server.Utils
         {
             var bytes = DecryptToBytes(payload, password);
             if (bytes == null) return null;
-            try {
-                return Encoding.UTF8.GetString(bytes);
-            }
-            finally {
-                Array.Clear(bytes);
-            }
+            try { return Encoding.UTF8.GetString(bytes); }
+            finally { Array.Clear(bytes); }
         }
 
         public static string? Decrypt(byte[] payload, SecureString password)
         {
             var bytes = DecryptToBytes(payload, password);
             if (bytes == null) return null;
-            try {
-                return Encoding.UTF8.GetString(bytes);
-            }
-            finally {
-                Array.Clear(bytes);
-            }
+            try { return Encoding.UTF8.GetString(bytes); }
+            finally { Array.Clear(bytes); }
         }
 
         public static string? Decrypt(byte[] payload, ReadOnlySpan<byte> keyMaterial)
         {
             var bytes = DecryptToBytes(payload, keyMaterial);
             if (bytes == null) return null;
-            try {
-                return Encoding.UTF8.GetString(bytes);
-            }
-            finally {
-                Array.Clear(bytes);
-            }
+            try { return Encoding.UTF8.GetString(bytes); }
+            finally { Array.Clear(bytes); }
         }
 
         public static string ProtectConfig(string plainText, ReadOnlySpan<byte> masterKey)

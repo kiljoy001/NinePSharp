@@ -57,12 +57,6 @@ public class CardanoFileSystem : INinePFileSystem
 
         foreach (var name in twalk.Wname)
         {
-            if (!IsDirectory(tempPath))
-            {
-                if (qids.Count == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>());
-                break;
-            }
-
             if (name == "..")
             {
                 if (tempPath.Count > 0) tempPath.RemoveAt(tempPath.Count - 1);
@@ -71,7 +65,7 @@ public class CardanoFileSystem : INinePFileSystem
             {
                 tempPath.Add(name);
             }
-            qids.Add(GetQid(tempPath));
+            qids.Add(new Qid(IsDirectory(tempPath) ? QidType.QTDIR : QidType.QTFILE, 0, (ulong)name.GetHashCode()));
         }
 
         if (qids.Count == twalk.Wname.Length)
@@ -126,14 +120,14 @@ public class CardanoFileSystem : INinePFileSystem
                 password.MakeReadOnly();
 
                 var mnemonicService = new MnemonicService();
-                var mnemonic = mnemonicService.Generate(24); // 24-word mnemonic
+                var mnemonic = mnemonicService.Generate(24); 
                 
                 var ciphertext = _vault.Encrypt(mnemonic.Words, password);
                 byte[] idSalt = Encoding.UTF8.GetBytes("Cardano_Vault_ID_Salt_v1");
                 var seed = _vault.DeriveSeed(password, idSalt);
                 var hiddenId = _vault.GenerateHiddenId(seed);
                 
-                File.WriteAllBytes($"ada_vault_{hiddenId}.vlt", ciphertext);
+                File.WriteAllBytes(LuxVault.GetVaultPath($"ada_vault_{hiddenId}.vlt"), ciphertext);
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
             else if (_currentPath[1] == "import")
@@ -157,7 +151,7 @@ public class CardanoFileSystem : INinePFileSystem
                 var seed = _vault.DeriveSeed(password, idSalt);
                 var hiddenId = _vault.GenerateHiddenId(seed);
                 
-                File.WriteAllBytes($"ada_vault_{hiddenId}.vlt", ciphertext);
+                File.WriteAllBytes(LuxVault.GetVaultPath($"ada_vault_{hiddenId}.vlt"), ciphertext);
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
             else if (_currentPath[1] == "unlock")
@@ -172,7 +166,7 @@ public class CardanoFileSystem : INinePFileSystem
                 byte[] idSalt = Encoding.UTF8.GetBytes("Cardano_Vault_ID_Salt_v1");
                 var seed = _vault.DeriveSeed(password, idSalt);
                 var hiddenId = _vault.GenerateHiddenId(seed);
-                var vaultFile = $"ada_vault_{hiddenId}.vlt";
+                var vaultFile = LuxVault.GetVaultPath($"ada_vault_{hiddenId}.vlt");
 
                 if (File.Exists(vaultFile))
                 {

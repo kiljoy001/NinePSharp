@@ -130,7 +130,7 @@ public class EthereumFileSystem : INinePFileSystem
                 var seed = _vault.DeriveSeed(password, idSalt);
                 var hiddenId = _vault.GenerateHiddenId(seed);
                 
-                File.WriteAllBytes($"vault_{hiddenId}.vlt", ciphertext);
+                File.WriteAllBytes(LuxVault.GetVaultPath($"vault_{hiddenId}.vlt"), ciphertext);
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
             else if (_currentPath[1] == "import")
@@ -153,7 +153,7 @@ public class EthereumFileSystem : INinePFileSystem
                 var seed = _vault.DeriveSeed(password, idSalt);
                 var hiddenId = _vault.GenerateHiddenId(seed);
                 
-                File.WriteAllBytes($"vault_{hiddenId}.vlt", ciphertext);
+                File.WriteAllBytes(LuxVault.GetVaultPath($"vault_{hiddenId}.vlt"), ciphertext);
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
             else if (_currentPath[1] == "unlock")
@@ -168,7 +168,7 @@ public class EthereumFileSystem : INinePFileSystem
                 byte[] idSalt = Encoding.UTF8.GetBytes("NinePSharp_Vault_ID_Salt_v1");
                 var seed = _vault.DeriveSeed(password, idSalt);
                 var hiddenId = _vault.GenerateHiddenId(seed);
-                var vaultFile = $"vault_{hiddenId}.vlt";
+                var vaultFile = LuxVault.GetVaultPath($"vault_{hiddenId}.vlt");
 
                 if (File.Exists(vaultFile))
                 {

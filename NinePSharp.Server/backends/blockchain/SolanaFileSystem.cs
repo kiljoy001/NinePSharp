@@ -73,7 +73,7 @@ public class SolanaFileSystem : INinePFileSystem
             {
                 tempPath.Add(name);
             }
-            qids.Add(GetQid(tempPath));
+            qids.Add(new Qid(IsDirectory(tempPath) ? QidType.QTDIR : QidType.QTFILE, 0, (ulong)name.GetHashCode()));
         }
 
         if (qids.Count == twalk.Wname.Length)
@@ -138,7 +138,7 @@ public class SolanaFileSystem : INinePFileSystem
                 var seed = _vault.DeriveSeed(password, idSalt);
                 var hiddenId = _vault.GenerateHiddenId(seed);
                 
-                File.WriteAllBytes($"sol_vault_{hiddenId}.vlt", ciphertext);
+                File.WriteAllBytes(LuxVault.GetVaultPath($"sol_vault_{hiddenId}.vlt"), ciphertext);
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
             else if (_currentPath[1] == "import")
@@ -161,7 +161,7 @@ public class SolanaFileSystem : INinePFileSystem
                     var seed = _vault.DeriveSeed(password, idSalt);
                     var hiddenId = _vault.GenerateHiddenId(seed);
                     
-                    File.WriteAllBytes($"sol_vault_{hiddenId}.vlt", ciphertext);
+                    File.WriteAllBytes(LuxVault.GetVaultPath($"sol_vault_{hiddenId}.vlt"), ciphertext);
                     return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                 } catch { throw new NinePProtocolException("Invalid Solana private key."); }
             }
@@ -177,7 +177,7 @@ public class SolanaFileSystem : INinePFileSystem
                 byte[] idSalt = Encoding.UTF8.GetBytes("Solana_Vault_ID_Salt_v1");
                 var seed = _vault.DeriveSeed(password, idSalt);
                 var hiddenId = _vault.GenerateHiddenId(seed);
-                var vaultFile = $"sol_vault_{hiddenId}.vlt";
+                var vaultFile = LuxVault.GetVaultPath($"sol_vault_{hiddenId}.vlt");
 
                 if (File.Exists(vaultFile))
                 {
