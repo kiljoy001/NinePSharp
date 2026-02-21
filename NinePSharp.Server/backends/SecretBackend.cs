@@ -116,7 +116,7 @@ public class SecretFileSystem : INinePFileSystem
                     var name = parts[1];
                     var payload = Encoding.UTF8.GetBytes(parts[2]);
                     
-                    var encrypted = _vault.Encrypt(payload, password);
+                    var encrypted = _vault.EncryptInvisible(payload, password);
                     
                     // Generate hidden ID deterministically from password and name
                     var seed = _vault.DeriveSeed(password, Encoding.UTF8.GetBytes(name));
@@ -143,7 +143,7 @@ public class SecretFileSystem : INinePFileSystem
                     if (File.Exists(vaultFile))
                     {
                         var data = File.ReadAllBytes(vaultFile);
-                        var decrypted = _vault.DecryptToBytes(data, password);
+                        var decrypted = _vault.DecryptInvisible(data, password);
                         if (decrypted != null) _decryptedSecrets[name] = decrypted;
                     }
                 }
@@ -156,7 +156,7 @@ public class SecretFileSystem : INinePFileSystem
                         try
                         {
                             var data = File.ReadAllBytes(vaultFile);
-                            var decrypted = _vault.DecryptToBytes(data, password);
+                            var decrypted = _vault.DecryptInvisible(data, password);
                             if (decrypted != null)
                             {
                                 var id = Path.GetFileNameWithoutExtension(vaultFile).Replace("secret_", "");

@@ -23,6 +23,7 @@ public class EthereumFileSystem : INinePFileSystem
     private List<string> _currentPath = new();
     private string? _unlockedAccount;
     private string? _privateKey;
+    private Dictionary<string, string> _trackedTxs = new(); // txHash -> status
 
     public EthereumFileSystem(EthereumBackendConfig config, IWeb3 web3, ILuxVaultService vault)
     {
@@ -61,6 +62,7 @@ public class EthereumFileSystem : INinePFileSystem
             if (path.Count == 3 && (path[2] == "call" || path[2] == "transact")) return true;
         }
         if (path[0] == "wallets" && path.Count == 1) return true;
+        if (path[0] == "tx" && (path.Count == 1 || path.Count == 2)) return true;
         return false;
     }
 
@@ -70,6 +72,12 @@ public class EthereumFileSystem : INinePFileSystem
         var pathStr = string.Join("/", _currentPath);
         ulong hash = (ulong)pathStr.GetHashCode();
         
+        // Encode Wave 6 for wallets/unlock to signal it's handled via Invisible Lock
+        if (_currentPath.Count > 0 && _currentPath[0] == "wallets")
+        {
+            hash = HolographicUtils.EncodeWave(hash, HolographicUtils.WAVE_6_INVISIBLE_LOCK);
+        }
+
         return new Qid(type, 0, hash);
     }
 
@@ -110,6 +118,35 @@ public class EthereumFileSystem : INinePFileSystem
                 result = _unlockedAccount != null 
                     ? $"Unlocked: {_unlockedAccount}\n" 
                     : "No wallet unlocked for this session.\n";
+            }
+        }
+        else if (_currentPath[0] == "tx")
+        {
+            if (_currentPath.Count == 1)
+            {
+                result = string.Join("\n", _trackedTxs.Keys) + "\n";
+            }
+            else if (_currentPath.Count == 2)
+            {
+                var txHash = _currentPath[1];
+                if (_trackedTxs.TryGetValue(txHash, out var status))
+                {
+                    result = $"Status: {status}\n";
+                    // Attempt to update status if it's pending
+                    if (status == "Pending")
+                    {
+                        var receipt = await _web3.Eth.Transactions.GetTransactionReceipt.SendRequestAsync(txHash);
+                        if (receipt != null)
+                        {
+                            _trackedTxs[txHash] = receipt.Status.Value == 1 ? "Success" : "Failed";
+                            result = $"Status: {_trackedTxs[txHash]}\n";
+                        }
+                    }
+                }
+                else
+                {
+                    result = "Transaction not tracked or invalid.\n";
+                }
             }
         }
         else if (_currentPath[0] == "contracts")
@@ -166,11 +203,10 @@ public class EthereumFileSystem : INinePFileSystem
                 var ecKey = Nethereum.Signer.EthECKey.GenerateKey();
                 var pk = ecKey.GetPrivateKey();
                 
-                // 1. Encrypt with AES
-                var ciphertext = _vault.Encrypt(pk, password);
+                // 1. Encrypt with Invisible Lock (Elligator)
+                var ciphertext = _vault.EncryptInvisible(Encoding.UTF8.GetBytes(pk), password);
                 
                 // 2. Derive Hidden ID (Secret Pointer)
-                // Using a constant salt for the ID derivation so it's deterministic per password
                 byte[] idSalt = Encoding.UTF8.GetBytes("NinePSharp_Vault_ID_Salt_v1");
                 var seed = _vault.DeriveSeed(password, idSalt);
                 var hiddenId = _vault.GenerateHiddenId(seed);
@@ -195,11 +231,11 @@ public class EthereumFileSystem : INinePFileSystem
                     try
                     {
                         var payload = File.ReadAllBytes(vaultFile);
-                        var recoveredPk = _vault.Decrypt(payload, password);
+                        var recoveredPkBytes = _vault.DecryptInvisible(payload, password);
                         
-                        if (!string.IsNullOrEmpty(recoveredPk))
+                        if (recoveredPkBytes != null)
                         {
-                            _privateKey = recoveredPk;
+                            _privateKey = Encoding.UTF8.GetString(recoveredPkBytes);
                             var account = new Nethereum.Web3.Accounts.Account(_privateKey);
                             _unlockedAccount = account.Address;
                             _web3 = new Nethereum.Web3.Web3(account, _config.RpcUrl);
@@ -233,6 +269,7 @@ public class EthereumFileSystem : INinePFileSystem
                     var contract = web3WithAccount.Eth.GetContract(ERC20_ABI.Replace('\'', '\"'), contractAddr);
                     var function = contract.GetFunction("transfer");
                     var txHash = await function.SendTransactionAsync(account.Address, to, amount);
+                    _trackedTxs[txHash] = "Pending";
                     return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                 }
             }

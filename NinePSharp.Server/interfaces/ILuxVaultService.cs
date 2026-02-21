@@ -14,6 +14,10 @@ public interface ILuxVaultService
     byte[]? DecryptToBytes(byte[] payload, string password);
     string? Decrypt(byte[] payload, string password);
 
+    // Invisible Lock (Deniable Encryption)
+    byte[] EncryptInvisible(byte[] plaintext, string password);
+    byte[]? DecryptInvisible(byte[] payload, string password);
+
     // Config Protection (Master Key)
     string ProtectConfig(string secret, string masterKey);
     string? UnprotectConfig(string protectedSecret, string masterKey);

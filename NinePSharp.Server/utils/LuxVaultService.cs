@@ -19,6 +19,10 @@ namespace NinePSharp.Server.Utils
 
         public string? Decrypt(byte[] payload, string password) => LuxVault.Decrypt(payload, password);
 
+        public byte[] EncryptInvisible(byte[] plaintext, string password) => LuxVault.EncryptInvisible(plaintext, password);
+
+        public byte[]? DecryptInvisible(byte[] payload, string password) => LuxVault.DecryptInvisible(payload, password);
+
         public string ProtectConfig(string plainText, string masterKey) => LuxVault.ProtectConfig(plainText, masterKey);
 
         public string? UnprotectConfig(string secretUri, string masterKey) => LuxVault.UnprotectConfig(secretUri, masterKey);
