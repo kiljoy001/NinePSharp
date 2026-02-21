@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Security;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
@@ -30,21 +31,33 @@ public class MqttBackend : IProtocolBackend
 
     public INinePFileSystem GetFileSystem() => GetFileSystem(null);
 
+    private string? SecureStringToString(SecureString? ss)
+    {
+        if (ss == null) return null;
+        IntPtr ptr = Marshal.SecureStringToGlobalAllocUnicode(ss);
+        try { return Marshal.PtrToStringUni(ptr); }
+        finally { Marshal.ZeroFreeGlobalAllocUnicode(ptr); }
+    }
+
     public INinePFileSystem GetFileSystem(SecureString? credentials)
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
         
-        // In a real implementation, we would create a transport instance (e.g. MQTTnet)
-        // For the prototype, we assume a stub transport
-        var transport = new MqttStubTransport();
+        var transport = new MqttTransport();
+        
+        string? user = null;
+        string? pass = null;
+        string? credsStr = SecureStringToString(credentials);
+        if (credsStr != null)
+        {
+            var parts = credsStr.Split(':', 2);
+            user = parts[0];
+            pass = parts.Length > 1 ? parts[1] : "";
+        }
+
+        // Connect asynchronously (could be optimized to happen lazily)
+        _ = transport.ConnectAsync(_config.BrokerUrl, _config.ClientId, user, pass);
+
         return new MqttFileSystem(_config, transport, _vault);
     }
-}
-
-// Stub implementation for compilation
-public class MqttStubTransport : IMqttTransport
-{
-    public Task ConnectAsync(string brokerUrl, string clientId, string? user, string? password) => Task.CompletedTask;
-    public Task PublishAsync(string topic, byte[] payload) => Task.CompletedTask;
-    public Task SubscribeAsync(string topic) => Task.CompletedTask;
 }

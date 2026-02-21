@@ -34,14 +34,9 @@ public class WebsocketBackend : IProtocolBackend
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
         
-        var transport = new WebsocketStubTransport();
+        var transport = new WebsocketTransport();
+        _ = transport.ConnectAsync(_config.Url);
+
         return new WebsocketFileSystem(_config, transport, _vault);
     }
-}
-
-public class WebsocketStubTransport : IWebsocketTransport
-{
-    public Task ConnectAsync(string url) => Task.CompletedTask;
-    public Task SendAsync(byte[] payload) => Task.CompletedTask;
-    public Task<byte[]> ReceiveAsync() => Task.FromResult(Array.Empty<byte>());
 }

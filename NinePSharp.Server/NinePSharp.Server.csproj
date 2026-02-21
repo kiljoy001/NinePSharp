@@ -26,13 +26,19 @@
   <ItemGroup>
     <PackageReference Include="CardanoSharp.Wallet" Version="5.1.0" />
     <PackageReference Include="EdjCase.JsonRpc.Client" Version="6.1.0" />
+    <PackageReference Include="Google.Protobuf" Version="3.33.5" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.76.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.3" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.3" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.3" />
+    <PackageReference Include="MQTTnet" Version="5.1.0.1559" />
     <PackageReference Include="NBitcoin" Version="9.0.5" />
     <PackageReference Include="Nethereum.Web3" Version="4.27.1" />
     <PackageReference Include="Solnet.Rpc" Version="6.1.0" />
     <PackageReference Include="Solnet.Wallet" Version="6.1.0" />
     <PackageReference Include="stellar-dotnet-sdk" Version="14.0.1" />
+    <PackageReference Include="System.ServiceModel.Http" Version="10.0.652802" />
+    <PackageReference Include="System.ServiceModel.Primitives" Version="10.0.652802" />
+    <PackageReference Include="Websocket.Client" Version="5.3.0" />
   </ItemGroup>
 </Project>

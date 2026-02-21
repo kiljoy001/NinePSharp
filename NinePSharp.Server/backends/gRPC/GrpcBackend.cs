@@ -34,13 +34,9 @@ public class GrpcBackend : IProtocolBackend
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
         
-        var transport = new GrpcStubTransport();
+        var transport = new GrpcTransport();
+        _ = transport.ConnectAsync(_config.Host, _config.Port);
+
         return new GrpcFileSystem(_config, transport, _vault);
     }
-}
-
-public class GrpcStubTransport : IGrpcTransport
-{
-    public Task ConnectAsync(string host, int port) => Task.CompletedTask;
-    public Task<byte[]> CallAsync(string service, string method, byte[] payload) => Task.FromResult(Array.Empty<byte>());
 }

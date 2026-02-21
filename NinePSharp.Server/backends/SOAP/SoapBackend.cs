@@ -34,13 +34,9 @@ public class SoapBackend : IProtocolBackend
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
         
-        var transport = new SoapStubTransport();
+        var transport = new SoapTransport();
+        _ = transport.ConnectAsync(_config.WsdlUrl);
+
         return new SoapFileSystem(_config, transport, _vault);
     }
-}
-
-public class SoapStubTransport : ISoapTransport
-{
-    public Task ConnectAsync(string wsdlUrl) => Task.CompletedTask;
-    public Task<string> CallActionAsync(string action, string xmlPayload) => Task.FromResult("<stub/>");
 }
