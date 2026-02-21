@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Http.Headers;
+using System.Security;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -12,20 +13,19 @@ namespace NinePSharp.Server.Backends.JsonRpc;
 
 /// <summary>
 /// General-purpose JSON-RPC 2.0 transport backed by EdjCase.JsonRpc.Client.
-/// Works with any HTTP JSON-RPC server — not specific to any domain or technology.
 /// </summary>
 public class JsonRpcTransport : IJsonRpcTransport
 {
     private readonly RpcClient _client;
     private static int _idCounter;
 
-    public JsonRpcTransport(string url, string user, string password)
+    public JsonRpcTransport(string url, string user, string? password)
     {
         var builder = RpcClient.Builder(new Uri(url));
 
         if (!string.IsNullOrEmpty(user))
         {
-            var encoded = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{user}:{password}"));
+            var encoded = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{user}:{password ?? ""}"));
             builder = builder.UsingAuthHeader(new AuthenticationHeaderValue("Basic", encoded));
         }
 
@@ -34,9 +34,8 @@ public class JsonRpcTransport : IJsonRpcTransport
 
     /// <summary>
     /// Call a JSON-RPC method and return the raw result as a <see cref="JsonNode"/>.
-    /// Throws <see cref="InvalidOperationException"/> if the server returns an error.
     /// </summary>
-    public async Task<JsonNode?> CallAsync(string method, object?[]? args = null) // implements IJsonRpcTransport
+    public async Task<JsonNode?> CallAsync(string method, object?[]? args = null)
     {
         var id = new RpcId(Interlocked.Increment(ref _idCounter));
 
