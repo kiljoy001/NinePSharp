@@ -1,0 +1,42 @@
+{
+                    "Server": {
+                                        "Endpoints": [
+                                                            {
+                                                                                "Address": "0.0.0.0",
+                                                                                "Port": 5641,
+                                                                                "Protocol": "tcp"
+                                                            }
+                                        ],
+                                        "Mock": {
+                                                            "MountPath": "/mock-service"
+                                        },
+                                        "Database": {
+                                                            "MountPath": "/inventory",
+                                                            "ConnectionString": "Data Source=inventory.db",
+                                                            "ProviderName": "Microsoft.Data.Sqlite"
+                                        },
+                                        "Ethereum": {
+                                                            "MountPath": "/eth",
+                                                            "RpcUrl": "https://cloudflare-eth.com",
+                                                            "DefaultAccount": "0x0000000000000000000000000000000000000000"
+                                        },
+                                        "Bitcoin": {
+                                                            "MountPath": "/btc",
+                                                            "Network": "Main",
+                                                            "RpcUrl": "http://127.0.0.1:8332"
+                                        },
+                                        "Solana": {
+                                                            "MountPath": "/sol",
+                                                            "RpcUrl": "https://api.mainnet-beta.solana.com"
+                                        },
+                                        "Stellar": {
+                                                            "MountPath": "/stellar",
+                                                            "HorizonUrl": "https://horizon.stellar.org",
+                                                            "UsePublicNetwork": true
+                                        },
+                                        "Cardano": {
+                                                            "MountPath": "/cardano",
+                                                            "Network": "Mainnet"
+                                        }
+                    }
+}
