@@ -17,23 +17,25 @@ public readonly struct Twrite : ISerializable
     public uint Count { get; }
     public ReadOnlyMemory<byte> Data { get; }
 
-    public Twrite(ReadOnlySpan<byte> data)
+    public Twrite(ReadOnlyMemory<byte> data)
     {
-        Size = BinaryPrimitives.ReadUInt32LittleEndian(data[..4]);
-        Tag = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(5, 2));
+        var span = data.Span;
+        Size = BinaryPrimitives.ReadUInt32LittleEndian(span[..4]);
+        Tag = BinaryPrimitives.ReadUInt16LittleEndian(span.Slice(5, 2));
 
         int offset = NinePConstants.HeaderSize;
 
-        Fid = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
+        Fid = BinaryPrimitives.ReadUInt32LittleEndian(span.Slice(offset, 4));
         offset += 4;
 
-        Offset = BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(offset, 8));
+        Offset = BinaryPrimitives.ReadUInt64LittleEndian(span.Slice(offset, 8));
         offset += 8;
 
-        Count = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
+        Count = BinaryPrimitives.ReadUInt32LittleEndian(span.Slice(offset, 4));
         offset += 4;
 
-        Data = data.Slice(offset, (int)Count).ToArray();
+        // Zero-copy: Reference the existing memory slice
+        Data = data.Slice(offset, (int)Count);
     }
     
     public Twrite(uint size, ushort tag, uint fid, ulong offset, uint count, ReadOnlyMemory<byte> data)
@@ -46,7 +48,7 @@ public readonly struct Twrite : ISerializable
         Data = data;
     }
 
-    public Twrite(ushort tag, uint fid, ulong offset, byte[] data)
+    public Twrite(ushort tag, uint fid, ulong offset, ReadOnlyMemory<byte> data)
     {
         Tag = tag;
         Fid = fid;

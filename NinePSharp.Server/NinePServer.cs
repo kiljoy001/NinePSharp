@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Net;
@@ -26,6 +27,9 @@ public class NinePServer : BackgroundService
     private readonly IConfiguration _configuration;
     private readonly NinePFSDispatcher _dispatcher;
 
+    private const uint DefaultMSize = 8192;
+    private const uint MaxAllowedMSize = 1024 * 1024 * 64; // 64MB hard limit
+
     public NinePServer(
         ILogger<NinePServer> logger, 
         IOptions<ServerConfig> config, 
@@ -47,8 +51,6 @@ public class NinePServer : BackgroundService
         {
             try
             {
-                // Find the configuration section for this backend
-                // This assumes the backend name matches the section name in config.json
                 var section = _configuration.GetSection($"Server:{backend.Name}");
                 await backend.InitializeAsync(section);
                 _logger.LogInformation("Backend '{BackendName}' initialized at {MountPath}", backend.Name, backend.MountPath);
@@ -59,7 +61,6 @@ public class NinePServer : BackgroundService
             }
         }
 
-        // For now, only the first endpoint is handled
         var endpoint = _config.Endpoints.Count > 0 
             ? _config.Endpoints[0] 
             : null;
@@ -94,10 +95,18 @@ public class NinePServer : BackgroundService
         listener.Stop();
     }
 
+    private class ClientSession
+    {
+        public uint MSize { get; set; } = DefaultMSize;
+        public SemaphoreSlim WriteLock { get; } = new(1, 1);
+    }
+
     private async Task HandleClientAsync(TcpClient client, CancellationToken ct)
     {
         var endPoint = client.Client.RemoteEndPoint;
         _logger.LogInformation("Client connected from {EndPoint}", endPoint);
+        
+        var session = new ClientSession();
 
         try
         {
@@ -117,19 +126,49 @@ public class NinePServer : BackgroundService
                 var type = (MessageTypes)headerBuffer[4];
                 ushort tag = BinaryPrimitives.ReadUInt16LittleEndian(headerBuffer.AsSpan(5, 2));
 
-                _logger.LogDebug("Received: Type={Type}, Tag={Tag}, Size={Size}", type, tag, size);
+                if (size > MaxAllowedMSize || size > session.MSize + 1024)
+                {
+                    if (type != MessageTypes.Tversion)
+                    {
+                        _logger.LogError("Message size {Size} exceeds current MSize {MSize}. Dropping connection.", size, session.MSize);
+                        break;
+                    }
+                }
 
                 uint payloadSize = size - NinePConstants.HeaderSize;
-                var fullMessageBuffer = new byte[size];
+                byte[] fullMessageBuffer = ArrayPool<byte>.Shared.Rent((int)size);
                 headerBuffer.CopyTo(fullMessageBuffer, 0);
 
                 if (payloadSize > 0)
                 {
                     int payloadRead = await stream.ReadAtLeastAsync(fullMessageBuffer.AsMemory((int)NinePConstants.HeaderSize, (int)payloadSize), (int)payloadSize, throwOnEndOfStream: false, ct);
-                    if (payloadRead < payloadSize) break;
+                    if (payloadRead < payloadSize) 
+                    {
+                        ArrayPool<byte>.Shared.Return(fullMessageBuffer);
+                        break;
+                    }
                 }
 
-                await DispatchMessageAsync(fullMessageBuffer.AsMemory(), stream, type, tag);
+                // Fire and forget handling of the message to allow pipelining
+                _ = Task.Run(async () => {
+                    try {
+                        var response = await DispatchMessageAsync(fullMessageBuffer.AsMemory(0, (int)size), type, tag);
+                        
+                        if (response is Rversion rv)
+                        {
+                            session.MSize = rv.MSize;
+                            _logger.LogInformation("Negotiated MSize: {MSize}", session.MSize);
+                        }
+
+                        await SendResponseAsync(stream, response, session.WriteLock);
+                    }
+                    catch (Exception ex) {
+                        _logger.LogError(ex, "Error handling message tag {Tag}", tag);
+                    }
+                    finally {
+                        ArrayPool<byte>.Shared.Return(fullMessageBuffer);
+                    }
+                }, ct);
             }
         }
         catch (Exception ex)
@@ -142,20 +181,20 @@ public class NinePServer : BackgroundService
         }
     }
 
-    private async Task DispatchMessageAsync(ReadOnlyMemory<byte> fullMessageBuffer, NetworkStream stream, MessageTypes type, ushort tag)
+    private async Task<object> DispatchMessageAsync(ReadOnlyMemory<byte> fullMessageBuffer, MessageTypes type, ushort tag)
     {
-        // Use the FSharp message parser to get a NinePMessage
-        var result = NinePSharp.Parser.NinePParser.parse(false, fullMessageBuffer.ToArray());
+        var result = NinePSharp.Parser.NinePParser.parse(false, fullMessageBuffer);
         if (result.IsError)
         {
             _logger.LogError("Failed to parse message: {Error}", result.ErrorValue);
-            return;
+            return new Rerror(tag, result.ErrorValue);
         }
 
-        var message = result.ResultValue;
-        var response = await _dispatcher.DispatchAsync(message);
+        return await _dispatcher.DispatchAsync(result.ResultValue);
+    }
 
-        // Standard 9P negotiation reply special casing for R-messages
+    private async Task SendResponseAsync(NetworkStream stream, object response, SemaphoreSlim writeLock)
+    {
         byte[] outBuffer;
         if (response is Rversion rversion)
         {
@@ -179,7 +218,6 @@ public class NinePServer : BackgroundService
         }
         else if (response is ISerializable serializable)
         {
-            // Generic serialization for other messages that implement ISerializable
             outBuffer = new byte[serializable.Size];
             serializable.WriteTo(outBuffer.AsSpan());
         }
@@ -189,6 +227,12 @@ public class NinePServer : BackgroundService
             return;
         }
 
-        await stream.WriteAsync(outBuffer);
+        await writeLock.WaitAsync();
+        try {
+            await stream.WriteAsync(outBuffer);
+        }
+        finally {
+            writeLock.Release();
+        }
     }
 }

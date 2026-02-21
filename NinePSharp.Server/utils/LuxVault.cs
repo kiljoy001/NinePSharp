@@ -1,4 +1,6 @@
 using System;
+using System.Runtime.InteropServices;
+using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -6,107 +8,235 @@ namespace NinePSharp.Server.Utils
 {
     public static class LuxVault
     {
-        // 32-byte AesGcm key and 12-byte nonce
         private const int KeySize = 32;
-        private const int NonceSize = 12;
-
+        private const int NonceSize = 24; 
+        private const int MacSize = 16;
         private const int SaltSize = 16;
         private const int Iterations = 600000;
 
-        // Use Monocypher's Elligator to derive a hidden ID from a 32-byte seed
         public static string GenerateHiddenId(byte[] seed)
         {
             if (seed.Length != 32) throw new ArgumentException("Seed must be exactly 32 bytes.");
-
-            byte[] seedCopy = new byte[32];
-            Array.Copy(seed, seedCopy, 32);
-
+            byte[] seedCopy = (byte[])seed.Clone();
             byte[] hidden = new byte[32];
-            byte[] secret_key = new byte[32];
-
-            MonocypherNative.crypto_elligator_key_pair(hidden, secret_key, seedCopy);
-
-            return Convert.ToHexString(hidden).ToLowerInvariant();
+            byte[] secretKey = new byte[32];
+            try {
+                MonocypherNative.crypto_elligator_key_pair(hidden, secretKey, seedCopy);
+                return Convert.ToHexString(hidden).ToLowerInvariant();
+            }
+            finally {
+                Array.Clear(seedCopy);
+                Array.Clear(secretKey);
+            }
         }
 
-        // Derives a deterministic 32-byte seed from a password and a nonce
-        // This allows creating "Secret Pointers" for vaults.
+        private static unsafe T WithSecureString<T>(SecureString secureString, Func<byte[], T> action)
+        {
+            IntPtr ptr = Marshal.SecureStringToGlobalAllocUnicode(secureString);
+            try
+            {
+                int length = secureString.Length;
+                char* chars = (char*)ptr.ToPointer();
+                
+                // Get byte count for UTF-8 conversion
+                int byteCount = Encoding.UTF8.GetByteCount(chars, length);
+                
+                // Allocate pinned byte array to avoid GC moves
+                byte[] bytes = GC.AllocateArray<byte>(byteCount, pinned: true);
+                fixed (byte* pBytes = bytes)
+                {
+                    Encoding.UTF8.GetBytes(chars, length, pBytes, byteCount);
+                }
+
+                try
+                {
+                    return action(bytes);
+                }
+                finally
+                {
+                    Array.Clear(bytes);
+                }
+            }
+            finally
+            {
+                Marshal.ZeroFreeGlobalAllocUnicode(ptr);
+            }
+        }
+
         public static byte[] DeriveSeed(string password, byte[] nonce)
         {
-            return Rfc2898DeriveBytes.Pbkdf2(
-                password,
-                nonce,
-                Iterations,
-                HashAlgorithmName.SHA256,
-                KeySize);
+            if (password == null) throw new ArgumentNullException(nameof(password));
+            return Rfc2898DeriveBytes.Pbkdf2(password, nonce, Iterations, HashAlgorithmName.SHA256, KeySize);
         }
 
-        private static byte[] DeriveKeyFromPassword(string password, byte[] salt)
+        public static byte[] DeriveSeed(SecureString password, byte[] nonce)
         {
-            return Rfc2898DeriveBytes.Pbkdf2(
-                password,
-                salt,
-                Iterations,
-                HashAlgorithmName.SHA256,
-                KeySize);
+            return WithSecureString(password, bytes => {
+                // Unfortunately Pbkdf2 still requires a string password in many .NET versions.
+                // We minimize exposure by converting the UTF8 bytes back to a string 
+                // ONLY within this ephemeral block.
+                return Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetString(bytes), nonce, Iterations, HashAlgorithmName.SHA256, KeySize);
+            });
+        }
+
+        private static void DeriveKeyFromPassword(string password, ReadOnlySpan<byte> salt, byte[] outKey)
+        {
+            var key = Rfc2898DeriveBytes.Pbkdf2(password, salt.ToArray(), Iterations, HashAlgorithmName.SHA256, KeySize);
+            key.CopyTo(outKey, 0);
+            Array.Clear(key);
+        }
+
+        private static void DeriveKeyFromSecureString(SecureString password, ReadOnlySpan<byte> salt, byte[] outKey)
+        {
+            byte[] saltArray = salt.ToArray();
+            WithSecureString(password, bytes => {
+                DeriveKeyFromPassword(Encoding.UTF8.GetString(bytes), saltArray, outKey);
+                return true;
+            });
+        }
+
+        private static void DeriveKeyFromBytes(ReadOnlySpan<byte> keyMaterial, ReadOnlySpan<byte> salt, byte[] outKey)
+        {
+            byte[] mixed = new byte[keyMaterial.Length + salt.Length];
+            keyMaterial.CopyTo(mixed);
+            salt.CopyTo(mixed.AsSpan(keyMaterial.Length));
+            MonocypherNative.crypto_blake2b(outKey, (nuint)outKey.Length, mixed, (nuint)mixed.Length);
+            Array.Clear(mixed);
         }
 
         public static byte[] Encrypt(byte[] plaintextBytes, string password)
         {
+            if (plaintextBytes == null) throw new ArgumentNullException(nameof(plaintextBytes));
+            if (password == null) throw new ArgumentNullException(nameof(password));
+            
             byte[] salt = new byte[SaltSize];
             RandomNumberGenerator.Fill(salt);
+            byte[] key = GC.AllocateArray<byte>(KeySize, pinned: true);
+            try {
+                DeriveKeyFromPassword(password, salt, key);
+                return EncryptInternal(plaintextBytes, key, salt);
+            }
+            finally {
+                Array.Clear(key);
+            }
+        }
 
-            byte[] key = DeriveKeyFromPassword(password, salt);
+        public static byte[] Encrypt(byte[] plaintextBytes, SecureString password)
+        {
+            if (plaintextBytes == null) throw new ArgumentNullException(nameof(plaintextBytes));
             
-            byte[] ciphertext = new byte[plaintextBytes.Length];
-            byte[] tag = new byte[16]; // AesGcm Auth Tag
+            byte[] salt = new byte[SaltSize];
+            RandomNumberGenerator.Fill(salt);
+            byte[] key = GC.AllocateArray<byte>(KeySize, pinned: true);
+            try {
+                DeriveKeyFromSecureString(password, salt, key);
+                return EncryptInternal(plaintextBytes, key, salt);
+            }
+            finally {
+                Array.Clear(key);
+            }
+        }
 
-            // Prepend a random nonce to the payload
+        public static byte[] Encrypt(byte[] plaintextBytes, ReadOnlySpan<byte> keyMaterial)
+        {
+            if (plaintextBytes == null) throw new ArgumentNullException(nameof(plaintextBytes));
+            
+            byte[] salt = new byte[SaltSize];
+            RandomNumberGenerator.Fill(salt);
+            byte[] key = GC.AllocateArray<byte>(KeySize, pinned: true);
+            try {
+                DeriveKeyFromBytes(keyMaterial, salt, key);
+                return EncryptInternal(plaintextBytes, key, salt);
+            }
+            finally {
+                Array.Clear(key);
+            }
+        }
+
+        private static byte[] EncryptInternal(byte[] plaintextBytes, byte[] key, byte[] salt)
+        {
+            byte[] ciphertext = new byte[plaintextBytes.Length];
+            byte[] mac = new byte[MacSize];
             byte[] nonce = new byte[NonceSize];
             RandomNumberGenerator.Fill(nonce);
             
-            using (var aes = new AesGcm(key, tag.Length))
-            {
-                aes.Encrypt(nonce, plaintextBytes, ciphertext, tag);
-            }
+            MonocypherNative.crypto_aead_lock(ciphertext, mac, key, nonce, null, 0, plaintextBytes, (nuint)plaintextBytes.Length);
 
-            // Output payload: [Salt (16)] + [Nonce (12)] + [Tag (16)] + [Ciphertext]
-            byte[] finalPayload = new byte[SaltSize + NonceSize + tag.Length + ciphertext.Length];
-            Buffer.BlockCopy(salt, 0, finalPayload, 0, SaltSize);
-            Buffer.BlockCopy(nonce, 0, finalPayload, SaltSize, NonceSize);
-            Buffer.BlockCopy(tag, 0, finalPayload, SaltSize + NonceSize, tag.Length);
-            Buffer.BlockCopy(ciphertext, 0, finalPayload, SaltSize + NonceSize + tag.Length, ciphertext.Length);
+            byte[] finalPayload = new byte[SaltSize + NonceSize + MacSize + ciphertext.Length];
+            salt.CopyTo(finalPayload.AsSpan(0, SaltSize));
+            nonce.CopyTo(finalPayload.AsSpan(SaltSize, NonceSize));
+            mac.CopyTo(finalPayload.AsSpan(SaltSize + NonceSize, MacSize));
+            Buffer.BlockCopy(ciphertext, 0, finalPayload, SaltSize + NonceSize + MacSize, ciphertext.Length);
 
+            Array.Clear(mac);
+            Array.Clear(nonce);
             return finalPayload;
         }
 
-        public static byte[] Encrypt(string text, string password) => Encrypt(Encoding.UTF8.GetBytes(text), password);
-
         public static byte[]? DecryptToBytes(byte[] payload, string password)
         {
-            if (payload.Length < SaltSize + NonceSize + 16) return null;
+            if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
+            byte[] key = GC.AllocateArray<byte>(KeySize, pinned: true);
+            try {
+                DeriveKeyFromPassword(password, payload.AsSpan(0, SaltSize), key);
+                return DecryptInternal(payload, key);
+            }
+            finally {
+                Array.Clear(key);
+            }
+        }
 
+        public static byte[]? DecryptToBytes(byte[] payload, SecureString password)
+        {
+            if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
+            byte[] key = GC.AllocateArray<byte>(KeySize, pinned: true);
+            try {
+                DeriveKeyFromSecureString(password, payload.AsSpan(0, SaltSize), key);
+                return DecryptInternal(payload, key);
+            }
+            finally {
+                Array.Clear(key);
+            }
+        }
+
+        public static byte[]? DecryptToBytes(byte[] payload, ReadOnlySpan<byte> keyMaterial)
+        {
+            if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
+            byte[] key = GC.AllocateArray<byte>(KeySize, pinned: true);
+            try {
+                DeriveKeyFromBytes(keyMaterial, payload.AsSpan(0, SaltSize), key);
+                return DecryptInternal(payload, key);
+            }
+            finally {
+                Array.Clear(key);
+            }
+        }
+
+        private static byte[]? DecryptInternal(byte[] payload, byte[] key)
+        {
             try
             {
-                byte[] salt = new byte[SaltSize];
                 byte[] nonce = new byte[NonceSize];
-                byte[] tag = new byte[16];
-                byte[] ciphertext = new byte[payload.Length - SaltSize - NonceSize - tag.Length];
+                payload.AsSpan(SaltSize, NonceSize).CopyTo(nonce);
+                
+                byte[] mac = new byte[MacSize];
+                payload.AsSpan(SaltSize + NonceSize, MacSize).CopyTo(mac);
+                
+                byte[] ciphertext = new byte[payload.Length - (SaltSize + NonceSize + MacSize)];
+                payload.AsSpan(SaltSize + NonceSize + MacSize).CopyTo(ciphertext);
 
-                Buffer.BlockCopy(payload, 0, salt, 0, SaltSize);
-                Buffer.BlockCopy(payload, SaltSize, nonce, 0, NonceSize);
-                Buffer.BlockCopy(payload, SaltSize + NonceSize, tag, 0, tag.Length);
-                Buffer.BlockCopy(payload, SaltSize + NonceSize + tag.Length, ciphertext, 0, ciphertext.Length);
+                // Use pinned array for cleartext output
+                byte[] plaintextBytes = GC.AllocateArray<byte>(ciphertext.Length, pinned: true);
+                int result = MonocypherNative.crypto_aead_unlock(plaintextBytes, mac, key, nonce, null, 0, ciphertext, (nuint)ciphertext.Length);
+                
+                Array.Clear(nonce);
+                Array.Clear(mac);
+                Array.Clear(ciphertext);
 
-                byte[] key = DeriveKeyFromPassword(password, salt);
-                byte[] plaintextBytes = new byte[ciphertext.Length];
-
-                using (var aes = new AesGcm(key, tag.Length))
-                {
-                    aes.Decrypt(nonce, ciphertext, tag, plaintextBytes);
-                }
-
-                return plaintextBytes;
+                if (result == 0) return plaintextBytes;
+                
+                Array.Clear(plaintextBytes);
+                return null;
             }
             catch { return null; }
         }
@@ -114,134 +244,51 @@ namespace NinePSharp.Server.Utils
         public static string? Decrypt(byte[] payload, string password)
         {
             var bytes = DecryptToBytes(payload, password);
-            return bytes != null ? Encoding.UTF8.GetString(bytes) : null;
+            if (bytes == null) return null;
+            try {
+                return Encoding.UTF8.GetString(bytes);
+            }
+            finally {
+                Array.Clear(bytes);
+            }
         }
 
-        // Configuration protection (uses Master Secret)
-        public static string ProtectConfig(string plainText, string masterKey)
+        public static string? Decrypt(byte[] payload, SecureString password)
         {
-            var ciphertext = Encrypt(plainText, masterKey);
+            var bytes = DecryptToBytes(payload, password);
+            if (bytes == null) return null;
+            try {
+                return Encoding.UTF8.GetString(bytes);
+            }
+            finally {
+                Array.Clear(bytes);
+            }
+        }
+
+        public static string? Decrypt(byte[] payload, ReadOnlySpan<byte> keyMaterial)
+        {
+            var bytes = DecryptToBytes(payload, keyMaterial);
+            if (bytes == null) return null;
+            try {
+                return Encoding.UTF8.GetString(bytes);
+            }
+            finally {
+                Array.Clear(bytes);
+            }
+        }
+
+        public static string ProtectConfig(string plainText, ReadOnlySpan<byte> masterKey)
+        {
+            var ciphertext = Encrypt(Encoding.UTF8.GetBytes(plainText), masterKey);
             return "secret://" + Convert.ToBase64String(ciphertext);
         }
 
-        public static string? UnprotectConfig(string secretUri, string masterKey)
+        public static string? UnprotectConfig(string secretUri, ReadOnlySpan<byte> masterKey)
         {
             if (!secretUri.StartsWith("secret://")) return secretUri;
             var base64 = secretUri.Substring("secret://".Length);
             var ciphertext = Convert.FromBase64String(base64);
             return Decrypt(ciphertext, masterKey);
-        }
-
-        // --- Invisible Lock (Elligator-hidden Deniable Encryption) ---
-
-        private static byte[] GetRecipientKeys(string password)
-        {
-            byte[] seed = new byte[32];
-            // Deterministic seed from password for the recipient's "identity"
-            MonocypherNative.crypto_blake2b(seed, Encoding.UTF8.GetBytes(password + "_Lux9_Identity"), 32);
-            byte[] pub = new byte[32];
-            byte[] priv = new byte[32];
-            MonocypherNative.crypto_elligator_key_pair(new byte[32], priv, seed);
-            // We need the actual public key point for x25519
-            // Monocypher's crypto_elligator_key_pair doesn't give 'pub' directly, but we can get it
-            // Wait, actually crypto_x25519 takes a public key. We can derive it.
-            // But Monocypher's keypair for Elligator generates a 'hidden' (representative) and 'secret_key'.
-            // To get 'public_key' from 'hidden', use crypto_elligator_map.
-            return priv;
-        }
-
-        public static byte[] EncryptInvisible(byte[] plaintext, string password)
-        {
-            // 1. Generate Ephemeral Key Pair
-            byte[] ephSeed = new byte[32];
-            RandomNumberGenerator.Fill(ephSeed);
-            byte[] ephHidden = new byte[32];
-            byte[] ephPriv = new byte[32];
-            MonocypherNative.crypto_elligator_key_pair(ephHidden, ephPriv, ephSeed);
-
-            // 2. Derive Recipient Public Key from Password
-            byte[] recPriv = GetRecipientKeys(password);
-            byte[] recPub = new byte[32];
-            // Derive public key from private key
-            // Monocypher doesn't have a direct "get public key from private" helper in my current imports
-            // but crypto_x25519 with a base point works. Or just use a fixed seed.
-            // Let's assume we can derive it.
-            // Actually, in Monocypher, a public key is just the base point multiplied by the private key.
-            byte[] basePoint = new byte[32]; basePoint[0] = 9; // X25519 base point
-            MonocypherNative.crypto_x25519(recPub, recPriv, basePoint);
-
-            // 3. Shared Secret
-            byte[] shared = new byte[32];
-            MonocypherNative.crypto_x25519(shared, ephPriv, recPub);
-
-            // 4. Encrypt using AES-GCM (reusing existing infrastructure but with the shared secret)
-            // In a real Lux9 implementation, we'd use ChaCha20-Poly1305, but AES-GCM is fine for now 
-            // as long as we don't have a clear "this is a vault" header.
-            
-            // Derive a real encryption key from the shared secret
-            byte[] encKey = new byte[32];
-            MonocypherNative.crypto_blake2b(encKey, shared, 32);
-
-            // Encrypt and return: [ephHidden(32)] + [Nonce(12)] + [Tag(16)] + [Ciphertext]
-            byte[] nonce = new byte[12];
-            RandomNumberGenerator.Fill(nonce);
-            byte[] tag = new byte[16];
-            byte[] ciphertext = new byte[plaintext.Length];
-
-            using (var aes = new AesGcm(encKey, 16))
-            {
-                aes.Encrypt(nonce, plaintext, ciphertext, tag);
-            }
-
-            byte[] result = new byte[32 + 12 + 16 + ciphertext.Length];
-            Buffer.BlockCopy(ephHidden, 0, result, 0, 32);
-            Buffer.BlockCopy(nonce, 0, result, 32, 12);
-            Buffer.BlockCopy(tag, 0, result, 32 + 12, 16);
-            Buffer.BlockCopy(ciphertext, 0, result, 32 + 12 + 16, ciphertext.Length);
-
-            return result;
-        }
-
-        public static byte[]? DecryptInvisible(byte[] payload, string password)
-        {
-            if (payload.Length < 32 + 12 + 16) return null;
-
-            byte[] ephHidden = new byte[32];
-            byte[] nonce = new byte[12];
-            byte[] tag = new byte[16];
-            byte[] ciphertext = new byte[payload.Length - 32 - 12 - 16];
-
-            Buffer.BlockCopy(payload, 0, ephHidden, 0, 32);
-            Buffer.BlockCopy(payload, 32, nonce, 0, 12);
-            Buffer.BlockCopy(payload, 32 + 12, tag, 0, 16);
-            Buffer.BlockCopy(payload, 32 + 12 + 16, ciphertext, 0, ciphertext.Length);
-
-            // 1. Map ephHidden to ephPub
-            byte[] ephPub = new byte[32];
-            MonocypherNative.crypto_elligator_map(ephPub, ephHidden);
-
-            // 2. Recipient Private Key from Password
-            byte[] recPriv = GetRecipientKeys(password);
-
-            // 3. Shared Secret
-            byte[] shared = new byte[32];
-            MonocypherNative.crypto_x25519(shared, recPriv, ephPub);
-
-            // 4. Derive encryption key
-            byte[] encKey = new byte[32];
-            MonocypherNative.crypto_blake2b(encKey, shared, 32);
-
-            // 5. Decrypt
-            byte[] plaintext = new byte[ciphertext.Length];
-            try
-            {
-                using (var aes = new AesGcm(encKey, 16))
-                {
-                    aes.Decrypt(nonce, ciphertext, tag, plaintext);
-                }
-                return plaintext;
-            }
-            catch { return null; }
         }
     }
 }

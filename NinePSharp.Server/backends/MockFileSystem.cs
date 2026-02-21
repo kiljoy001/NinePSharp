@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
@@ -10,6 +12,7 @@ namespace NinePSharp.Server.Backends;
 public class MockFileSystem : INinePFileSystem
 {
     private readonly ILuxVaultService _vault;
+    private List<string> _currentPath = new();
 
     public MockFileSystem(ILuxVaultService vault)
     {
@@ -18,38 +21,46 @@ public class MockFileSystem : INinePFileSystem
 
     public Task<Rwalk> WalkAsync(Twalk twalk) 
     {
-        Console.WriteLine($"[Mock FS] Walk: NewFid={twalk.NewFid}, Path={string.Join("/", twalk.Wname)}");
-        return Task.FromResult(new Rwalk(twalk.Tag, Array.Empty<Qid>())); 
+        var qids = new List<Qid>();
+        foreach (var name in twalk.Wname)
+        {
+            if (name == "..")
+            {
+                if (_currentPath.Count > 0) _currentPath.RemoveAt(_currentPath.Count - 1);
+            }
+            else
+            {
+                _currentPath.Add(name);
+            }
+            qids.Add(new Qid(QidType.QTDIR, 0, (ulong)name.GetHashCode()));
+        }
+        return Task.FromResult(new Rwalk(twalk.Tag, qids.ToArray())); 
     }
 
     public Task<Ropen> OpenAsync(Topen topen)
     {
-        Console.WriteLine($"[Mock FS] Open: Fid={topen.Fid}, Mode={topen.Mode}");
         return Task.FromResult(new Ropen(topen.Tag, new Qid(QidType.QTFILE, 0, 0), 8192));
     }
 
     public Task<Rread> ReadAsync(Tread tread)
     {
-        Console.WriteLine($"[Mock FS] Read: Fid={tread.Fid}, Offset={tread.Offset}, Count={tread.Count}");
         return Task.FromResult(new Rread(tread.Tag, Array.Empty<byte>()));
     }
 
     public Task<Rwrite> WriteAsync(Twrite twrite)
     {
-        Console.WriteLine($"[Mock FS] Write: Fid={twrite.Fid}, Offset={twrite.Offset}, DataSize={twrite.Data.Length}");
         return Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
     }
 
     public Task<Rclunk> ClunkAsync(Tclunk tclunk)
     {
-        Console.WriteLine($"[Mock FS] Clunk: Fid={tclunk.Fid}");
         return Task.FromResult(new Rclunk(tclunk.Tag));
     }
 
     public Task<Rstat> StatAsync(Tstat tstat)
     {
-        Console.WriteLine($"[Mock FS] Stat: Fid={tstat.Fid}");
-        var stat = new Stat(0, 0, 0, new Qid(QidType.QTFILE, 0, 1), 0644, 0, 0, 0, "mockfile", "scott", "scott", "scott");
+        var name = _currentPath.Count > 0 ? _currentPath.Last() : "mock";
+        var stat = new Stat(0, 0, 0, new Qid(QidType.QTFILE, 0, 1), 0644, 0, 0, 0, name, "scott", "scott", "scott");
         return Task.FromResult(new Rstat(tstat.Tag, stat));
     }
 
@@ -59,6 +70,8 @@ public class MockFileSystem : INinePFileSystem
 
     public INinePFileSystem Clone()
     {
-        return new MockFileSystem(_vault);
+        var clone = new MockFileSystem(_vault);
+        clone._currentPath = new List<string>(_currentPath);
+        return clone;
     }
 }

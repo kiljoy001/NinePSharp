@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text;
 using NinePSharp.Server.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Utils;
@@ -11,7 +12,7 @@ namespace NinePSharp.Tests
         [Fact]
         public void ConfigSecretResolver_Resolves_Recursive_Secrets()
         {
-            var masterKey = "master_key";
+            byte[] masterKey = Encoding.UTF8.GetBytes("master_key");
             var secretValue = "real_api_key";
             var protectedSecret = LuxVault.ProtectConfig(secretValue, masterKey);
 
@@ -38,7 +39,7 @@ namespace NinePSharp.Tests
         [Fact]
         public void ConfigSecretResolver_Handles_Normal_Strings()
         {
-            var masterKey = "master_key";
+            byte[] masterKey = Encoding.UTF8.GetBytes("master_key");
             var config = new EthereumBackendConfig { RpcUrl = "http://normal.com" };
 
             ConfigSecretResolver.ResolveSecrets(config, masterKey);

@@ -16,6 +16,7 @@ public class DatabaseFileSystem : INinePFileSystem
 {
     private readonly DatabaseBackendConfig _config;
     private readonly ILuxVaultService _vault;
+    private List<string> _currentPath = new();
 
     public DatabaseFileSystem(DatabaseBackendConfig config, ILuxVaultService vault)
     {
@@ -27,8 +28,6 @@ public class DatabaseFileSystem : INinePFileSystem
     {
         try 
         {
-            // Use DbProviderFactories to remain provider-agnostic as requested.
-            // The user must ensure the provider (e.g. Microsoft.Data.Sqlite) is registered.
             var factory = DbProviderFactories.GetFactory(_config.ProviderName);
             var connection = factory.CreateConnection();
             if (connection == null) throw new InvalidOperationException($"Could not create connection for provider {_config.ProviderName}");
@@ -37,49 +36,65 @@ public class DatabaseFileSystem : INinePFileSystem
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Database FS] Error creating connection: {ex.Message}. Falling back to mock behavior for demonstration.");
-            // Returning null or throwing here. For now, I'll throw as it's a configuration error.
+            Console.WriteLine($"[Database FS] Error creating connection: {ex.Message}");
             throw;
         }
     }
 
+    private bool IsDirectory(List<string> path)
+    {
+        // Currently all nodes in Database FS are directories (root, tables)
+        return true;
+    }
+
     public async Task<Rwalk> WalkAsync(Twalk twalk)
     {
-        Console.WriteLine($"[Database FS] Walk: Path={string.Join("/", twalk.Wname)}");
-        
-        if (twalk.Wname.Length == 0) // Walking to self
-        {
-            return new Rwalk(twalk.Tag, Array.Empty<Qid>());
-        }
+        if (twalk.Wname.Length == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>());
 
-        // Conceptually: check if Wname[0] is a valid table name in the database
-        // For now, we'll just accept anything as a directory walk
         var qids = new List<Qid>();
+        var tempPath = new List<string>(_currentPath);
+
         foreach (var name in twalk.Wname)
         {
-            qids.Add(new Qid(QidType.QTDIR, 0, (ulong)name.GetHashCode()));
+            if (!IsDirectory(tempPath))
+            {
+                // Cannot walk into a file
+                if (qids.Count == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>()); // Error
+                break;
+            }
+
+            if (name == "..")
+            {
+                if (tempPath.Count > 0) tempPath.RemoveAt(tempPath.Count - 1);
+            }
+            else
+            {
+                tempPath.Add(name);
+            }
+            
+            var type = IsDirectory(tempPath) ? QidType.QTDIR : QidType.QTFILE;
+            qids.Add(new Qid(type, 0, (ulong)name.GetHashCode()));
         }
         
+        // Only update state if the walk was partially or fully successful
+        if (qids.Count == twalk.Wname.Length)
+        {
+            _currentPath = tempPath;
+        }
+
         return new Rwalk(twalk.Tag, qids.ToArray());
     }
 
     public async Task<Ropen> OpenAsync(Topen topen)
     {
-        // Root or table is a directory
-        return new Ropen(topen.Tag, new Qid(QidType.QTDIR, 0, 0), 0);
+        var type = IsDirectory(_currentPath) ? QidType.QTDIR : QidType.QTFILE;
+        return new Ropen(topen.Tag, new Qid(type, 0, 0), 0);
     }
 
     public async Task<Rread> ReadAsync(Tread tread)
     {
-        if (tread.Offset == 0)
+        if (_currentPath.Count == 0)
         {
-            // Conceptually: 
-            // 1. Open connection
-            // 2. Query schema for table names
-            // 3. Return as directory entries
-            Console.WriteLine($"[Database FS] Listing tables using provider: {_config.ProviderName}");
-            
-            // Mocking table list for now to avoid crashing without a real DB installed
             var tables = new[] { "Users", "Products", "Orders" };
             var entries = new List<byte>();
             foreach (var table in tables)
@@ -93,7 +108,12 @@ public class DatabaseFileSystem : INinePFileSystem
                 stat.WriteTo(entryBuffer, ref offset);
                 entries.AddRange(entryBuffer.Take(offset));
             }
-            return new Rread(tread.Tag, entries.ToArray());
+
+            var allData = entries.ToArray();
+            if (tread.Offset >= (ulong)allData.Length) return new Rread(tread.Tag, Array.Empty<byte>());
+            
+            var chunk = allData.AsSpan((int)tread.Offset, (int)Math.Min((long)tread.Count, (long)allData.Length - (long)tread.Offset)).ToArray();
+            return new Rread(tread.Tag, chunk);
         }
 
         return new Rread(tread.Tag, Array.Empty<byte>());
@@ -105,7 +125,9 @@ public class DatabaseFileSystem : INinePFileSystem
 
     public async Task<Rstat> StatAsync(Tstat tstat)
     {
-        var stat = new Stat(0, 0, 0, new Qid(QidType.QTDIR, 0, 0), 0755 | (uint)NinePConstants.FileMode9P.DMDIR, 0, 0, 0, "database", "scott", "scott", "scott");
+        var name = _currentPath.Count > 0 ? _currentPath.Last() : "database";
+        var isDir = IsDirectory(_currentPath);
+        var stat = new Stat(0, 0, 0, new Qid(isDir ? QidType.QTDIR : QidType.QTFILE, 0, 0), 0755 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0), 0, 0, 0, name, "scott", "scott", "scott");
         return new Rstat(tstat.Tag, stat);
     }
 
@@ -114,6 +136,8 @@ public class DatabaseFileSystem : INinePFileSystem
 
     public INinePFileSystem Clone()
     {
-        return new DatabaseFileSystem(_config, _vault);
+        var clone = new DatabaseFileSystem(_config, _vault);
+        clone._currentPath = new List<string>(_currentPath);
+        return clone;
     }
 }

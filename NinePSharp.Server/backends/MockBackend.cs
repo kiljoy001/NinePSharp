@@ -1,4 +1,5 @@
 using System;
+using System.Security;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using NinePSharp.Server.Interfaces;
@@ -25,4 +26,5 @@ public class MockBackend : IProtocolBackend
     }
 
     public INinePFileSystem GetFileSystem() => new MockFileSystem(_vault);
+    public INinePFileSystem GetFileSystem(SecureString? credentials) => GetFileSystem();
 }

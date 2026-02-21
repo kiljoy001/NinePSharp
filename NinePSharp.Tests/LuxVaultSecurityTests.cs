@@ -122,7 +122,7 @@ namespace NinePSharp.Tests
         {
             if (string.IsNullOrEmpty(password) || pk == null) return true;
 
-            byte[] encrypted = LuxVault.Encrypt(pk, password);
+            byte[] encrypted = LuxVault.Encrypt(Encoding.UTF8.GetBytes(pk), password);
             
             char[] chars = password.ToCharArray();
             chars[0] = (char)(chars[0] ^ 1);
@@ -142,7 +142,7 @@ namespace NinePSharp.Tests
         {
             var pk = "sensitive_private_key_data";
             var password = "very_secure_password";
-            byte[] originalPayload = LuxVault.Encrypt(pk, password);
+            byte[] originalPayload = LuxVault.Encrypt(Encoding.UTF8.GetBytes(pk), password);
 
             for (int i = 0; i < originalPayload.Length; i++)
             {
@@ -177,22 +177,22 @@ namespace NinePSharp.Tests
         public void LuxVault_EdgeCases()
         {
             // Empty key
-            byte[] c1 = LuxVault.Encrypt("", "password");
+            byte[] c1 = LuxVault.Encrypt(Encoding.UTF8.GetBytes(""), "password");
             Assert.Equal("", LuxVault.Decrypt(c1, "password"));
 
             // Long password (1KB)
             string longPassword = new string('a', 1024);
-            byte[] c2 = LuxVault.Encrypt("pk", longPassword);
+            byte[] c2 = LuxVault.Encrypt(Encoding.UTF8.GetBytes("pk"), longPassword);
             Assert.Equal("pk", LuxVault.Decrypt(c2, longPassword));
 
             // Unicode/Emojis
             string emojiPass = "🔑🚀🌈";
-            byte[] c3 = LuxVault.Encrypt("pk", emojiPass);
+            byte[] c3 = LuxVault.Encrypt(Encoding.UTF8.GetBytes("pk"), emojiPass);
             Assert.Equal("pk", LuxVault.Decrypt(c3, emojiPass));
             
             // Null inputs
-            Assert.Throws<ArgumentNullException>(() => LuxVault.Encrypt((string)null!, "pass"));
-            Assert.Throws<ArgumentNullException>(() => LuxVault.Encrypt("pk", (string)null!));
+            Assert.Throws<ArgumentNullException>(() => LuxVault.Encrypt((byte[])null!, "pass"));
+            Assert.Throws<ArgumentNullException>(() => LuxVault.Encrypt(Encoding.UTF8.GetBytes("pk"), (string)null!));
         }
 
         #endregion

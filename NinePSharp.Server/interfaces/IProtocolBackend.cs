@@ -1,3 +1,4 @@
+using System.Security;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 
@@ -25,7 +26,15 @@ public interface IProtocolBackend
     Task InitializeAsync(IConfiguration configuration);
 
     /// <summary>
-    /// Returns the 9P file system implementation for this backend.
+    /// Returns the 9P file system implementation for this backend,
+    /// authenticated against the upstream service using the supplied credentials.
+    /// Credentials are whatever the client wrote to the auth fid (e.g. "user:password", an API token, etc.)
+    /// If null, fall back to credentials from config.
+    /// </summary>
+    INinePFileSystem GetFileSystem(SecureString? credentials);
+
+    /// <summary>
+    /// Returns the 9P file system implementation using config-based credentials.
     /// </summary>
     INinePFileSystem GetFileSystem();
 }

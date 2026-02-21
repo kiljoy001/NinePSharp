@@ -1,4 +1,5 @@
 using System;
+using System.Security;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using CardanoSharp.Wallet;
@@ -30,6 +31,8 @@ public class CardanoBackend : IProtocolBackend
     public INinePFileSystem GetFileSystem()
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
-        return new CardanoFileSystem(_config ?? new CardanoBackendConfig(), _vault);
+        return new CardanoFileSystem(_config, _vault);
     }
+
+    public INinePFileSystem GetFileSystem(SecureString? credentials) => GetFileSystem();
 }

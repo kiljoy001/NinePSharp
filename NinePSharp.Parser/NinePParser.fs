@@ -2,6 +2,7 @@ namespace NinePSharp.Parser
 
 open NinePSharp.Messages
 open NinePSharp.Constants
+open System
 
 type NinePMessage =
     | MsgTversion of Tversion
@@ -71,20 +72,24 @@ type NinePMessage =
     | MsgTunlinkat of Tunlinkat
     | MsgRunlinkat of Runlinkat
 
-/// The functionally-pure parser module resolving C# message objects
 module NinePParser =
-    let parse (is9u: bool) (bytes: byte[]) : Result<NinePMessage, string> =
-        if isNull bytes || bytes.Length < 7 then
-            Error "Payload too short for 9P header"
+    
+    // Performance optimized parse taking ReadOnlyMemory to allow zero-copy into messages
+    let parse (is9u: bool) (data: ReadOnlyMemory<byte>) : Result<NinePMessage, string> =
+        if data.Length < int NinePConstants.HeaderSize then
+            Error "Message too short"
         else
+            let span = data.Span
             try
-                let span = System.ReadOnlySpan(bytes)
                 let size = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(span.Slice(0, 4))
                 
-                if size > uint32 bytes.Length then
+                if size > uint32 data.Length then
                     Error "Payload truncated: reported size exceeds buffer"
                 else
                     let msgType = span.[4]
+                    // Create a slice representing the full message for constructors that expect it
+                    let msgData = data.Slice(0, int size)
+                    
                     match msgType with
                     | t when t = byte MessageTypes.Tversion -> Ok (MsgTversion(new Tversion(span)))
                     | t when t = byte MessageTypes.Rversion -> Ok (MsgRversion(new Rversion(span)))
@@ -99,8 +104,8 @@ module NinePParser =
                     | t when t = byte MessageTypes.Tcreate -> Ok (MsgTcreate(new Tcreate(span)))
                     | t when t = byte MessageTypes.Rcreate -> Ok (MsgRcreate(new Rcreate(span)))
                     | t when t = byte MessageTypes.Tread -> Ok (MsgTread(new Tread(span)))
-                    | t when t = byte MessageTypes.Rread -> Ok (MsgRread(new Rread(span)))
-                    | t when t = byte MessageTypes.Twrite -> Ok (MsgTwrite(new Twrite(span)))
+                    | t when t = byte MessageTypes.Rread -> Ok (MsgRread(new Rread(msgData)))
+                    | t when t = byte MessageTypes.Twrite -> Ok (MsgTwrite(new Twrite(msgData)))
                     | t when t = byte MessageTypes.Rwrite -> Ok (MsgRwrite(new Rwrite(span)))
                     | t when t = byte MessageTypes.Tclunk -> Ok (MsgTclunk(new Tclunk(span)))
                     | t when t = byte MessageTypes.Rclunk -> Ok (MsgRclunk(new Rclunk(span)))

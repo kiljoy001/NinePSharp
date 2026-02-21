@@ -31,6 +31,7 @@ public class NinePFSDispatcherTests
         public string MountPath => "/mock";
         public Task InitializeAsync(Microsoft.Extensions.Configuration.IConfiguration configuration) => Task.CompletedTask;
         public INinePFileSystem GetFileSystem() => new NinePSharp.Server.Backends.MockFileSystem(_vault);
+        public INinePFileSystem GetFileSystem(System.Security.SecureString? credentials) => GetFileSystem();
     }
 
     [Fact]
@@ -55,7 +56,7 @@ public class NinePFSDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_Tattach_Maps_Fid_To_RootFileSystem()
+    public async Task DispatchAsync_Tattach_With_No_Backend_Returns_Rerror()
     {
         // Arrange
         var logger = new TestLogger<NinePFSDispatcher>();
@@ -67,10 +68,9 @@ public class NinePFSDispatcherTests
         // Act
         var response = await dispatcher.DispatchAsync(message);
 
-        // Assert
-        response.Should().BeOfType<Rattach>();
-        var rattach = (Rattach)response;
-        rattach.Tag.Should().Be(1);
+        // Assert — no backends registered, so dispatcher returns Rerror
+        response.Should().BeOfType<Rerror>();
+        ((Rerror)response).Ename.Should().Contain("No backend");
     }
 
     [Fact]
@@ -96,22 +96,19 @@ public class NinePFSDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_Unhandled_Message_Returns_Rerror()
+    public async Task DispatchAsync_Tflush_Returns_Rflush()
     {
         // Arrange
         var logger = new TestLogger<NinePFSDispatcher>();
         var backends = new List<IProtocolBackend>();
         var dispatcher = new NinePFSDispatcher(logger, backends);
-        
-        // Using a message type not handled by dispatcher logic yet (e.g., Tflush)
         var tflush = new Tflush(1, 1);
         var message = NinePMessage.NewMsgTflush(tflush);
 
         // Act
         var response = await dispatcher.DispatchAsync(message);
 
-        // Assert
-        response.Should().BeOfType<Rerror>();
-        ((Rerror)response).Ename.Should().Be("Not implemented");
+        // Assert — Tflush is now handled
+        response.Should().BeOfType<Rflush>();
     }
 }

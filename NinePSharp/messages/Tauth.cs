@@ -37,6 +37,16 @@ public readonly struct Tauth : ISerializable
         }
     }
 
+    public Tauth(ushort tag, uint afid, string uname, string aname)
+    {
+        Tag = tag;
+        Afid = afid;
+        Uname = uname;
+        Aname = aname;
+        Size = 0;
+        NUname = null;
+    }
+
     public void WriteTo(Span<byte> data, bool is9u = false)
     {
         data.WriteHeaders(Size, Tag, Type);

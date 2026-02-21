@@ -129,7 +129,7 @@ public class LinearIOTests : TestBase
         uint size = NinePConstants.HeaderSize + 4 + count;
         
         RoundTripTest<Rread>(size, tag,
-            buffer => new Rread(buffer),
+            buffer => new Rread(new ReadOnlyMemory<byte>(buffer.ToArray())),
             msg => { Assert.Equal(count, msg.Count); Assert.True(msg.Data.Span.SequenceEqual(dataContent)); },
             () => {
                 var buf = new byte[size];
@@ -137,7 +137,7 @@ public class LinearIOTests : TestBase
                 int offset = NinePConstants.HeaderSize;
                 System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan().Slice(offset, 4), count); offset += 4;
                 dataContent.CopyTo(buf, offset);
-                return new Rread(buf);
+                return new Rread(new ReadOnlyMemory<byte>(buf));
             },
             (msg, span) => msg.WriteTo(span));
     }
@@ -153,7 +153,7 @@ public class LinearIOTests : TestBase
         uint size = NinePConstants.HeaderSize + 16 + count;
 
         RoundTripTest<Twrite>(size, tag,
-            buffer => new Twrite(buffer),
+            buffer => new Twrite(new ReadOnlyMemory<byte>(buffer.ToArray())),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(fileOffset, msg.Offset); Assert.Equal(count, msg.Count); Assert.True(msg.Data.Span.SequenceEqual(dataContent)); },
             () => {
                 var buf = new byte[size];
@@ -163,7 +163,7 @@ public class LinearIOTests : TestBase
                 System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(buf.AsSpan().Slice(offset, 8), fileOffset); offset += 8;
                 System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan().Slice(offset, 4), count); offset += 4;
                 dataContent.CopyTo(buf, offset);
-                return new Twrite(buf);
+                return new Twrite(new ReadOnlyMemory<byte>(buf));
             },
             (msg, span) => msg.WriteTo(span));
     }

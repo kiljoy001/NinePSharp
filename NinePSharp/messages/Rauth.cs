@@ -12,6 +12,13 @@ public readonly struct Rauth: ISerializable
     public ushort Tag { get; }
     public Qid Aqid { get; }
     
+    public Rauth(ushort tag, Qid aqid)
+    {
+        Tag = tag;
+        Aqid = aqid;
+        Size = NinePConstants.HeaderSize + 13; // same as Rattach — qid is 13 bytes
+    }
+
     public Rauth(ReadOnlySpan<byte> data)
     {
         Size = BinaryPrimitives.ReadUInt32LittleEndian(data[..4]);

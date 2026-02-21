@@ -1,4 +1,8 @@
-﻿using System;
+using System;
+using System.Net;
+using System.Runtime.InteropServices;
+using System.Security;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,21 +18,50 @@ using NinePSharp.Server.Utils;
 
 public class Program
 {
+    private static SecureString Generate64BitSecureSeed()
+    {
+        byte[] seedBytes = new byte[8]; // 64 bits
+        RandomNumberGenerator.Fill(seedBytes);
+        
+        var hex = Convert.ToHexString(seedBytes);
+        var secure = new SecureString();
+        foreach (var c in hex) secure.AppendChar(c);
+        secure.MakeReadOnly();
+        
+        Array.Clear(seedBytes);
+        return secure;
+    }
+
+    private static byte[] DeriveSessionKeyFromSecureSeed(SecureString secureSeed)
+    {
+        byte[] hashedKey = new byte[32]; // 256-bit session key
+        IntPtr ptr = Marshal.SecureStringToGlobalAllocUnicode(secureSeed);
+        try
+        {
+            string hex = Marshal.PtrToStringUni(ptr)!;
+            byte[] seedBytes = Convert.FromHexString(hex);
+            
+            MonocypherNative.crypto_blake2b(hashedKey, (nuint)hashedKey.Length, seedBytes, (nuint)seedBytes.Length);
+            
+            Array.Clear(seedBytes);
+        }
+        finally
+        {
+            Marshal.ZeroFreeGlobalAllocUnicode(ptr);
+        }
+        return hashedKey;
+    }
+
     public static async Task Main(string[] args)
     {
-        if (args.Length > 1 && args[0] == "encrypt")
-        {
-            var masterKey = Environment.GetEnvironmentVariable("LUX_MASTER_KEY");
-            if (string.IsNullOrEmpty(masterKey))
-            {
-                Console.WriteLine("Error: LUX_MASTER_KEY environment variable not set.");
-                return;
-            }
-            var secret = args[1];
-            var protectedSecret = LuxVault.ProtectConfig(secret, masterKey);
-            Console.WriteLine($"Protected secret: {protectedSecret}");
-            return;
-        }
+        // 1. Generate 64-bit seed and wrap in SecureString
+        using SecureString secureSeed = Generate64BitSecureSeed();
+        
+        // 2. Derive the 256-bit session key for in-memory encryption
+        byte[] sessionKey = DeriveSessionKeyFromSecureSeed(secureSeed);
+        
+        // 3. Initialize the memory protection system
+        ProtectedSecret.InitializeSessionKey(sessionKey);
 
         var host = Host.CreateDefaultBuilder(args)
             .UseContentRoot(AppContext.BaseDirectory)
@@ -42,13 +75,9 @@ public class Program
                 var serverConfigSection = hostContext.Configuration.GetSection("Server");
                 services.Configure<ServerConfig>(serverConfigSection);
                 
-                // Manual resolution of secrets in configuration before DI registration
                 var serverConfig = new ServerConfig();
                 serverConfigSection.Bind(serverConfig);
-                var masterKey = hostContext.Configuration["LUX_MASTER_KEY"];
-                ConfigSecretResolver.ResolveSecrets(serverConfig, masterKey);
                 
-                // Re-register the resolved config so typed services can use it
                 services.AddSingleton(serverConfig);
                 if (serverConfig.Rest != null) services.AddSingleton(serverConfig.Rest);
                 if (serverConfig.Grpc != null) services.AddSingleton(serverConfig.Grpc);
@@ -66,7 +95,6 @@ public class Program
                 services.AddSingleton<ILuxVaultService, LuxVaultService>();
                 services.AddSingleton<IParser, ConfigParser>();
                 
-                // Register backends if they have config
                 if (serverConfig.Database != null) services.AddSingleton<IProtocolBackend, DatabaseBackend>();
                 if (serverConfig.Ethereum != null) services.AddSingleton<IProtocolBackend, EthereumBackend>();
                 if (serverConfig.Bitcoin != null) services.AddSingleton<IProtocolBackend, BitcoinBackend>();
@@ -79,6 +107,9 @@ public class Program
                 services.AddHostedService<NinePServer>();
             })
             .Build();
+
+        // Securely wipe the temporary session key from the stack
+        Array.Clear(sessionKey);
 
         await host.RunAsync();
     }

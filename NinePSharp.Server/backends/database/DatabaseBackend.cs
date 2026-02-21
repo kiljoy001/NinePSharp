@@ -1,6 +1,5 @@
 using System;
-using System.Data;
-using System.Data.Common;
+using System.Security;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using NinePSharp.Server.Configuration.Models;
@@ -31,9 +30,14 @@ public class DatabaseBackend : IProtocolBackend
     public INinePFileSystem GetFileSystem()
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
-        
-        // Use DbProviderFactories to get a generic connection
-        // Note: The caller might need to register factories in Program.cs
-        return new DatabaseFileSystem(_config ?? new DatabaseBackendConfig(), _vault);
+        return new DatabaseFileSystem(_config, _vault);
+    }
+
+    public INinePFileSystem GetFileSystem(SecureString? credentials)
+    {
+        if (_config == null) throw new InvalidOperationException("Backend not initialized");
+        // For simplicity, we don't currently use the SecureString credentials here, 
+        // but we've updated the signature for compatibility.
+        return GetFileSystem();
     }
 }

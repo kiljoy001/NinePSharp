@@ -3,10 +3,12 @@ using NinePSharp.Messages;
 using NinePSharp.Parser;
 using NinePSharp.Constants;
 using NinePSharp.Server.Interfaces;
+using NinePSharp.Server.Utils;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security;
 using System.Threading.Tasks;
 
 namespace NinePSharp.Server;
@@ -16,6 +18,7 @@ public class NinePFSDispatcher
     private readonly ILogger<NinePFSDispatcher> _logger;
     private readonly IEnumerable<IProtocolBackend> _backends;
     private readonly ConcurrentDictionary<uint, INinePFileSystem> _fids = new();
+    private readonly ConcurrentDictionary<uint, SecureString> _authFids = new();
 
     public NinePFSDispatcher(ILogger<NinePFSDispatcher> logger, IEnumerable<IProtocolBackend> backends)
     {
@@ -25,6 +28,7 @@ public class NinePFSDispatcher
 
     public async Task<object> DispatchAsync(NinePMessage message)
     {
+        ushort tag = GetTag(message);
         try
         {
             if (message.IsMsgTversion)
@@ -33,65 +37,89 @@ public class NinePFSDispatcher
                 return new Rversion(t.Tag, t.MSize, t.Version);
             }
 
+            if (message.IsMsgTauth)
+            {
+                var t = ((NinePMessage.MsgTauth)message).Item;
+                var secure = new SecureString();
+                _authFids[t.Afid] = secure;
+                return new Rauth(t.Tag, new Qid(QidType.QTAUTH, 0, (ulong)t.Afid));
+            }
+
             if (message.IsMsgTattach)
             {
                 var t = ((NinePMessage.MsgTattach)message).Item;
-                
-                // Use aname to select backend. If empty, default to first (legacy/root behavior)
-                var backend = string.IsNullOrEmpty(t.Aname) 
-                    ? _backends.FirstOrDefault() 
+                SecureString? credentials = null;
+                if (t.Afid != NinePConstants.NoFid && _authFids.TryRemove(t.Afid, out var authSec))
+                {
+                    credentials = authSec;
+                    credentials.MakeReadOnly();
+                }
+
+                var backend = string.IsNullOrEmpty(t.Aname)
+                    ? _backends.FirstOrDefault()
                     : _backends.FirstOrDefault(b => b.MountPath == t.Aname || b.MountPath == "/" + t.Aname || b.Name == t.Aname);
 
-                if (backend == null) return new Messages.Rerror(t.Tag, $"No backend found for aname '{t.Aname}'");
+                if (backend == null) throw new NinePProtocolException($"No backend found for aname '{t.Aname}'");
 
-                var fs = backend.GetFileSystem();
+                var fs = backend.GetFileSystem(credentials);
                 _fids[t.Fid] = fs;
-                
+
                 return new Rattach(t.Tag, new Qid(QidType.QTDIR, 0, 0));
             }
 
             if (message.IsMsgTwalk)
             {
                 var t = ((NinePMessage.MsgTwalk)message).Item;
-                if (!_fids.TryGetValue(t.Fid, out var fs)) return new Messages.Rerror(t.Tag, "Unknown FID");
+                if (!_fids.TryGetValue(t.Fid, out var fs)) throw new NinePProtocolException("Unknown FID");
 
-                // 9P Walk: If NewFid != Fid, we clone First.
-                var targetFs = fs;
-                if (t.NewFid != t.Fid)
-                {
-                    targetFs = fs.Clone();
-                }
-
+                // Atomicity: Clone first, but only store in _fids if successful.
+                var targetFs = fs.Clone();
                 var response = await targetFs.WalkAsync(t);
                 
-                _fids[t.NewFid] = targetFs;
+                // Per 9P spec: If nwname > 0 and the walk was fully successful, newfid becomes a new fid.
+                // If it was partially successful or failed, newfid is NOT created.
+                if (t.Wname.Length == 0 || response.Wqid.Length == t.Wname.Length)
+                {
+                    _fids[t.NewFid] = targetFs;
+                }
+                
                 return response;
             }
 
             if (message.IsMsgTopen)
             {
                 var t = ((NinePMessage.MsgTopen)message).Item;
-                if (!_fids.TryGetValue(t.Fid, out var fs)) return new Messages.Rerror(t.Tag, "Unknown FID");
+                if (!_fids.TryGetValue(t.Fid, out var fs)) throw new NinePProtocolException("Unknown FID");
                 return await fs.OpenAsync(t);
             }
 
             if (message.IsMsgTread)
             {
                 var t = ((NinePMessage.MsgTread)message).Item;
-                if (!_fids.TryGetValue(t.Fid, out var fs)) return new Messages.Rerror(t.Tag, "Unknown FID");
+                if (!_fids.TryGetValue(t.Fid, out var fs)) throw new NinePProtocolException("Unknown FID");
                 return await fs.ReadAsync(t);
             }
 
             if (message.IsMsgTwrite)
             {
                 var t = ((NinePMessage.MsgTwrite)message).Item;
-                if (!_fids.TryGetValue(t.Fid, out var fs)) return new Messages.Rerror(t.Tag, "Unknown FID");
+                if (_authFids.TryGetValue(t.Fid, out var secure))
+                {
+                    string data = System.Text.Encoding.UTF8.GetString(t.Data.ToArray());
+                    foreach (char c in data) secure.AppendChar(c);
+                    return new Rwrite(t.Tag, (uint)t.Data.Length);
+                }
+                if (!_fids.TryGetValue(t.Fid, out var fs)) throw new NinePProtocolException("Unknown FID");
                 return await fs.WriteAsync(t);
             }
 
             if (message.IsMsgTclunk)
             {
                 var t = ((NinePMessage.MsgTclunk)message).Item;
+                if (_authFids.TryRemove(t.Fid, out var secure))
+                {
+                    secure.Dispose();
+                }
                 if (_fids.TryRemove(t.Fid, out var fs))
                 {
                     return await fs.ClunkAsync(t);
@@ -102,7 +130,7 @@ public class NinePFSDispatcher
             if (message.IsMsgTstat)
             {
                 var t = ((NinePMessage.MsgTstat)message).Item;
-                if (!_fids.TryGetValue(t.Fid, out var fs)) return new Messages.Rerror(t.Tag, "Unknown FID");
+                if (!_fids.TryGetValue(t.Fid, out var fs)) throw new NinePProtocolException("Unknown FID");
                 return await fs.StatAsync(t);
             }
 
@@ -112,19 +140,23 @@ public class NinePFSDispatcher
                 return new Rflush(t.Tag);
             }
 
-            var tag = GetTag(message);
-            return new Messages.Rerror(tag, "Not implemented");
+            throw new NinePProtocolException("Message type not implemented or supported");
+        }
+        catch (NinePProtocolException ex)
+        {
+            return new Messages.Rerror(tag, ex.ErrorMessage);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error dispatching message");
-            return new Messages.Rerror(0, ex.Message);
+            _logger.LogError(ex, "Unexpected error during dispatch");
+            return new Messages.Rerror(tag, "Internal Server Error");
         }
     }
 
     private ushort GetTag(NinePMessage message)
     {
         if (message.IsMsgTversion) return ((NinePMessage.MsgTversion)message).Item.Tag;
+        if (message.IsMsgTauth) return ((NinePMessage.MsgTauth)message).Item.Tag;
         if (message.IsMsgTattach) return ((NinePMessage.MsgTattach)message).Item.Tag;
         if (message.IsMsgTwalk) return ((NinePMessage.MsgTwalk)message).Item.Tag;
         if (message.IsMsgTopen) return ((NinePMessage.MsgTopen)message).Item.Tag;

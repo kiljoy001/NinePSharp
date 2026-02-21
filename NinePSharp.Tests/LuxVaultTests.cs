@@ -1,5 +1,6 @@
 using System;
 using System.Security.Cryptography;
+using System.Text;
 using NinePSharp.Server.Utils;
 using Xunit;
 
@@ -14,9 +15,11 @@ namespace NinePSharp.Tests
             var password = "secret_password";
 
             // 1. Encrypt Payload
-            byte[] ciphertext = LuxVault.Encrypt(pk, password);
+            byte[] ciphertext = LuxVault.Encrypt(Encoding.UTF8.GetBytes(pk), password);
             Assert.NotNull(ciphertext);
-            Assert.True(ciphertext.Length > pk.Length); // Due to Nonce + Tag overhead
+            
+            // Overheads: Salt(16) + Nonce(24) + Mac(16) = 56 bytes
+            Assert.Equal(pk.Length + 56, ciphertext.Length);
 
             // 2. Decrypt with correct password
             var recoveredPk = LuxVault.Decrypt(ciphertext, password);
@@ -66,7 +69,7 @@ namespace NinePSharp.Tests
         [Fact]
         public void LuxVault_ConfigProtection_Works()
         {
-            var masterKey = "master_key_123";
+            var masterKey = Encoding.UTF8.GetBytes("master_key_123");
             var plainSecret = "api_key_xyz";
 
             var protectedSecret = LuxVault.ProtectConfig(plainSecret, masterKey);

@@ -15,25 +15,27 @@ public readonly struct Rread : ISerializable
     public uint Count { get; }
     public ReadOnlyMemory<byte> Data { get; }
 
-    public Rread(ushort tag, byte[] data)
+    public Rread(ushort tag, ReadOnlyMemory<byte> data)
     {
         Tag = tag;
-        Data = data ?? Array.Empty<byte>();
+        Data = data;
         Count = (uint)Data.Length;
         Size = (uint)(NinePConstants.HeaderSize + 4 + Data.Length);
     }
 
-    public Rread(ReadOnlySpan<byte> data)
+    public Rread(ReadOnlyMemory<byte> data)
     {
-        Size = BinaryPrimitives.ReadUInt32LittleEndian(data[..4]);
-        Tag = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(5, 2));
+        var span = data.Span;
+        Size = BinaryPrimitives.ReadUInt32LittleEndian(span[..4]);
+        Tag = BinaryPrimitives.ReadUInt16LittleEndian(span.Slice(5, 2));
 
         int offset = NinePConstants.HeaderSize;
 
-        Count = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
+        Count = BinaryPrimitives.ReadUInt32LittleEndian(span.Slice(offset, 4));
         offset += 4;
 
-        Data = data.Slice(offset, (int)Count).ToArray(); // Need an allocation for Memory representing the read buffer since Span can't be held in struct easily if returning from method
+        // Zero-copy: Reference the existing memory slice
+        Data = data.Slice(offset, (int)Count);
     }
     
     public Rread(uint size, ushort tag, uint count, ReadOnlyMemory<byte> data)
