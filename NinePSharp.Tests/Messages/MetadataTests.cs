@@ -32,7 +32,7 @@ public class MetadataTests : TestBase
     {
         ushort tag = 1;
         var stat = new Stat(0, 1, 0, new Qid(QidType.QTFILE, 0, 100), 0777, 0, 0, 0, "name", "uid", "gid", "muid");
-        uint size = NinePConstants.HeaderSize + (uint)stat.Size;
+        uint size = NinePConstants.HeaderSize + 2 + (uint)stat.Size;
         RoundTripTest<Rstat>(size, tag,
             buffer => new Rstat(buffer),
             msg => { Assert.Equal(stat.Name, msg.Stat.Name); },
@@ -40,6 +40,8 @@ public class MetadataTests : TestBase
                 var buf = new byte[size];
                 buf.AsSpan().WriteHeaders(size, tag, MessageTypes.Rstat);
                 int offset = NinePConstants.HeaderSize;
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(buf.AsSpan().Slice(offset, 2), stat.Size);
+                offset += 2;
                 stat.WriteTo(buf.AsSpan(), ref offset);
                 return new Rstat(buf);
             },
@@ -52,7 +54,7 @@ public class MetadataTests : TestBase
         ushort tag = 1;
         uint fid = 2;
         var stat = new Stat(0, 1, 0, new Qid(QidType.QTFILE, 0, 100), 0777, 0, 0, 0, "name", "uid", "gid", "muid");
-        uint size = NinePConstants.HeaderSize + 4 + (uint)stat.Size;
+        uint size = NinePConstants.HeaderSize + 4 + 2 + (uint)stat.Size;
         RoundTripTest<Twstat>(size, tag,
             buffer => new Twstat(buffer),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(stat.Name, msg.Stat.Name); },
@@ -61,6 +63,7 @@ public class MetadataTests : TestBase
                 buf.AsSpan().WriteHeaders(size, tag, MessageTypes.Twstat);
                 int offset = NinePConstants.HeaderSize;
                 System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan().Slice(offset, 4), fid); offset += 4;
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(buf.AsSpan().Slice(offset, 2), stat.Size); offset += 2;
                 stat.WriteTo(buf.AsSpan(), ref offset);
                 return new Twstat(buf);
             },

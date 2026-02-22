@@ -23,6 +23,7 @@ public class NinePFSDispatcher : INinePFSDispatcher
     private readonly ILogger<NinePFSDispatcher> _logger;
     private readonly IEnumerable<IProtocolBackend> _backends;
     private readonly IClusterManager _clusterManager;
+    private readonly TimeSpan _clusterTimeout = TimeSpan.FromSeconds(3);
     private readonly ConcurrentDictionary<uint, INinePFileSystem> _fids = new();
     private readonly ConcurrentDictionary<uint, SecureString> _authFids = new();
 
@@ -71,17 +72,34 @@ public class NinePFSDispatcher : INinePFSDispatcher
 
                 if (string.IsNullOrEmpty(t.Aname) || t.Aname == "/")
                 {
-                    _fids[t.Fid] = new RootFileSystem(_backends.ToList());
+                    _fids[t.Fid] = new RootFileSystem(_backends.ToList(), _clusterManager);
                     return new Rattach(t.Tag, new Qid(QidType.QTDIR, 0, 0));
                 }
 
                 var backend = _backends.FirstOrDefault(b => b.MountPath == t.Aname || b.MountPath == "/" + t.Aname || b.Name == t.Aname);
-                if (backend == null) throw new NinePProtocolException($"No backend found for aname '{t.Aname}'");
+                if (backend != null)
+                {
+                    var fs = backend.GetFileSystem(credentials);
+                    _fids[t.Fid] = fs;
+                    return new Rattach(t.Tag, new Qid(QidType.QTDIR, 0, 0));
+                }
 
-                var fs = backend.GetFileSystem(credentials);
-                _fids[t.Fid] = fs;
+                if (_clusterManager.Registry != null)
+                {
+                    var remotePath = t.Aname.StartsWith("/", StringComparison.Ordinal) ? t.Aname : "/" + t.Aname;
+                    var registryResponse = await _clusterManager.Registry.Ask<object>(new GetBackend(remotePath), _clusterTimeout);
+                    if (registryResponse is BackendFound found)
+                    {
+                        var sessionResponse = await found.Actor.Ask<object>(new SpawnSession(), _clusterTimeout);
+                        if (sessionResponse is SessionSpawned session)
+                        {
+                            _fids[t.Fid] = new RemoteFileSystem(session.Session);
+                            return new Rattach(t.Tag, new Qid(QidType.QTDIR, 0, 0));
+                        }
+                    }
+                }
 
-                return new Rattach(t.Tag, new Qid(QidType.QTDIR, 0, 0));
+                throw new NinePProtocolException($"No backend found for aname '{t.Aname}'");
             }
 
             if (message.IsMsgTwalk)

@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -56,12 +57,15 @@ namespace NinePSharp.Tests
             var mockVault = new Moq.Mock<ILuxVaultService>();
             var fs = new DatabaseFileSystem(config, mockVault.Object);
 
-            var tread1 = new Tread((ushort)1, 1u, 0uL, 30u); 
+            var fullRead = await fs.ReadAsync(new Tread((ushort)1, 1u, 0uL, 4096u));
+            Assert.NotEmpty(fullRead.Data.ToArray());
+
+            int firstEntrySize = BinaryPrimitives.ReadUInt16LittleEndian(fullRead.Data.Span.Slice(0, 2)) + 2;
+            Assert.True(firstEntrySize > 0);
+
+            var tread1 = new Tread((ushort)1, 1u, 0uL, (uint)firstEntrySize);
             var rread1 = await fs.ReadAsync(tread1);
-            
-            // Note: 30 bytes might be too small for a full Stat entry, 
-            // the FS implementation returns a slice regardless of entry boundaries.
-            Assert.NotEmpty(rread1.Data.ToArray());
+            Assert.Equal(firstEntrySize, rread1.Data.Length);
 
             var tread2 = new Tread((ushort)1, 1u, (ulong)rread1.Data.Length, 1000u);
             var rread2 = await fs.ReadAsync(tread2);

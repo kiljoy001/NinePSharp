@@ -1,35 +1,47 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
+using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Security;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EdjCase.JsonRpc.Client;
-using EdjCase.JsonRpc.Common;
 
 namespace NinePSharp.Server.Backends.JsonRpc;
 
 /// <summary>
-/// General-purpose JSON-RPC 2.0 transport backed by EdjCase.JsonRpc.Client.
+/// General-purpose JSON-RPC transport that accepts both JSON-RPC 1.0 and 2.0 envelopes.
 /// </summary>
 public class JsonRpcTransport : IJsonRpcTransport
 {
-    private readonly RpcClient _client;
+    private readonly HttpClient _httpClient;
     private static int _idCounter;
 
-    public JsonRpcTransport(string url, string user, string? password)
+    public JsonRpcTransport(string url, string user, string? password, HttpMessageHandler? handler = null)
     {
-        var builder = RpcClient.Builder(new Uri(url));
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            throw new ArgumentException("JSON-RPC endpoint URL must be provided.", nameof(url));
+        }
+
+        var client = handler is null
+            ? new HttpClient()
+            : new HttpClient(handler, disposeHandler: true);
+        client.BaseAddress = new Uri(url, UriKind.Absolute);
+        _httpClient = client;
 
         if (!string.IsNullOrEmpty(user))
         {
-            var encoded = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{user}:{password ?? ""}"));
-            builder = builder.UsingAuthHeader(new AuthenticationHeaderValue("Basic", encoded));
+            var encoded = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{user}:{password ?? string.Empty}"));
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", encoded);
         }
+    }
 
-        _client = builder.Build();
+    public JsonRpcTransport(HttpClient httpClient)
+    {
+        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
     }
 
     /// <summary>
@@ -37,18 +49,81 @@ public class JsonRpcTransport : IJsonRpcTransport
     /// </summary>
     public async Task<JsonNode?> CallAsync(string method, object?[]? args = null)
     {
-        var id = new RpcId(Interlocked.Increment(ref _idCounter));
+        var id = Interlocked.Increment(ref _idCounter);
+        object requestPayload = new
+        {
+            jsonrpc = "2.0",
+            method,
+            @params = args ?? Array.Empty<object?>(),
+            id
+        };
 
-        RpcRequest request = args == null || args.Length == 0
-            ? RpcRequest.WithNoParameters(method, id)
-            : RpcRequest.WithParameterList(method, new List<object?>(args!), id);
+        using var request = new HttpRequestMessage(HttpMethod.Post, string.Empty)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(requestPayload), Encoding.UTF8, "application/json")
+        };
 
-        var response = await _client.SendAsync<JsonNode?>(request);
+        using var httpResponse = await _httpClient.SendAsync(request);
+        string responseBody = await httpResponse.Content.ReadAsStringAsync();
 
-        if (response.HasError)
+        if (httpResponse.StatusCode != HttpStatusCode.OK)
+        {
             throw new InvalidOperationException(
-                $"JSON-RPC error {response.Error!.Code}: {response.Error.Message}");
+                $"The server returned an invalid status code of '{httpResponse.StatusCode}'. Response content: {responseBody}");
+        }
 
-        return response.Result;
+        JsonNode? envelope;
+        try
+        {
+            envelope = JsonNode.Parse(responseBody);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Unable to parse response from server: '{responseBody}'", ex);
+        }
+
+        if (envelope is not JsonObject responseObject)
+        {
+            throw new InvalidOperationException($"Unable to parse response from server: '{responseBody}'");
+        }
+
+        if (responseObject.TryGetPropertyValue("error", out JsonNode? errorNode) &&
+            errorNode is not null &&
+            errorNode.GetValueKind() != JsonValueKind.Null)
+        {
+            int code = -1;
+            string message = "Unknown JSON-RPC error";
+            if (errorNode is JsonObject errorObject)
+            {
+                if (errorObject.TryGetPropertyValue("code", out var codeNode) &&
+                    codeNode is not null &&
+                    codeNode.GetValueKind() == JsonValueKind.Number)
+                {
+                    if (codeNode is JsonValue codeValue)
+                    {
+                        _ = codeValue.TryGetValue<int>(out code);
+                    }
+                }
+
+                if (errorObject.TryGetPropertyValue("message", out var messageNode) &&
+                    messageNode is not null &&
+                    messageNode.GetValueKind() == JsonValueKind.String)
+                {
+                    if (messageNode is JsonValue messageValue)
+                    {
+                        message = messageValue.GetValue<string>() ?? message;
+                    }
+                }
+            }
+
+            throw new InvalidOperationException($"JSON-RPC error {code}: {message}");
+        }
+
+        if (!responseObject.TryGetPropertyValue("result", out JsonNode? resultNode))
+        {
+            throw new InvalidOperationException($"Unable to parse response from server: '{responseBody}'");
+        }
+
+        return resultNode?.DeepClone();
     }
 }

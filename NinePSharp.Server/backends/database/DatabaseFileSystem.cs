@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
@@ -99,17 +100,28 @@ public class DatabaseFileSystem : INinePFileSystem
                                  0755 | (uint)NinePConstants.FileMode9P.DMDIR, 0, 0, 0, 
                                  table, "scott", "scott", "scott");
                 
-                var entryBuffer = new byte[stat.Size + 2];
+                var entryBuffer = new byte[stat.Size];
                 int offset = 0;
                 stat.WriteTo(entryBuffer, ref offset);
-                entries.AddRange(entryBuffer.Take(offset));
+                entries.AddRange(entryBuffer);
             }
 
             var allData = entries.ToArray();
             if (tread.Offset >= (ulong)allData.Length) return new Rread(tread.Tag, Array.Empty<byte>());
-            
-            var chunk = allData.AsSpan((int)tread.Offset, (int)Math.Min((long)tread.Count, (long)allData.Length - (long)tread.Offset)).ToArray();
-            return new Rread(tread.Tag, chunk);
+
+            int totalToSend = 0;
+            int currentOffset = (int)tread.Offset;
+            while (currentOffset + 2 <= allData.Length)
+            {
+                int entrySize = BinaryPrimitives.ReadUInt16LittleEndian(allData.AsSpan(currentOffset, 2)) + 2;
+                if (entrySize <= 0 || currentOffset + entrySize > allData.Length) break;
+                if (totalToSend + entrySize > tread.Count) break;
+                totalToSend += entrySize;
+                currentOffset += entrySize;
+            }
+
+            if (totalToSend == 0) return new Rread(tread.Tag, Array.Empty<byte>());
+            return new Rread(tread.Tag, allData.AsMemory((int)tread.Offset, totalToSend).ToArray());
         }
 
         return new Rread(tread.Tag, Array.Empty<byte>());

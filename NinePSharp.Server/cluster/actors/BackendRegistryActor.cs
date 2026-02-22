@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using Akka.Actor;
 using Akka.Cluster;
 using Microsoft.Extensions.Logging;
@@ -22,26 +23,45 @@ public class BackendRegistryActor : ReceiveActor
 
         Receive<BackendRegistration>(msg =>
         {
-            _logger.LogInformation("Registering backend '{MountPath}' from {Sender}", msg.MountPath, Sender);
-            _backends = _backends.SetItem(msg.MountPath, msg.Handler);
+            RegisterBackend(msg.MountPath, msg.Handler, replicateToPeers: true, preserveLocalIfPresent: false);
+        });
+
+        Receive<ReplicatedBackendRegistration>(msg =>
+        {
+            RegisterBackend(msg.MountPath, msg.Handler, replicateToPeers: false, preserveLocalIfPresent: true);
         });
 
         Receive<ClusterEvent.MemberUp>(up =>
         {
             _logger.LogInformation("Member is Up: {Member}", up.Member);
-            // In a full impl, we'd sync registry state here
+            if (up.Member.Address == _cluster.SelfAddress)
+            {
+                return;
+            }
+
+            var remoteRegistry = Context.ActorSelection(new RootActorPath(up.Member.Address) / "user" / "registry");
+            foreach (var backend in _backends)
+            {
+                remoteRegistry.Tell(new ReplicatedBackendRegistration(backend.Key, backend.Value));
+            }
         });
         
         Receive<GetBackend>(req =>
         {
-            if (_backends.TryGetValue(req.MountPath, out var refActor))
+            var normalizedPath = NormalizeMountPath(req.MountPath);
+            if (_backends.TryGetValue(normalizedPath, out var refActor))
             {
-                Sender.Tell(new BackendFound(req.MountPath, refActor));
+                Sender.Tell(new BackendFound(normalizedPath, refActor));
             }
             else
             {
-                Sender.Tell(new BackendNotFound(req.MountPath));
+                Sender.Tell(new BackendNotFound(normalizedPath));
             }
+        });
+
+        Receive<GetBackends>(_ =>
+        {
+            Sender.Tell(new BackendsSnapshot(_backends.Keys.OrderBy(k => k).ToArray()));
         });
     }
 
@@ -53,6 +73,51 @@ public class BackendRegistryActor : ReceiveActor
     protected override void PostStop()
     {
         _cluster.Unsubscribe(Self);
+    }
+
+    private void RegisterBackend(string mountPath, IActorRef handler, bool replicateToPeers, bool preserveLocalIfPresent)
+    {
+        var normalizedPath = NormalizeMountPath(mountPath);
+        if (string.IsNullOrWhiteSpace(normalizedPath))
+        {
+            return;
+        }
+
+        if (preserveLocalIfPresent &&
+            _backends.TryGetValue(normalizedPath, out var existing) &&
+            IsLocalActor(existing))
+        {
+            return;
+        }
+
+        _logger.LogInformation("Registering backend '{MountPath}' from {Sender}", normalizedPath, Sender);
+        _backends = _backends.SetItem(normalizedPath, handler);
+
+        if (!replicateToPeers)
+        {
+            return;
+        }
+
+        foreach (var member in _cluster.State.Members.Where(m => m.Status == MemberStatus.Up && m.Address != _cluster.SelfAddress))
+        {
+            var remoteRegistry = Context.ActorSelection(new RootActorPath(member.Address) / "user" / "registry");
+            remoteRegistry.Tell(new ReplicatedBackendRegistration(normalizedPath, handler));
+        }
+    }
+
+    private bool IsLocalActor(IActorRef actorRef)
+    {
+        return actorRef.Path.Address == _cluster.SelfAddress || string.IsNullOrEmpty(actorRef.Path.Address.Host);
+    }
+
+    private static string NormalizeMountPath(string mountPath)
+    {
+        if (string.IsNullOrWhiteSpace(mountPath))
+        {
+            return "/";
+        }
+
+        return mountPath.StartsWith("/") ? mountPath : "/" + mountPath;
     }
 }
 
@@ -77,4 +142,28 @@ public class BackendNotFound
 {
     public string MountPath { get; }
     public BackendNotFound(string path) => MountPath = path;
+}
+
+public class GetBackends {}
+
+public class BackendsSnapshot
+{
+    public IReadOnlyList<string> MountPaths { get; }
+
+    public BackendsSnapshot(IReadOnlyList<string> mountPaths)
+    {
+        MountPaths = mountPaths;
+    }
+}
+
+public class ReplicatedBackendRegistration
+{
+    public string MountPath { get; }
+    public IActorRef Handler { get; }
+
+    public ReplicatedBackendRegistration(string mountPath, IActorRef handler)
+    {
+        MountPath = mountPath;
+        Handler = handler;
+    }
 }

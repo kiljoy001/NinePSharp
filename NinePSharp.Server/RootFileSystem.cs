@@ -1,26 +1,32 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security;
 using System.Threading.Tasks;
+using Akka.Actor;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
 using NinePSharp.Constants;
 using NinePSharp.Server.Interfaces;
-using System.IO;
+using NinePSharp.Server.Cluster;
+using NinePSharp.Server.Cluster.Actors;
 
 namespace NinePSharp.Server;
 
 internal class RootFileSystem : INinePFileSystem
 {
     private readonly List<IProtocolBackend> _backends;
+    private readonly IClusterManager? _clusterManager;
+    private readonly TimeSpan _clusterTimeout = TimeSpan.FromSeconds(3);
     private INinePFileSystem? _delegatedFs;
 
     public bool DotU { get; set; }
 
-    public RootFileSystem(List<IProtocolBackend> backends)
+    public RootFileSystem(List<IProtocolBackend> backends, IClusterManager? clusterManager = null)
     {
         _backends = backends;
+        _clusterManager = clusterManager;
     }
 
     public async Task<Rwalk> WalkAsync(Twalk twalk)
@@ -33,6 +39,35 @@ internal class RootFileSystem : INinePFileSystem
         // Try to find a backend that matches the first element of the walk
         var name = twalk.Wname[0];
         var backend = _backends.FirstOrDefault(b => b.MountPath.Trim('/') == name);
+
+        if (backend == null && _clusterManager?.Registry != null)
+        {
+            var mountPath = "/" + name;
+            var registryResponse = await _clusterManager.Registry.Ask<object>(new GetBackend(mountPath), _clusterTimeout);
+            if (registryResponse is BackendFound found)
+            {
+                var sessionResponse = await found.Actor.Ask<object>(new SpawnSession(), _clusterTimeout);
+                if (sessionResponse is SessionSpawned session)
+                {
+                    _delegatedFs = new RemoteFileSystem(session.Session) { DotU = DotU };
+
+                    var qid = new Qid(QidType.QTDIR, 0, (ulong)name.GetHashCode());
+                    var qids = new List<Qid> { qid };
+
+                    if (twalk.Wname.Length > 1)
+                    {
+                        var subWalk = new Twalk(twalk.Tag, twalk.Fid, twalk.NewFid, twalk.Wname.Skip(1).ToArray());
+                        var subResponse = await _delegatedFs.WalkAsync(subWalk);
+                        if (subResponse.Wqid != null)
+                        {
+                            qids.AddRange(subResponse.Wqid);
+                        }
+                    }
+
+                    return new Rwalk(twalk.Tag, qids.ToArray());
+                }
+            }
+        }
 
         if (backend != null)
         {
@@ -68,24 +103,63 @@ internal class RootFileSystem : INinePFileSystem
     {
         if (_delegatedFs != null) return await _delegatedFs.ReadAsync(tread);
 
-        var entries = new List<byte>();
+        var mountNames = new HashSet<string>(StringComparer.Ordinal);
+
         foreach (var backend in _backends)
         {
             var name = backend.MountPath.Trim('/');
             if (string.IsNullOrEmpty(name)) continue;
+            mountNames.Add(name);
+        }
+
+        if (_clusterManager?.Registry != null)
+        {
+            try
+            {
+                var response = await _clusterManager.Registry.Ask<object>(new GetBackends(), _clusterTimeout);
+                if (response is BackendsSnapshot snapshot)
+                {
+                    foreach (var mountPath in snapshot.MountPaths)
+                    {
+                        var name = mountPath.Trim('/');
+                        if (string.IsNullOrEmpty(name)) continue;
+                        mountNames.Add(name);
+                    }
+                }
+            }
+            catch
+            {
+                // Best-effort federation listing; root should still serve local mounts.
+            }
+        }
+
+        var entries = new List<byte>();
+        foreach (var name in mountNames.OrderBy(n => n, StringComparer.Ordinal))
+        {
             var stat = new Stat(0, 0, 0, new Qid(QidType.QTDIR, 0, (ulong)name.GetHashCode()), 0755 | (uint)NinePConstants.FileMode9P.DMDIR, 0, 0, 0, name, "scott", "scott", "scott", dotu: DotU);
-            
-            var entryBuffer = new byte[stat.Size + 2];
+
+            var entryBuffer = new byte[stat.Size];
             int offset = 0;
             stat.WriteTo(entryBuffer, ref offset);
-            entries.AddRange(entryBuffer.Take(offset));
+            entries.AddRange(entryBuffer);
         }
 
         var allData = entries.ToArray();
         if (tread.Offset >= (ulong)allData.Length) return new Rread(tread.Tag, Array.Empty<byte>());
-        
-        var chunk = allData.AsSpan((int)tread.Offset, (int)Math.Min((long)tread.Count, (long)allData.Length - (long)tread.Offset)).ToArray();
-        return new Rread(tread.Tag, chunk);
+
+        int totalToSend = 0;
+        int currentOffset = (int)tread.Offset;
+        while (currentOffset + 2 <= allData.Length)
+        {
+            int entrySize = BinaryPrimitives.ReadUInt16LittleEndian(allData.AsSpan(currentOffset, 2)) + 2;
+            if (entrySize <= 0 || currentOffset + entrySize > allData.Length) break;
+            if (totalToSend + entrySize > tread.Count) break;
+            totalToSend += entrySize;
+            currentOffset += entrySize;
+        }
+
+        if (totalToSend == 0) return new Rread(tread.Tag, Array.Empty<byte>());
+        return new Rread(tread.Tag, allData.AsMemory((int)tread.Offset, totalToSend).ToArray());
     }
 
     public async Task<Rstat> StatAsync(Tstat tstat)
@@ -109,7 +183,7 @@ internal class RootFileSystem : INinePFileSystem
 
     public INinePFileSystem Clone()
     {
-        var clone = new RootFileSystem(_backends) { DotU = this.DotU };
+        var clone = new RootFileSystem(_backends, _clusterManager) { DotU = this.DotU };
         if (_delegatedFs != null) clone._delegatedFs = _delegatedFs.Clone();
         return clone;
     }
