@@ -26,6 +26,9 @@ using NinePSharp.Server.Utils;
 
 public class Program
 {
+    internal static void CleanupVaultsOnStartup() => LuxVault.CleanupVaults();
+    internal static void CleanupVaultsOnShutdown() => LuxVault.CleanupVaults();
+
     private static SecureString Generate64BitSecureSeed()
     {
         byte[] seedBytes = new byte[8]; // 64 bits
@@ -71,7 +74,7 @@ public class Program
         ProcessHardening.Apply();
 
         // 0. Cleanup vaults on startup
-        LuxVault.CleanupVaults();
+        CleanupVaultsOnStartup();
 
         // 1. Generate 64-bit seed and wrap in SecureString
         using SecureString secureSeed = Generate64BitSecureSeed();
@@ -150,7 +153,7 @@ public class Program
         }
         finally {
             // Cleanup vaults on shutdown
-            LuxVault.CleanupVaults();
+            CleanupVaultsOnShutdown();
         }
     }
 }
