@@ -17,11 +17,13 @@ Reference upstream:
 
 ## diod (9P2000.L Related Material)
 
-This project may include logic informed by the diod project, especially around 9P2000.L-related behavior.
+This project implements 9P2000.L behavior and may be conceptually informed by the diod project.
 
 Important:
-- If any code is directly copied or adapted from diod, those files must retain diod's upstream license obligations.
 - The upstream diod distribution includes GPLv2 licensing material.
+- A provenance audit was run on February 22, 2026 against `diod-1.0.24` and found no evidence of direct code copy into current `NinePSharp`, `NinePSharp.Parser`, and `NinePSharp.Server` C#/F# sources.
+- If any future code is copied or adapted from diod, that code must keep upstream notices and GPLv2 obligations in the affected files/package.
+- Reproducible check: `scripts/audit_diod_provenance.sh`
 
 Reference upstream:
 - https://github.com/chaos/diod
