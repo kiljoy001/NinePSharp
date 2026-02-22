@@ -10,6 +10,7 @@
     <ProjectReference Include="..\NinePSharp.Backends.Websocket\NinePSharp.Backends.Websocket.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.Mqtt\NinePSharp.Backends.Mqtt.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.Rest\NinePSharp.Backends.Rest.csproj" />
+    <ProjectReference Include="..\NinePSharp.Backends.Soap\NinePSharp.Backends.Soap.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -47,7 +48,5 @@
     <PackageReference Include="Solnet.Rpc" Version="6.1.0" />
     <PackageReference Include="Solnet.Wallet" Version="6.1.0" />
     <PackageReference Include="stellar-dotnet-sdk" Version="14.0.1" />
-    <PackageReference Include="System.ServiceModel.Http" Version="10.0.652802" />
-    <PackageReference Include="System.ServiceModel.Primitives" Version="10.0.652802" />
   </ItemGroup>
 </Project>
