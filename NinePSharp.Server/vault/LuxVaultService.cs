@@ -8,6 +8,8 @@ namespace NinePSharp.Server.Utils
 {
     public class LuxVaultService : ILuxVaultService
     {
+        public string GetVaultPath(string fileName) => LuxVault.GetVaultPath(fileName);
+
         public string GenerateHiddenId(byte[] seed) => LuxVault.GenerateHiddenId(seed);
         
         public byte[] DeriveSeed(string password, byte[] nonce) => LuxVault.DeriveSeed(password, nonce);

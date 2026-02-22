@@ -5,6 +5,8 @@ namespace NinePSharp.Server.Interfaces;
 
 public interface ILuxVaultService
 {
+    string GetVaultPath(string fileName);
+
     // Hidden ID generation (Secret Pointers)
     string GenerateHiddenId(byte[] seed);
     byte[] DeriveSeed(string password, byte[] nonce);

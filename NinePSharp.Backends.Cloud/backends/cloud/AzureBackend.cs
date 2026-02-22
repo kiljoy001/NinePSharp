@@ -69,7 +69,7 @@ public class AzureBackend : IProtocolBackend
         {
             var seed = _vault.DeriveSeed(_config.VaultKey, Encoding.UTF8.GetBytes(_config.VaultKey));
             var hiddenId = _vault.GenerateHiddenId(seed);
-            var vaultFile = LuxVault.GetVaultPath($"az_creds_{hiddenId}.vlt");
+            var vaultFile = _vault.GetVaultPath($"az_creds_{hiddenId}.vlt");
             
             if (System.IO.File.Exists(vaultFile))
             {
