@@ -20,8 +20,8 @@ public readonly struct Twstat : ISerializable
         Tag = tag;
         Fid = fid;
         Stat = stat;
-        // Header(7) + fid[4] + n[2] + Stat.Size
-        Size = (uint)(NinePConstants.HeaderSize + 4 + 2 + Stat.Size);
+        // Standard 9P2000 framing: Header(7) + fid[4] + stat[n]
+        Size = (uint)(NinePConstants.HeaderSize + 4 + Stat.Size);
     }
 
     public Twstat(ReadOnlySpan<byte> data)
@@ -32,9 +32,7 @@ public readonly struct Twstat : ISerializable
         int offset = NinePConstants.HeaderSize;
         Fid = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
         offset += 4;
-        
-        // Skip redundant n[2]
-        offset += 2;
+
         Stat = new Stat(data, ref offset);
     }
 
@@ -45,11 +43,7 @@ public readonly struct Twstat : ISerializable
 
         BinaryPrimitives.WriteUInt32LittleEndian(data.Slice(offset, 4), Fid);
         offset += 4;
-        
-        // Write redundant n[2]
-        BinaryPrimitives.WriteUInt16LittleEndian(data.Slice(offset, 2), Stat.Size);
-        offset += 2;
-        
+
         Stat.WriteTo(data, ref offset);
     }
 }

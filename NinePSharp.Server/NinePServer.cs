@@ -54,14 +54,18 @@ public class NinePServer : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _logger.LogInformation("NinePServer.ExecuteAsync started.");
         try 
         {
             // Start Cluster
+            _logger.LogInformation("Starting ClusterManager...");
             _clusterManager.Start();
+            _logger.LogInformation("ClusterManager started.");
 
-            _logger.LogInformation("Initializing 9P translation backends...");
+            _logger.LogInformation("Starting backend initialization loop. Total backends: {Count}", _backends.Count());
             foreach (var backend in _backends)
             {
+                _logger.LogInformation("Initializing backend: {Name}", backend.Name);
                 try
                 {
                     var section = _configuration.GetSection($"Server:{backend.Name}");
@@ -70,6 +74,7 @@ public class NinePServer : BackgroundService
                     
                     if (_clusterManager.Registry != null)
                     {
+                        _logger.LogInformation("Registering backend actor for {Name}...", backend.Name);
                         var backendActor = _clusterManager.System!.ActorOf(Props.Create(() => new Cluster.Actors.BackendSupervisorActor(backend)), $"backend-{backend.Name}");
                         _clusterManager.Registry.Tell(new BackendRegistration(backend.MountPath, backendActor));
                     }
@@ -79,6 +84,15 @@ public class NinePServer : BackgroundService
                     _logger.LogError(ex, "Failed to initialize backend '{BackendName}'", backend.Name);
                 }
             }
+            _logger.LogInformation("Backend initialization loop finished.");
+
+            _logger.LogInformation("Checking configuration for endpoints...");
+            if (_config.Endpoints == null)
+            {
+                _logger.LogCritical("Server:Endpoints section is missing from configuration!");
+                return;
+            }
+            _logger.LogInformation("Endpoints count: {Count}", _config.Endpoints.Count);
 
             var endpoint = _config.Endpoints.Count > 0 
                 ? _config.Endpoints[0] 

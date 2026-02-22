@@ -10,6 +10,7 @@ using Amazon.S3.Model;
 using Amazon.SecretsManager;
 using Amazon.SecretsManager.Model;
 using Moq;
+using NinePSharp.Constants;
 using NinePSharp.Messages;
 using NinePSharp.Server.Backends.Cloud;
 using NinePSharp.Server.Configuration.Models;
@@ -43,11 +44,12 @@ public class CloudBackendTests
         
         // Act: Read root directory
         var read = await fs.ReadAsync(new Tread(1, 0, 0, 8192));
-        var content = Encoding.UTF8.GetString(read.Data.ToArray());
+        var entries = ParseDirectory(read.Data.ToArray());
 
         // Assert
-        Assert.Contains("bucket1/", content);
-        Assert.Contains("bucket2/", content);
+        Assert.Contains(entries, s => s.Name == "bucket1");
+        Assert.Contains(entries, s => s.Name == "bucket2");
+        Assert.All(entries, s => Assert.Equal(QidType.QTDIR, s.Qid.Type));
     }
 
     [Fact]
@@ -124,5 +126,17 @@ public class CloudBackendTests
 
         // Assert
         Assert.Equal(secretValue, result);
+    }
+
+    private static List<Stat> ParseDirectory(byte[] data)
+    {
+        var stats = new List<Stat>();
+        int offset = 0;
+        while (offset < data.Length)
+        {
+            stats.Add(new Stat(data, ref offset));
+        }
+
+        return stats;
     }
 }

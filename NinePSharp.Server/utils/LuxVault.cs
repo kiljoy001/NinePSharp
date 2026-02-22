@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security;
@@ -11,7 +12,7 @@ namespace NinePSharp.Server.Utils
 {
     public static class LuxVault
     {
-        public const string VaultDirectory = "vaults";
+        public static readonly string VaultDirectory = Path.Combine(AppContext.BaseDirectory, "vaults");
         private const int KeySize = 32;
 
         private static readonly SecureMemoryArena Arena = new(1024 * 1024); // 1MB Secure Arena
@@ -50,6 +51,7 @@ namespace NinePSharp.Server.Utils
             {
                 try { Directory.Delete(VaultDirectory, true); } catch { /* Ignore */ }
             }
+            try { Directory.CreateDirectory(VaultDirectory); } catch { /* Ignore */ }
         }
 
         private const int NonceSize = 24; 
@@ -174,6 +176,15 @@ namespace NinePSharp.Server.Utils
             });
         }
 
+        public static byte[] DeriveSeed(ReadOnlySpan<byte> passwordBytes, ReadOnlySpan<byte> nonce)
+        {
+            using (var rawSeed = new SecureBuffer(KeySize))
+            {
+                Rfc2898DeriveBytes.Pbkdf2(passwordBytes, nonce, rawSeed.Span, Iterations, HashAlgorithmName.SHA256);
+                return MixSessionKey(rawSeed.Span);
+            }
+        }
+
         private static void DeriveKeyFromPassword(string password, ReadOnlySpan<byte> salt, byte[] outKey)
         {
             using (var key = new SecureBuffer(KeySize))
@@ -200,6 +211,18 @@ namespace NinePSharp.Server.Utils
                     return true;
                 }
             });
+        }
+
+        private static void DeriveKeyFromPasswordBytes(ReadOnlySpan<byte> passwordBytes, ReadOnlySpan<byte> salt, byte[] outKey)
+        {
+            using (var key = new SecureBuffer(KeySize))
+            {
+                Rfc2898DeriveBytes.Pbkdf2(passwordBytes, salt, key.Span, Iterations, HashAlgorithmName.SHA256);
+
+                var mixed = MixSessionKey(key.Span);
+                mixed.CopyTo(outKey, 0);
+                Array.Clear(mixed);
+            }
         }
 
         private static void DeriveKeyFromBytes(ReadOnlySpan<byte> keyMaterial, ReadOnlySpan<byte> salt, byte[] outKey)
@@ -234,7 +257,10 @@ namespace NinePSharp.Server.Utils
             RandomNumberGenerator.Fill(salt);
             using (var key = new SecureBuffer(KeySize))
             {
-                DeriveKeyFromPassword(password, salt, key.Span.ToArray());
+                byte[] keyBytes = new byte[KeySize];
+                DeriveKeyFromPassword(password, salt, keyBytes);
+                keyBytes.AsSpan().CopyTo(key.Span);
+                Array.Clear(keyBytes);
                 return EncryptInternal(plaintextBytes, key.Span, salt);
             }
         }
@@ -247,7 +273,10 @@ namespace NinePSharp.Server.Utils
             RandomNumberGenerator.Fill(salt);
             using (var key = new SecureBuffer(KeySize))
             {
-                DeriveKeyFromSecureString(password, salt, key.Span.ToArray());
+                byte[] keyBytes = new byte[KeySize];
+                DeriveKeyFromSecureString(password, salt, keyBytes);
+                keyBytes.AsSpan().CopyTo(key.Span);
+                Array.Clear(keyBytes);
                 return EncryptInternal(plaintextBytes, key.Span, salt);
             }
         }
@@ -258,7 +287,10 @@ namespace NinePSharp.Server.Utils
             RandomNumberGenerator.Fill(salt);
             using (var key = new SecureBuffer(KeySize))
             {
-                DeriveKeyFromBytes(keyMaterial, salt, key.Span.ToArray());
+                byte[] keyBytes = new byte[KeySize];
+                DeriveKeyFromBytes(keyMaterial, salt, keyBytes);
+                keyBytes.AsSpan().CopyTo(key.Span);
+                Array.Clear(keyBytes);
                 return EncryptInternal(plaintext, key.Span, salt);
             }
         }
@@ -292,7 +324,10 @@ namespace NinePSharp.Server.Utils
             if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
             using (var key = new SecureBuffer(KeySize))
             {
-                DeriveKeyFromPassword(password, payload.AsSpan(0, SaltSize), key.Span.ToArray());
+                byte[] keyBytes = new byte[KeySize];
+                DeriveKeyFromPassword(password, payload.AsSpan(0, SaltSize), keyBytes);
+                keyBytes.AsSpan().CopyTo(key.Span);
+                Array.Clear(keyBytes);
                 return DecryptInternal(payload, key.Span);
             }
         }
@@ -302,7 +337,10 @@ namespace NinePSharp.Server.Utils
             if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
             using (var key = new SecureBuffer(KeySize))
             {
-                DeriveKeyFromSecureString(password, payload.AsSpan(0, SaltSize), key.Span.ToArray());
+                byte[] keyBytes = new byte[KeySize];
+                DeriveKeyFromSecureString(password, payload.AsSpan(0, SaltSize), keyBytes);
+                keyBytes.AsSpan().CopyTo(key.Span);
+                Array.Clear(keyBytes);
                 return DecryptInternal(payload, key.Span);
             }
         }
@@ -312,8 +350,72 @@ namespace NinePSharp.Server.Utils
             if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
             using (var key = new SecureBuffer(KeySize))
             {
-                DeriveKeyFromBytes(keyMaterial, payload.AsSpan(0, SaltSize), key.Span.ToArray());
+                byte[] keyBytes = new byte[KeySize];
+                DeriveKeyFromBytes(keyMaterial, payload.AsSpan(0, SaltSize), keyBytes);
+                keyBytes.AsSpan().CopyTo(key.Span);
+                Array.Clear(keyBytes);
                 return DecryptInternal(payload, key.Span);
+            }
+        }
+
+        public static byte[]? DecryptToBytesWithPasswordBytes(byte[] payload, ReadOnlySpan<byte> passwordBytes)
+        {
+            if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
+            using (var key = new SecureBuffer(KeySize))
+            {
+                byte[] keyBytes = new byte[KeySize];
+                DeriveKeyFromPasswordBytes(passwordBytes, payload.AsSpan(0, SaltSize), keyBytes);
+                keyBytes.AsSpan().CopyTo(key.Span);
+                Array.Clear(keyBytes);
+                return DecryptInternal(payload, key.Span);
+            }
+        }
+
+        public static void StoreSecret(string name, byte[] plaintext, SecureString password)
+        {
+            var encrypted = Encrypt(plaintext, password);
+            var seed = DeriveSeed(password, Encoding.UTF8.GetBytes(name));
+            var hiddenId = GenerateHiddenId(seed);
+            var path = GetVaultPath($"secret_{hiddenId}.vlt");
+            File.WriteAllBytes(path, encrypted);
+            Array.Clear(seed);
+        }
+
+        public static byte[]? LoadSecret(string name, SecureString password)
+        {
+            var seed = DeriveSeed(password, Encoding.UTF8.GetBytes(name));
+            try
+            {
+                var hiddenId = GenerateHiddenId(seed);
+                var path = GetVaultPath($"secret_{hiddenId}.vlt");
+                if (!File.Exists(path)) return null;
+
+                var encrypted = File.ReadAllBytes(path);
+                return DecryptToBytes(encrypted, password);
+            }
+            finally
+            {
+                Array.Clear(seed);
+            }
+        }
+
+        public static byte[]? LoadSecret(string name, ReadOnlySpan<byte> passwordBytes)
+        {
+            byte[] nameBytes = Encoding.UTF8.GetBytes(name);
+            var seed = DeriveSeed(passwordBytes, nameBytes);
+            try
+            {
+                var hiddenId = GenerateHiddenId(seed);
+                var path = GetVaultPath($"secret_{hiddenId}.vlt");
+                if (!File.Exists(path)) return null;
+
+                var encrypted = File.ReadAllBytes(path);
+                return DecryptToBytesWithPasswordBytes(encrypted, passwordBytes);
+            }
+            finally
+            {
+                Array.Clear(nameBytes);
+                Array.Clear(seed);
             }
         }
 

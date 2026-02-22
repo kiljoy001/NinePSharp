@@ -97,6 +97,7 @@ public class EthereumFileSystem : INinePFileSystem
                 files.Add(("create", QidType.QTFILE));
                 files.Add(("import", QidType.QTFILE));
                 files.Add(("unlock", QidType.QTFILE));
+                files.Add(("status", QidType.QTFILE));
             }
             else if (_currentPath[0] == "contracts")
             {
@@ -128,14 +129,34 @@ public class EthereumFileSystem : INinePFileSystem
             }
             else if (last == "status")
             {
-                var bal = await _web3.Eth.GetBalance.SendRequestAsync(_config.DefaultAccount);
-                result = $"Connected to: {_config.RpcUrl}\nDefault Account: {_config.DefaultAccount}\nBalance: {Web3.Convert.FromWei(bal.Value)} ETH\n";
-                if (_trackedTxs.Any())
+                if (_currentPath.Count > 0 && _currentPath[0] == "wallets")
                 {
-                    result += "\nTracked Transactions:\n";
-                    foreach (var tx in _trackedTxs)
+                    result = _unlockedAccount != null ? $"Unlocked: {_unlockedAccount}\n" : "Locked\n";
+                }
+                else
+                {
+                    try
                     {
-                        result += $"{tx.Key}: {tx.Value}\n";
+                        var bal = await _web3.Eth.GetBalance.SendRequestAsync(_config.DefaultAccount);
+                        result = $"Connected to: {_config.RpcUrl}\nDefault Account: {_config.DefaultAccount}\nBalance: {Web3.Convert.FromWei(bal.Value)} ETH\n";
+                    }
+                    catch (Exception ex)
+                    {
+                        result = $"Connected to: {_config.RpcUrl}\nDefault Account: {_config.DefaultAccount}\nBalance: unavailable ({ex.Message})\n";
+                    }
+
+                    if (_unlockedAccount != null)
+                    {
+                        result += $"Unlocked: {_unlockedAccount}\n";
+                    }
+
+                    if (_trackedTxs.Any())
+                    {
+                        result += "\nTracked Transactions:\n";
+                        foreach (var tx in _trackedTxs)
+                        {
+                            result += $"{tx.Key}: {tx.Value}\n";
+                        }
                     }
                 }
             }

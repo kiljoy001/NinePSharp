@@ -13,19 +13,26 @@ namespace NinePSharp.Tests
         {
             byte[] seed = new byte[32];
             RandomNumberGenerator.Fill(seed);
-            
-            byte[] seedCopy = (byte[])seed.Clone();
+
+            // Monocypher's crypto_elligator_key_pair mutates (wipes) the provided seed.
+            // Use two independent copies so we can still test determinism.
+            byte[] seedForFirst = (byte[])seed.Clone();
+            byte[] seedForSecond = (byte[])seed.Clone();
 
             byte[] h1 = new byte[32];
             byte[] s1 = new byte[32];
-            MonocypherNative.crypto_elligator_key_pair(h1, s1, seed);
+            MonocypherNative.crypto_elligator_key_pair(h1, s1, seedForFirst);
 
             byte[] h2 = new byte[32];
             byte[] s2 = new byte[32];
-            MonocypherNative.crypto_elligator_key_pair(h2, s2, seed);
+            MonocypherNative.crypto_elligator_key_pair(h2, s2, seedForSecond);
 
-            Assert.Equal(seedCopy, seed); // Ensure seed was NOT mutated
             Assert.Equal(h1, h2);
+            Assert.Equal(s1, s2);
+
+            // Native function should wipe seed buffers after use.
+            Assert.All(seedForFirst, b => Assert.Equal(0, b));
+            Assert.All(seedForSecond, b => Assert.Equal(0, b));
         }
     }
 }

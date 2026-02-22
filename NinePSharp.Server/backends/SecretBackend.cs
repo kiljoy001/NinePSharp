@@ -1,13 +1,14 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Buffers.Binary;
 using System.Security;
-using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
 using NinePSharp.Constants;
@@ -20,15 +21,19 @@ namespace NinePSharp.Server.Backends;
 
 public class SecretFileSystem : INinePFileSystem
 {
+    private readonly ILogger _logger;
     private readonly SecretBackendConfig _config;
     private readonly ILuxVaultService _vault;
     private List<string> _currentPath = new();
-    private Dictionary<string, ProtectedSecret> _decryptedSecrets = new();
+
+    // Session passwords are shared across CLI-style short-lived connections.
+    private static readonly ConcurrentDictionary<string, ProtectedSecret> _sessionPasswords = new();
 
     public bool DotU { get; set; }
 
-    public SecretFileSystem(SecretBackendConfig config, ILuxVaultService vault)
+    public SecretFileSystem(ILogger logger, SecretBackendConfig config, ILuxVaultService vault)
     {
+        _logger = logger;
         _config = config;
         _vault = vault;
     }
@@ -72,8 +77,6 @@ public class SecretFileSystem : INinePFileSystem
 
     public async Task<Rread> ReadAsync(Tread tread)
     {
-        byte[] allData;
-
         if (IsDirectory(_currentPath))
         {
             var entries = new List<byte>();
@@ -87,7 +90,7 @@ public class SecretFileSystem : INinePFileSystem
             }
             else if (_currentPath[0] == "vault")
             {
-                foreach (var s in _decryptedSecrets.Keys) files.Add((s, QidType.QTFILE));
+                foreach (var s in _sessionPasswords.Keys) files.Add((s, QidType.QTFILE));
             }
 
             foreach (var f in files)
@@ -96,52 +99,45 @@ public class SecretFileSystem : INinePFileSystem
                 var mode = f.Type == QidType.QTDIR ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0600;
                 var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott", dotu: DotU);
                 
-                var entryBuffer = new byte[stat.Size];
+                var entryBuffer = new byte[stat.Size + 2];
                 int offset = 0;
                 stat.WriteTo(entryBuffer, ref offset);
-                entries.AddRange(entryBuffer);
+                entries.AddRange(entryBuffer.Take(offset));
             }
-            allData = entries.ToArray();
 
-            int totalToSend = 0;
-            int curOff = (int)tread.Offset;
-            while (curOff + 2 <= allData.Length)
-            {
-                ushort sz = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(allData.AsSpan(curOff, 2)) + 2);
-                if (totalToSend + sz > tread.Count) break;
-                totalToSend += sz;
-                curOff += sz;
-            }
-            
-            if (totalToSend == 0) return new Rread(tread.Tag, Array.Empty<byte>());
-            return new Rread(tread.Tag, allData.AsMemory((int)tread.Offset, totalToSend).ToArray());
+            var allData = entries.ToArray();
+            if (tread.Offset >= (ulong)allData.Length) return new Rread(tread.Tag, Array.Empty<byte>());
+            var chunk = allData.AsSpan((int)tread.Offset, (int)Math.Min((long)tread.Count, (long)allData.Length - (long)tread.Offset)).ToArray();
+            return new Rread(tread.Tag, chunk);
         }
-        else if (_currentPath.Count == 2 && _currentPath[0] == "vault")
+
+        if (_currentPath.Count == 2 && _currentPath[0] == "vault")
         {
+            var secretName = _currentPath[1];
             byte[]? secretBytes = null;
-            if (_decryptedSecrets.TryGetValue(_currentPath[1], out var protectedSecret))
+
+            if (_sessionPasswords.TryGetValue(secretName, out var protectedPassword))
             {
-                protectedSecret.Use(bytes => secretBytes = bytes.ToArray());
+                protectedPassword.Use(passwordBytes => {
+                    secretBytes = LuxVault.LoadSecret(secretName, passwordBytes);
+                });
             }
-            
+
             if (secretBytes == null) return new Rread(tread.Tag, Array.Empty<byte>());
-            
-            try {
+
+            try
+            {
                 if (tread.Offset >= (ulong)secretBytes.Length) return new Rread(tread.Tag, Array.Empty<byte>());
-                allData = secretBytes.AsSpan((int)tread.Offset, (int)Math.Min((long)tread.Count, (long)secretBytes.Length - (long)tread.Offset)).ToArray();
-                return new Rread(tread.Tag, allData);
+                var chunk = secretBytes.AsSpan((int)tread.Offset, (int)Math.Min((long)tread.Count, (long)secretBytes.Length - (long)tread.Offset)).ToArray();
+                return new Rread(tread.Tag, chunk);
             }
-            finally {
-                if (secretBytes != null) Array.Clear(secretBytes);
+            finally
+            {
+                Array.Clear(secretBytes);
             }
-        }
-        else {
-            allData = Array.Empty<byte>();
         }
 
-        if (tread.Offset >= (ulong)allData.Length) return new Rread(tread.Tag, Array.Empty<byte>());
-        var chunk = allData.AsSpan((int)tread.Offset, (int)Math.Min((long)tread.Count, (long)allData.Length - (long)tread.Offset)).ToArray();
-        return new Rread(tread.Tag, chunk);
+        return new Rread(tread.Tag, Array.Empty<byte>());
     }
 
     public async Task<Rwrite> WriteAsync(Twrite twrite)
@@ -156,7 +152,7 @@ public class SecretFileSystem : INinePFileSystem
             {
                 case (1, "provision"):
                 {
-                    var parts = input.Split(':', 3);
+                    var parts = input.Split(':').Select(p => p.Trim()).ToArray();
                     if (parts.Length == 3)
                     {
                         using var password = new SecureString();
@@ -166,14 +162,13 @@ public class SecretFileSystem : INinePFileSystem
                         var name = parts[1];
                         var payload = Encoding.UTF8.GetBytes(parts[2]);
 
-                        try {
-                            var encrypted = _vault.Encrypt(payload, password);
-                            var seed = _vault.DeriveSeed(password, Encoding.UTF8.GetBytes(name));
-                            var hiddenId = _vault.GenerateHiddenId(seed);
-
-                            File.WriteAllBytes($"secret_{hiddenId}.vlt", encrypted);
+                        try
+                        {
+                            LuxVault.StoreSecret(name, payload, password);
+                            _logger.LogInformation("[Secret FS] Provisioned '{Name}' to physical vault.", name);
                         }
-                        finally {
+                        finally
+                        {
                             Array.Clear(payload);
                         }
                     }
@@ -182,58 +177,31 @@ public class SecretFileSystem : INinePFileSystem
 
                 case (1, "unlock"):
                 {
-                    var parts = input.Split(':', 2);
-                    using var password = new SecureString();
-                    foreach (char c in parts[0]) password.AppendChar(c);
-                    password.MakeReadOnly();
-
-                    switch (parts.Length)
+                    var parts = input.Split(':').Select(p => p.Trim()).ToArray();
+                    if (parts.Length == 2)
                     {
-                        case 2:
-                        {
-                            var name = parts[1];
-                            var seed = _vault.DeriveSeed(password, Encoding.UTF8.GetBytes(name));
-                            var hiddenId = _vault.GenerateHiddenId(seed);
-                            var vaultFile = $"secret_{hiddenId}.vlt";
+                        var name = parts[1];
+                        using var password = new SecureString();
+                        foreach (char c in parts[0]) password.AppendChar(c);
+                        password.MakeReadOnly();
 
-                            if (File.Exists(vaultFile))
-                            {
-                                var data = File.ReadAllBytes(vaultFile);
-                                var decrypted = _vault.DecryptToBytes(data, password);
-                                if (decrypted != null) {
-                                    try {
-                                        _decryptedSecrets[name] = new ProtectedSecret((ReadOnlySpan<byte>)decrypted);
-                                    }
-                                    finally {
-                                        Array.Clear(decrypted);
-                                    }
-                                }
-                            }
-                            break;
+                        var decrypted = LuxVault.LoadSecret(name, password);
+                        if (decrypted != null)
+                        {
+                            Array.Clear(decrypted);
+                            var next = new ProtectedSecret(password);
+                            _sessionPasswords.AddOrUpdate(
+                                name,
+                                _ => next,
+                                (_, existing) => {
+                                    existing.Dispose();
+                                    return next;
+                                });
+                            _logger.LogInformation("[Secret FS] Unlocked '{Name}'. Password stored in session.", name);
                         }
-
-                        default:
+                        else
                         {
-                            foreach (var vaultFile in Directory.GetFiles(".", "secret_*.vlt"))
-                            {
-                                try
-                                {
-                                    var data = File.ReadAllBytes(vaultFile);
-                                    var decrypted = _vault.DecryptToBytes(data, password);
-                                    if (decrypted != null)
-                                    {
-                                        try {
-                                            var id = Path.GetFileNameWithoutExtension(vaultFile).Replace("secret_", "");
-                                            _decryptedSecrets[id] = new ProtectedSecret((ReadOnlySpan<byte>)decrypted);
-                                        }
-                                        finally {
-                                            Array.Clear(decrypted);
-                                        }
-                                    }
-                                }
-                                catch { }
-                            }
-                            break;
+                            _logger.LogWarning("[Secret FS] Failed to unlock '{Name}' - incorrect password or missing file.", name);
                         }
                     }
                     break;
@@ -262,9 +230,8 @@ public class SecretFileSystem : INinePFileSystem
 
     public INinePFileSystem Clone()
     {
-        var clone = new SecretFileSystem(_config, _vault);
+        var clone = new SecretFileSystem(_logger, _config, _vault);
         clone._currentPath = new List<string>(_currentPath);
-        clone._decryptedSecrets = _decryptedSecrets;
         clone.DotU = DotU;
         return clone;
     }
@@ -274,13 +241,20 @@ public class SecretBackend : IProtocolBackend
 {
     private SecretBackendConfig? _config;
     private readonly ILuxVaultService _vault;
+    private readonly ILoggerFactory _loggerFactory;
+    private SecretFileSystem? _prototypeFs;
 
     public string Name => "secret";
     public string MountPath => "/secrets";
 
-    public SecretBackend(ILuxVaultService vault)
+    public SecretBackend(ILuxVaultService vault) : this(vault, NullLoggerFactory.Instance)
+    {
+    }
+
+    public SecretBackend(ILuxVaultService vault, ILoggerFactory loggerFactory)
     {
         _vault = vault;
+        _loggerFactory = loggerFactory;
     }
 
     public async Task InitializeAsync(IConfiguration configuration)
@@ -288,6 +262,7 @@ public class SecretBackend : IProtocolBackend
         try {
             _config = new SecretBackendConfig();
             configuration.Bind(_config);
+            _prototypeFs = new SecretFileSystem(_loggerFactory.CreateLogger<SecretFileSystem>(), _config, _vault);
             Console.WriteLine($"[Secret Backend] Initialized with MountPath: {MountPath}");
         }
         catch (Exception ex) {
@@ -295,6 +270,6 @@ public class SecretBackend : IProtocolBackend
         }
     }
 
-    public INinePFileSystem GetFileSystem() => new SecretFileSystem(_config ?? new SecretBackendConfig(), _vault);
+    public INinePFileSystem GetFileSystem() => (_prototypeFs ?? throw new InvalidOperationException("Secret backend not initialized.")).Clone();
     public INinePFileSystem GetFileSystem(SecureString? credentials) => GetFileSystem();
 }

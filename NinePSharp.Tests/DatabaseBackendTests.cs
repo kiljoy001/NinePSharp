@@ -46,14 +46,16 @@ public class DatabaseBackendTests
 
         // Verify root listing (where _currentPath.Count == 0)
         var readRoot = await fs.ReadAsync(new Tread(1, 0, 0, 8192));
-        var content = Encoding.UTF8.GetString(readRoot.Data.ToArray());
-        Assert.Contains("query", content);
-        Assert.Contains("tables/", content);
+        var entries = ParseDirectory(readRoot.Data.ToArray());
+        Assert.Contains(entries, s => s.Name == "Users");
+        Assert.Contains(entries, s => s.Name == "Products");
+        Assert.Contains(entries, s => s.Name == "Orders");
+        Assert.All(entries, s => Assert.Equal(QidType.QTDIR, s.Qid.Type));
 
-        // Walk to /query
-        var walkResult = await fs.WalkAsync(new Twalk(1, 0, 1, new[] { "query" }));
+        // Walk to a table directory
+        var walkResult = await fs.WalkAsync(new Twalk(1, 0, 1, new[] { "Users" }));
         Assert.Single(walkResult.Wqid);
-        Assert.Equal(QidType.QTFILE, walkResult.Wqid[0].Type);
+        Assert.Equal(QidType.QTDIR, walkResult.Wqid[0].Type);
     }
 
     [Fact]
@@ -65,5 +67,17 @@ public class DatabaseBackendTests
         var clone = fs.Clone();
         Assert.NotSame(fs, clone);
         Assert.IsType<DatabaseFileSystem>(clone);
+    }
+
+    private static List<Stat> ParseDirectory(byte[] data)
+    {
+        var stats = new List<Stat>();
+        int offset = 0;
+        while (offset < data.Length)
+        {
+            stats.Add(new Stat(data, ref offset));
+        }
+
+        return stats;
     }
 }

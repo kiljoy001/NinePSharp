@@ -58,14 +58,24 @@ public class NinePFSDispatcher : INinePFSDispatcher
                 SecureString? credentials = null;
                 if (t.Afid != NinePConstants.NoFid && _authFids.TryRemove(t.Afid, out var authSec))
                 {
-                    credentials = authSec;
-                    credentials.MakeReadOnly();
+                    if (authSec.Length > 0)
+                    {
+                        credentials = authSec;
+                        credentials.MakeReadOnly();
+                    }
+                    else
+                    {
+                        authSec.Dispose();
+                    }
                 }
 
-                var backend = string.IsNullOrEmpty(t.Aname)
-                    ? _backends.FirstOrDefault()
-                    : _backends.FirstOrDefault(b => b.MountPath == t.Aname || b.MountPath == "/" + t.Aname || b.Name == t.Aname);
+                if (string.IsNullOrEmpty(t.Aname) || t.Aname == "/")
+                {
+                    _fids[t.Fid] = new RootFileSystem(_backends.ToList());
+                    return new Rattach(t.Tag, new Qid(QidType.QTDIR, 0, 0));
+                }
 
+                var backend = _backends.FirstOrDefault(b => b.MountPath == t.Aname || b.MountPath == "/" + t.Aname || b.Name == t.Aname);
                 if (backend == null) throw new NinePProtocolException($"No backend found for aname '{t.Aname}'");
 
                 var fs = backend.GetFileSystem(credentials);

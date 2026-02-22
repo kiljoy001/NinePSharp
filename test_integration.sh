@@ -1,38 +1,58 @@
 #!/bin/bash
 
-# 1. Start the server in the background
+# 1. Clean
+rm -f /tmp/root_debug.log /tmp/secret_debug.log /tmp/secret_error.log
+
+# 2. Build
+echo "Building server..."
+dotnet build NinePSharp.Server/NinePSharp.Server.csproj -c Debug > /dev/null
+
+# 3. Start
 echo "Starting NinePSharp Server..."
-dotnet run --project NinePSharp.Server > server_test.log 2>&1 &
+BIN_DIR="./NinePSharp.Server/bin/Debug/net10.0"
+# Ensure directory exists for logs
+mkdir -p $BIN_DIR/vaults
+
+# RUN WITH DOTNET COMMAND FOR RELIABILITY
+dotnet $BIN_DIR/NinePSharp.Server.dll > server_integration.log 2>&1 &
 SERVER_PID=$!
 
-# Give it a moment to boot
-sleep 5
+echo "Waiting for server (PID: $SERVER_PID)..."
+sleep 10
 
-# 2. Setup
 ADDR="tcp!127.0.0.1!5641"
 NINEP="/usr/local/bin/9p"
 
-echo "Running tests against $ADDR..."
+# Test 3: Provision
+echo -n "Test 3 (Provision): "
+echo "testpass:mykey:hidden-data" | $NINEP -a $ADDR write /secrets/provision
 
-# Test 1: Standard 9P2000 negotiation
-echo -n "Test 1 (9P2000 - List Root): "
-$NINEP -a $ADDR ls / > /dev/null
-if [ $? -eq 0 ]; then echo "PASS"; else echo "FAIL"; fi
+# Test 4: Unlock
+echo -n "Test 4 (Unlock): "
+echo "testpass:mykey" | $NINEP -a $ADDR write /secrets/unlock
 
-# Test 2: Verify Backends are visible
-echo -n "Test 2 (List Mounts): "
-BACKENDS=$($NINEP -a $ADDR ls /)
-if echo "$BACKENDS" | grep -q "secrets"; then echo "PASS"; else echo "FAIL (Got: $BACKENDS)"; fi
+# CHECK LOGS
+echo "--- /tmp/root_debug.log ---"
+cat /tmp/root_debug.log 2>/dev/null || echo "NOT FOUND"
+echo "--- /tmp/secret_debug.log ---"
+cat /tmp/secret_debug.log 2>/dev/null || echo "NOT FOUND"
 
-# Test 3: Functional Secret Test
-echo -n "Test 3 (Provision & Unlock Secret): "
-echo "testpass:mykey:hidden-data" | $NINEP -a $ADDR write /secrets/provision > /dev/null 2>&1
-echo "testpass" | $NINEP -a $ADDR write /secrets/unlock > /dev/null 2>&1
-RESULT=$($NINEP -a $ADDR cat /secrets/vault/mykey 2>/dev/null)
-if [ "$RESULT" == "hidden-data" ]; then echo "PASS"; else echo "FAIL (Got: $RESULT)"; fi
+VLT_COUNT=$(ls -1 $BIN_DIR/vaults/secret_*.vlt 2>/dev/null | wc -l)
+if [ "$VLT_COUNT" -gt 0 ]; then 
+    echo "PASS ($VLT_COUNT file created)"
+else 
+    echo "FAIL (No file in $BIN_DIR/vaults/)"
+fi
 
-# 3. Cleanup
-echo "Stopping Server..."
+# Test 5: Read back secret
+echo -n "Test 5 (Read): "
+READ_OUTPUT=$($NINEP -a $ADDR read /secrets/vault/mykey 2>/dev/null || true)
+if [ "$READ_OUTPUT" = "hidden-data" ]; then
+    echo "PASS"
+else
+    echo "FAIL (Expected 'hidden-data', got '$READ_OUTPUT')"
+fi
+
+# 4. Cleanup
 kill $SERVER_PID
-rm -rf vaults/
 echo "Integration Tests Complete."

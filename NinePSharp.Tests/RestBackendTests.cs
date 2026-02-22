@@ -71,29 +71,18 @@ public class RestBackendTests
         await fs.WalkAsync(new Twalk(1, 0, 1, new[] { "api" }));
         
         // Walk to .headers and write
-        var headerFs = fs.Clone();
-        await headerFs.WalkAsync(new Twalk(1, 1, 2, new[] { ".headers" }));
-        await headerFs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes("X-Test: Value1\nContent-Type: text/plain")));
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { ".headers" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes("X-Test: Value1\nContent-Type: text/plain")));
 
-        // Walk to .params and write
-        var paramFs = fs.Clone();
-        await paramFs.WalkAsync(new Twalk(1, 1, 3, new[] { ".params" }));
-        await paramFs.WriteAsync(new Twrite(1, 3, 0, Encoding.UTF8.GetBytes("page=1\nlimit=50")));
+        // Return to /api and set query params
+        await fs.WalkAsync(new Twalk(1, 2, 3, new[] { "..", ".params" }));
+        await fs.WriteAsync(new Twrite(1, 3, 0, Encoding.UTF8.GetBytes("page=1\nlimit=50")));
 
-        // Use the instance that has both headers and params (simulating state inheritance via Clone)
-        // Actually, our test setup needs to apply headers and params to the same instance to test combined effect
-        // or ensure Clone() copies them correctly.
-        
-        // Walk to /api/get (root of api)
-        // We re-use headerFs and apply params there too
-        await headerFs.WalkAsync(new Twalk(1, 1, 3, new[] { ".params" }));
-        await headerFs.WriteAsync(new Twrite(1, 3, 0, Encoding.UTF8.GetBytes("page=1\nlimit=50")));
-        
-        // Now walk to 'get'
-        await headerFs.WalkAsync(new Twalk(1, 1, 4, new[] { "get" }));
+        // Return to /api and walk to GET endpoint
+        await fs.WalkAsync(new Twalk(1, 3, 4, new[] { "..", "get" }));
         
         // Act
-        await headerFs.ReadAsync(new Tread(1, 4, 0, 8192));
+        await fs.ReadAsync(new Tread(1, 4, 0, 8192));
 
         // Assert
         Assert.NotNull(capturedRequest);
