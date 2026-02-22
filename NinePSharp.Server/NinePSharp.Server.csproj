@@ -8,6 +8,7 @@
     <ProjectReference Include="..\NinePSharp.Backends.Cloud\NinePSharp.Backends.Cloud.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.JsonRpc\NinePSharp.Backends.JsonRpc.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.Websocket\NinePSharp.Backends.Websocket.csproj" />
+    <ProjectReference Include="..\NinePSharp.Backends.Mqtt\NinePSharp.Backends.Mqtt.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -40,7 +41,6 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.3" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.3" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.3" />
-    <PackageReference Include="MQTTnet" Version="5.1.0.1559" />
     <PackageReference Include="NBitcoin" Version="9.0.5" />
     <PackageReference Include="Nethereum.Web3" Version="4.27.1" />
     <PackageReference Include="Solnet.Rpc" Version="6.1.0" />
