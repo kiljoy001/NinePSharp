@@ -53,6 +53,18 @@ file static class Helpers
     public static JsonRpcFileSystem Fs(JsonRpcBackendConfig cfg, IJsonRpcTransport? transport = null)
         => new JsonRpcFileSystem(cfg, transport ?? new FakeTransport());
 
+    public static List<Stat> ParseDirectory(byte[] data)
+    {
+        var stats = new List<Stat>();
+        int offset = 0;
+        while (offset < data.Length)
+        {
+            stats.Add(new Stat(data, ref offset));
+        }
+
+        return stats;
+    }
+
     public static async Task<JsonRpcFileSystem> FsAt(JsonRpcBackendConfig cfg, IJsonRpcTransport transport, string path)
     {
         var fs = new JsonRpcFileSystem(cfg, transport);
@@ -136,10 +148,11 @@ public class JsonRpcFileSystemTests
         var fs = Helpers.Fs(cfg);
 
         var read = await fs.ReadAsync(new Tread(1, 10, 0, 8192));
-        var text = Encoding.UTF8.GetString(read.Data.ToArray());
+        var entries = Helpers.ParseDirectory(read.Data.ToArray());
+        var names = entries.Select(s => s.Name).ToArray();
 
-        text.Should().Contain("myfile");
-        text.Should().NotContain("internalMethod", "RPC method names must never leak into the directory listing");
+        names.Should().Contain("myfile");
+        names.Should().NotContain("internalMethod", "RPC method names must never leak into the directory listing");
     }
 
     // ── Write ─────────────────────────────────────────────────────────────────
@@ -273,8 +286,8 @@ public class JsonRpcFileSystemPropertyTests
     {
         var n = fsName.Get;
         var m = methodName.Get;
-        // Skip if strings are equal, contain each other as substrings, or contain newlines/control chars
-        if (n == m || n.Contains(m) || m.Contains(n)) return true;
+        // Skip impossible or reserved-control cases.
+        if (n == m || m == "status") return true;
         if (n.Any(c => c < 32 || c == '\n' || c == '\r')) return true;
         if (m.Any(c => c < 32 || c == '\n' || c == '\r')) return true;
 
@@ -283,9 +296,9 @@ public class JsonRpcFileSystemPropertyTests
         var fs = new JsonRpcFileSystem(cfg, new FakeTransport());
 
         var read = fs.ReadAsync(new Tread(1, 10, 0, 65535)).GetAwaiter().GetResult();
-        var text = Encoding.UTF8.GetString(read.Data.ToArray());
+        var names = Helpers.ParseDirectory(read.Data.ToArray()).Select(s => s.Name).ToArray();
 
-        return text.Contains(fsName.Get) && !text.Contains(methodName.Get);
+        return names.Contains(fsName.Get) && !names.Contains(methodName.Get);
     }
 
     /// <summary>Reading at any nonzero offset always returns empty bytes.</summary>
