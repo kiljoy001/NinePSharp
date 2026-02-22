@@ -9,6 +9,7 @@
     <ProjectReference Include="..\NinePSharp.Backends.JsonRpc\NinePSharp.Backends.JsonRpc.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.Websocket\NinePSharp.Backends.Websocket.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.Mqtt\NinePSharp.Backends.Mqtt.csproj" />
+    <ProjectReference Include="..\NinePSharp.Backends.Rest\NinePSharp.Backends.Rest.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
