@@ -36,4 +36,10 @@ public class AkkaConfig
     public int Port { get; set; } = 8081;
     public string Role { get; set; } = "backend";
     public List<string> SeedNodes { get; set; } = new();
+    public string? BindHostname { get; set; }
+    public int? BindPort { get; set; }
+    public string? PublicHostname { get; set; }
+    public int? PublicPort { get; set; }
+    public string? InterfaceName { get; set; }
+    public bool PreferIPv6 { get; set; }
 }

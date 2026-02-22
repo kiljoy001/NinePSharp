@@ -62,4 +62,22 @@ public class MqttBackendTests
         Assert.Equal("incoming-data", result);
         _transportMock.Verify(x => x.SubscribeAsync(topic), Times.Once);
     }
+
+    [Fact]
+    public async Task Mqtt_Clone_Move_DoesNotAffect_OriginalPublishTopic()
+    {
+        _transportMock.Setup(x => x.SubscribeAsync(It.IsAny<string>())).Returns(Task.CompletedTask);
+        _transportMock.Setup(x => x.PublishAsync(It.IsAny<string>(), It.IsAny<byte[]>())).Returns(Task.CompletedTask);
+
+        var fs1 = new MqttFileSystem(_config, _transportMock.Object, _vaultMock.Object);
+        await fs1.WalkAsync(new Twalk(1, 0, 1, new[] { "topics", "alpha" }));
+
+        var fs2 = fs1.Clone();
+        await fs2.WalkAsync(new Twalk(2, 1, 3, new[] { "..", "beta" }));
+
+        await fs1.WriteAsync(new Twrite(3, 1, 0, new byte[] { 0x01 }));
+
+        _transportMock.Verify(x => x.PublishAsync("alpha", It.IsAny<byte[]>()), Times.Once);
+        _transportMock.Verify(x => x.PublishAsync("beta", It.IsAny<byte[]>()), Times.Never);
+    }
 }
