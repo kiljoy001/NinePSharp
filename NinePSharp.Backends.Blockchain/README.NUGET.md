@@ -16,6 +16,13 @@ dotnet add package NinePSharp.Backends.Blockchain
 
 Use for filesystem-style interaction patterns over supported blockchain networks.
 
+## Solana wallet import
+`/solana/wallets/import` accepts:
+- `password:base58PrivateKey`
+- `password:base58PrivateKey:base58PublicKey`
+
+If only the private key is provided, the backend attempts to derive and persist the matching public key for stable unlock/address behavior.
+
 ## Cardano live mode
 Cardano can run in mock mode by default, or in live read mode through Blockfrost.
 

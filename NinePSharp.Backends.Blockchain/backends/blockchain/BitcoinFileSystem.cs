@@ -136,7 +136,7 @@ public class BitcoinFileSystem : INinePFileSystem
                     if (_rpcClient != null) {
                         try {
                             var bal = await _rpcClient.GetBalanceAsync();
-                            result = bal.ToString() + " BTC\n";
+                            result = bal.ToString() + " BTC (Live)\n";
                         } catch (Exception ex) { result = $"Error: {ex.Message}\n"; }
                     }
                     else result = $"{_mockBalanceBtc.ToString("0.00000000", CultureInfo.InvariantCulture)} BTC (Mock)\n";
@@ -145,7 +145,7 @@ public class BitcoinFileSystem : INinePFileSystem
                     result = _unlockedAddress ?? "No wallet unlocked.\n";
                     break;
                 case "status":
-                    result = $"Network: {GetNetwork()}\nRPC: {_config.RpcUrl ?? "N/A"}\nTrackedTx: {_mockTransactions.Count}\n";
+                    result = $"Network: {GetNetwork()}\nRPC: {_config.RpcUrl ?? "N/A"}\nAddress: {_unlockedAddress ?? "None"}\nTrackedTx: {_mockTransactions.Count}\nMode: {(_rpcClient != null ? "Live" : "Mock")}\n";
                     break;
                 case "transactions":
                     result = _mockTransactions.Count == 0

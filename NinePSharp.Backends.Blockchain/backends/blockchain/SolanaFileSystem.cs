@@ -7,6 +7,7 @@ using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using NBitcoin.DataEncoders;
 using Solnet.Programs;
 using Solnet.Rpc;
 using Solnet.Rpc.Models;
@@ -225,7 +226,15 @@ public class SolanaFileSystem : INinePFileSystem
 
                     var privKeyBase58 = parts[1];
                     var pubKeyBase58 = parts.Length == 3 ? parts[2] : string.Empty;
-                    try { 
+                    if (string.IsNullOrWhiteSpace(pubKeyBase58))
+                    {
+                        if (!TryExtractPublicKeyFromPrivate(privKeyBase58, out pubKeyBase58))
+                        {
+                            throw new NinePProtocolException("Invalid Solana private key. Use 'password:base58PrivKey:base58PublicKey' when public key cannot be derived.");
+                        }
+                    }
+
+                    try {
                         _ = new Account(privKeyBase58, pubKeyBase58);
                         byte[] keyMaterial = Encoding.UTF8.GetBytes(SerializeKeyMaterial(privKeyBase58, pubKeyBase58));
                         try {
@@ -240,7 +249,15 @@ public class SolanaFileSystem : INinePFileSystem
                             Array.Clear(keyMaterial);
                         }
                         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
-                    } catch { throw new NinePProtocolException("Invalid Solana private key."); }
+                    }
+                    catch (NinePProtocolException)
+                    {
+                        throw;
+                    }
+                    catch
+                    {
+                        throw new NinePProtocolException("Invalid Solana private key.");
+                    }
                 }
                 finally {
                     Array.Clear(chars);
@@ -276,6 +293,14 @@ public class SolanaFileSystem : INinePFileSystem
                         try {
                             var keyMaterialText = Encoding.UTF8.GetString(privKey);
                             var (privateKeyText, storedPublicKeyText) = ParseKeyMaterial(keyMaterialText);
+                            if (string.IsNullOrWhiteSpace(storedPublicKeyText))
+                            {
+                                TryExtractPublicKeyFromPrivate(privateKeyText, out storedPublicKeyText);
+                            }
+                            if (string.IsNullOrWhiteSpace(storedPublicKeyText))
+                            {
+                                throw new NinePProtocolException("Wallet key material is invalid.");
+                            }
 
                             byte[] privateKeyBytes = Encoding.UTF8.GetBytes(privateKeyText);
                             if (_unlockedPrivateKey != null) Array.Clear(_unlockedPrivateKey);
@@ -283,16 +308,19 @@ public class SolanaFileSystem : INinePFileSystem
                             privateKeyBytes.CopyTo(_unlockedPrivateKey, 0);
                             Array.Clear(privateKeyBytes);
 
-                            var account = new Account(privateKeyText, storedPublicKeyText ?? string.Empty);
+                            var account = new Account(privateKeyText, storedPublicKeyText);
                             var address = account.PublicKey.Key;
                             if (string.IsNullOrWhiteSpace(address))
                             {
-                                var digest = SHA256.HashData(privKey);
-                                address = $"sol_mock_{Convert.ToHexString(digest.AsSpan(0, 6)).ToLowerInvariant()}";
+                                throw new NinePProtocolException("Wallet key material is invalid.");
                             }
 
                             _unlockedAddress = address;
                             return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                        }
+                        catch (NinePProtocolException)
+                        {
+                            throw;
                         }
                         catch (Exception)
                         {
@@ -463,6 +491,41 @@ public class SolanaFileSystem : INinePFileSystem
         }
 
         return (keyMaterial, null);
+    }
+
+    private static bool TryExtractPublicKeyFromPrivate(string privateKeyBase58, out string publicKeyBase58)
+    {
+        publicKeyBase58 = string.Empty;
+        byte[]? decodedPrivate = null;
+        byte[]? publicKeyBytes = null;
+        try
+        {
+            decodedPrivate = Encoders.Base58.DecodeData(privateKeyBase58);
+            if (decodedPrivate.Length < 64)
+            {
+                return false;
+            }
+
+            publicKeyBytes = decodedPrivate.AsSpan(decodedPrivate.Length - 32, 32).ToArray();
+            publicKeyBase58 = Encoders.Base58.EncodeData(publicKeyBytes);
+            return !string.IsNullOrWhiteSpace(publicKeyBase58);
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            if (publicKeyBytes != null)
+            {
+                Array.Clear(publicKeyBytes);
+            }
+
+            if (decodedPrivate != null)
+            {
+                Array.Clear(decodedPrivate);
+            }
+        }
     }
 
     public async Task<Rclunk> ClunkAsync(Tclunk tclunk) => new Rclunk(tclunk.Tag);

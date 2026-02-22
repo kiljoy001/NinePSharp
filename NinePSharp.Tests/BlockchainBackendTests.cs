@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Security;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -71,6 +72,22 @@ public class BlockchainBackendTests
         await backend.InitializeAsync(config);
         Assert.Equal("Stellar", backend.Name);
         Assert.Equal("/stellar", backend.MountPath);
+        Assert.NotNull(backend.GetFileSystem());
+    }
+
+    [Fact]
+    public async Task EthereumBackend_Initialization_Works_From_ServerSection()
+    {
+        var backend = new EthereumBackend(_vault);
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new[]
+        {
+            new KeyValuePair<string, string?>("Server:Ethereum:MountPath", "/eth"),
+            new KeyValuePair<string, string?>("Server:Ethereum:RpcUrl", "https://ethereum-sepolia-rpc.publicnode.com")
+        }).Build();
+
+        await backend.InitializeAsync(config);
+        Assert.Equal("Ethereum", backend.Name);
+        Assert.Equal("/eth", backend.MountPath);
         Assert.NotNull(backend.GetFileSystem());
     }
 
@@ -173,6 +190,39 @@ public class BlockchainBackendTests
         await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "balance" }));
         var afterBalance = ParseLeadingDecimal(Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray()));
         Assert.True(afterBalance < beforeBalance);
+    }
+
+    [Fact]
+    public async Task BitcoinFileSystem_Status_Reports_Live_And_Mock_Modes()
+    {
+        var mockFs = new BitcoinFileSystem(
+            new BitcoinBackendConfig { MountPath = "/btc", Network = "Main" },
+            null,
+            _vault);
+
+        await mockFs.WalkAsync(new Twalk(1, 1, 2, new[] { "status" }));
+        var mockStatus = Encoding.UTF8.GetString((await mockFs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray());
+        Assert.Contains("Mode: Mock", mockStatus);
+
+        var rpc = new NBitcoin.RPC.RPCClient(
+            NBitcoin.RPC.RPCCredentialString.Parse("test:test"),
+            "http://127.0.0.1:18443",
+            NBitcoin.Network.RegTest);
+
+        var liveFs = new BitcoinFileSystem(
+            new BitcoinBackendConfig
+            {
+                MountPath = "/btc",
+                Network = "RegTest",
+                RpcUrl = "http://127.0.0.1:18443"
+            },
+            rpc,
+            _vault);
+
+        await liveFs.WalkAsync(new Twalk(1, 1, 2, new[] { "status" }));
+        var liveStatus = Encoding.UTF8.GetString((await liveFs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray());
+        Assert.Contains("Mode: Live", liveStatus);
+        Assert.Contains("Address: None", liveStatus);
     }
 
     [Fact]
@@ -588,6 +638,61 @@ public class BlockchainBackendTests
         Assert.Contains("solana_live_sig_123", txLog);
     }
 
+    [Fact]
+    public async Task SolanaFileSystem_Import_PrivateKeyOnly_Derives_PublicAddress()
+    {
+        var wallet = new Solnet.Wallet.Wallet(new Solnet.Wallet.Bip39.Mnemonic(Solnet.Wallet.Bip39.WordList.English, Solnet.Wallet.Bip39.WordCount.Twelve));
+        var account = wallet.GetAccount(0);
+        var password = $"sol-import-{Guid.NewGuid():N}";
+        var fs = new SolanaFileSystem(new SolanaBackendConfig { MountPath = "/sol" }, null, _vault);
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "wallets", "import" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes($"{password}:{account.PrivateKey.Key}")));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "unlock" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "..", "address" }));
+        var address = Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray()).Trim();
+
+        Assert.Equal(account.PublicKey.Key, address);
+        Assert.DoesNotContain("sol_mock_", address, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SolanaFileSystem_Unlock_LegacyPrivateOnlyVault_Derives_PublicAddress()
+    {
+        var wallet = new Solnet.Wallet.Wallet(new Solnet.Wallet.Bip39.Mnemonic(Solnet.Wallet.Bip39.WordList.English, Solnet.Wallet.Bip39.WordCount.Twelve));
+        var account = wallet.GetAccount(0);
+        var passwordText = $"sol-legacy-{Guid.NewGuid():N}";
+        using var password = ToSecureString(passwordText);
+
+        byte[] idSalt = Encoding.UTF8.GetBytes("Solana_Vault_ID_Salt_v1");
+        var seed = _vault.DeriveSeed(password, idSalt);
+        var hiddenId = _vault.GenerateHiddenId(seed);
+
+        byte[] privateKeyBytes = Encoding.UTF8.GetBytes(account.PrivateKey.Key);
+        try
+        {
+            var ciphertext = _vault.Encrypt(privateKeyBytes, password);
+            File.WriteAllBytes(_vault.GetVaultPath($"sol_vault_{hiddenId}.vlt"), ciphertext);
+        }
+        finally
+        {
+            Array.Clear(privateKeyBytes);
+        }
+
+        var fs = new SolanaFileSystem(new SolanaBackendConfig { MountPath = "/sol" }, null, _vault);
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "wallets", "unlock" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(passwordText)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "..", "address" }));
+        var address = Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray()).Trim();
+
+        Assert.Equal(account.PublicKey.Key, address);
+        Assert.DoesNotContain("sol_mock_", address, StringComparison.Ordinal);
+    }
+
     private static decimal ParseLeadingDecimal(string content)
     {
         var token = content.Split(' ', StringSplitOptions.RemoveEmptyEntries).First();
@@ -709,6 +814,18 @@ public class BlockchainBackendTests
                || candidate is InvalidOperationException
                || candidate is ArgumentException
                || candidate is FormatException;
+    }
+
+    private static SecureString ToSecureString(string value)
+    {
+        var secure = new SecureString();
+        foreach (var c in value)
+        {
+            secure.AppendChar(c);
+        }
+
+        secure.MakeReadOnly();
+        return secure;
     }
 
     private sealed class TestHttpMessageHandler : HttpMessageHandler
