@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);NU1608</NoWarn>
+    <RestoreNoWarn>$(RestoreNoWarn);NU1608</RestoreNoWarn>
   </PropertyGroup>
 
   <ItemGroup>

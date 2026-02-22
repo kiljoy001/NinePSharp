@@ -3,6 +3,8 @@
   <ItemGroup>
     <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
     <ProjectReference Include="..\NinePSharp.Parser\NinePSharp.Parser.fsproj" />
+    <ProjectReference Include="..\NinePSharp.Server.Abstractions\NinePSharp.Server.Abstractions.csproj" />
+    <ProjectReference Include="..\NinePSharp.Backends.Database\NinePSharp.Backends.Database.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -11,6 +13,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);NU1608</NoWarn>
+    <RestoreNoWarn>$(RestoreNoWarn);NU1608</RestoreNoWarn>
   </PropertyGroup>
 
   <ItemGroup>

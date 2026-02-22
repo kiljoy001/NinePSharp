@@ -85,6 +85,32 @@ public class ClusterFederationTests : IDisposable
         Assert.Equal("remote-ok", Encoding.UTF8.GetString(rread.Data.ToArray()));
     }
 
+    [Fact]
+    public async Task RootWalk_RemoteMount_StatRoundTrips()
+    {
+        var sessionActor = _system.ActorOf(Props.Create(() => new FakeSessionActor()));
+        var backendActor = _system.ActorOf(Props.Create(() => new FakeBackendSupervisorActor(sessionActor)));
+        var registryActor = _system.ActorOf(Props.Create(() => new FakeRegistryActor(backendActor)));
+
+        var dispatcher = CreateDispatcher(registryActor);
+
+        var attach = await dispatcher.DispatchAsync(
+            NinePMessage.NewMsgTattach(new Tattach(1, 100, NinePConstants.NoFid, "scott", "/")),
+            dotu: false);
+        Assert.IsType<Rattach>(attach);
+
+        var walk = await dispatcher.DispatchAsync(
+            NinePMessage.NewMsgTwalk(new Twalk(2, 100, 101, new[] { "jsonrpc", "chaininfo" })),
+            dotu: false);
+        Assert.IsType<Rwalk>(walk);
+
+        var stat = await dispatcher.DispatchAsync(
+            NinePMessage.NewMsgTstat(new Tstat(3, 101)),
+            dotu: false);
+        var rstat = Assert.IsType<Rstat>(stat);
+        Assert.Equal("chaininfo", rstat.Stat.Name);
+    }
+
     private NinePFSDispatcher CreateDispatcher(IActorRef registryActor)
     {
         return new NinePFSDispatcher(
@@ -192,10 +218,16 @@ public class ClusterFederationTests : IDisposable
 
             Receive<TStatDto>(msg =>
             {
+                var stat = new Stat(0, 0, 0, new Qid(QidType.QTFILE, 0, 1), 0644, 0, 0, 0, "chaininfo", "scott", "scott", "scott");
+                var statBytes = new byte[stat.Size];
+                int offset = 0;
+                stat.WriteTo(statBytes, ref offset);
+
                 Sender.Tell(new RStatDto
                 {
                     Tag = msg.Tag,
-                    Stat = new Stat(0, 0, 0, new Qid(QidType.QTFILE, 0, 1), 0644, 0, 0, 0, "chaininfo", "scott", "scott", "scott")
+                    DotU = false,
+                    StatBytes = statBytes
                 });
             });
 

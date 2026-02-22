@@ -76,7 +76,17 @@ public class RemoteFileSystem : INinePFileSystem
         var dto = new TStatDto(tstat);
         var response = await _sessionActor.Ask(dto, _timeout);
 
-        if (response is RStatDto r) return new Rstat(r.Tag, r.Stat);
+        if (response is RStatDto r)
+        {
+            if (r.StatBytes == null || r.StatBytes.Length == 0)
+            {
+                throw new NinePProtocolException("Remote stat payload was empty.");
+            }
+
+            int offset = 0;
+            var stat = new Stat(r.StatBytes, ref offset, r.DotU);
+            return new Rstat(r.Tag, stat);
+        }
         if (response is RErrorDto e) throw new NinePProtocolException(e.Ename);
         throw new Exception("Unexpected response from remote actor");
     }

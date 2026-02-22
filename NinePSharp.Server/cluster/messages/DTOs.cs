@@ -129,9 +129,17 @@ public class RClunkDto
 public class RStatDto
 {
     public ushort Tag { get; set; }
-    public Stat Stat { get; set; }
+    public bool DotU { get; set; }
+    public byte[] StatBytes { get; set; } = Array.Empty<byte>();
     public RStatDto() {}
-    public RStatDto(Rstat r) { Tag = r.Tag; Stat = r.Stat; }
+    public RStatDto(Rstat r)
+    {
+        Tag = r.Tag;
+        DotU = r.Stat.DotU;
+        StatBytes = new byte[r.Stat.Size];
+        int offset = 0;
+        r.Stat.WriteTo(StatBytes, ref offset);
+    }
 }
 
 [Serializable]

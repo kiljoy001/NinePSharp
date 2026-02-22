@@ -74,8 +74,8 @@ namespace NinePSharp.Tests
             
             var combined = rread1.Data.ToArray().Concat(rread2.Data.ToArray()).ToArray();
             var stats = ParseDir(combined);
-            Assert.Contains(stats, s => s.Name == "Users");
-            Assert.Contains(stats, s => s.Name == "Products");
+            Assert.Contains(stats, s => s.Name == "query");
+            Assert.Contains(stats, s => s.Name == "status");
         }
 
         [Fact]

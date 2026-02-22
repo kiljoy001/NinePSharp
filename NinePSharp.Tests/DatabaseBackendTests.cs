@@ -1,16 +1,13 @@
 using System;
 using System.Collections.Generic;
-using System.Data;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Moq;
 using NinePSharp.Messages;
-using NinePSharp.Constants;
 using NinePSharp.Server.Backends;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
-using NinePSharp.Server.Utils;
 using Xunit;
 
 namespace NinePSharp.Tests;
@@ -18,55 +15,134 @@ namespace NinePSharp.Tests;
 public class DatabaseBackendTests
 {
     private readonly Mock<ILuxVaultService> _vaultMock = new();
-    private readonly DatabaseBackendConfig _config = new() 
-    { 
-        MountPath = "/db", 
-        ProviderName = "MockProvider", 
-        ConnectionString = "Data Source=:memory:" 
-    };
 
-    private class TestableDatabaseFileSystem : DatabaseFileSystem
+    private sealed class FakeQueryExecutor : IDatabaseQueryExecutor
     {
-        private readonly IDbConnection _mockConnection;
+        private readonly Func<string, string> _handler;
+        public string Engine => "fake:test";
+        public List<string> ExecutedQueries { get; } = new();
 
-        public TestableDatabaseFileSystem(DatabaseBackendConfig config, ILuxVaultService vault, IDbConnection mockConnection) 
-            : base(config, vault)
+        public FakeQueryExecutor(Func<string, string> handler)
         {
-            _mockConnection = mockConnection;
+            _handler = handler;
         }
 
-        // We override or shim the connection creation for testing if needed,
-        // but for this PoC we'll just test the logic that doesn't hit the factory.
+        public Task<string> ExecuteAsync(string query)
+        {
+            ExecutedQueries.Add(query);
+            return Task.FromResult(_handler(query));
+        }
     }
 
     [Fact]
-    public async Task Database_Query_Execution_Stores_Results()
+    public async Task Database_RootListing_Exposes_ConfiguredQueries_And_SystemFiles()
     {
-        var fs = new DatabaseFileSystem(_config, _vaultMock.Object);
+        var config = new DatabaseBackendConfig
+        {
+            MountPath = "/db",
+            ProviderName = "MockProvider",
+            ConnectionString = "Data Source=:memory:",
+            AllowAdHocQuery = true,
+            Queries = new List<DatabaseQueryConfig>
+            {
+                new() { Name = "users.json", Query = "select * from users" },
+                new() { Name = "products.json", Query = "select * from products" }
+            }
+        };
 
-        // Verify root listing (where _currentPath.Count == 0)
+        var fs = new DatabaseFileSystem(config, _vaultMock.Object, null, new FakeQueryExecutor(_ => "[]"));
+
         var readRoot = await fs.ReadAsync(new Tread(1, 0, 0, 8192));
-        var entries = ParseDirectory(readRoot.Data.ToArray());
-        Assert.Contains(entries, s => s.Name == "Users");
-        Assert.Contains(entries, s => s.Name == "Products");
-        Assert.Contains(entries, s => s.Name == "Orders");
-        Assert.All(entries, s => Assert.Equal(QidType.QTDIR, s.Qid.Type));
+        var entries = ParseDirectory(readRoot.Data.ToArray()).Select(s => s.Name).ToArray();
 
-        // Walk to a table directory
-        var walkResult = await fs.WalkAsync(new Twalk(1, 0, 1, new[] { "Users" }));
-        Assert.Single(walkResult.Wqid);
-        Assert.Equal(QidType.QTDIR, walkResult.Wqid[0].Type);
+        Assert.Contains("users.json", entries);
+        Assert.Contains("products.json", entries);
+        Assert.Contains("query", entries);
+        Assert.Contains("status", entries);
     }
 
     [Fact]
-    public void Database_Clone_Preserves_Path()
+    public async Task Database_Read_ConfiguredQuery_UsesQueryExecutor()
     {
-        var fs = new DatabaseFileSystem(_config, _vaultMock.Object);
-        // We can't easily walk and then check _currentPath as it is private,
-        // but we can verify Clone() produces a new instance.
-        var clone = fs.Clone();
-        Assert.NotSame(fs, clone);
-        Assert.IsType<DatabaseFileSystem>(clone);
+        const string sql = "select * from users";
+        var config = new DatabaseBackendConfig
+        {
+            MountPath = "/db",
+            ProviderName = "MockProvider",
+            ConnectionString = "Data Source=:memory:",
+            Queries = new List<DatabaseQueryConfig>
+            {
+                new() { Name = "users.json", Query = sql }
+            }
+        };
+
+        var executor = new FakeQueryExecutor(query => query == sql ? "[{\"id\":1}]" : "[]");
+        var fs = new DatabaseFileSystem(config, _vaultMock.Object, null, executor);
+
+        var walk = await fs.WalkAsync(new Twalk(1, 0, 1, new[] { "users.json" }));
+        Assert.Single(walk.Wqid);
+
+        var read = await fs.ReadAsync(new Tread(2, 1, 0, 4096));
+        var payload = Encoding.UTF8.GetString(read.Data.ToArray());
+
+        Assert.Contains("\"id\":1", payload);
+        Assert.Contains(sql, executor.ExecutedQueries);
+    }
+
+    [Fact]
+    public async Task Database_AdHocQuery_WriteThenRead_ExecutesWrittenQuery()
+    {
+        var config = new DatabaseBackendConfig
+        {
+            MountPath = "/db",
+            ProviderName = "MockProvider",
+            ConnectionString = "Data Source=:memory:",
+            AllowAdHocQuery = true
+        };
+
+        var executor = new FakeQueryExecutor(query => $"{{\"query\":\"{query}\"}}");
+        var fs = new DatabaseFileSystem(config, _vaultMock.Object, null, executor);
+
+        await fs.WalkAsync(new Twalk(1, 0, 1, new[] { "query" }));
+
+        const string dynamicQuery = "select count(*) from users";
+        await fs.WriteAsync(new Twrite(2, 1, 0, Encoding.UTF8.GetBytes(dynamicQuery)));
+
+        var read = await fs.ReadAsync(new Tread(3, 1, 0, 4096));
+        var payload = Encoding.UTF8.GetString(read.Data.ToArray());
+
+        Assert.Contains(dynamicQuery, payload);
+        Assert.Contains(dynamicQuery, executor.ExecutedQueries);
+    }
+
+    [Fact]
+    public async Task Database_WritableConfiguredQuery_CanBeOverriddenByWrite()
+    {
+        const string original = "select * from products";
+        const string overrideQuery = "select * from products where id = 42";
+
+        var config = new DatabaseBackendConfig
+        {
+            MountPath = "/db",
+            ProviderName = "MockProvider",
+            ConnectionString = "Data Source=:memory:",
+            Queries = new List<DatabaseQueryConfig>
+            {
+                new() { Name = "products.json", Query = original, Writable = true }
+            }
+        };
+
+        var executor = new FakeQueryExecutor(query => $"{{\"executed\":\"{query}\"}}");
+        var fs = new DatabaseFileSystem(config, _vaultMock.Object, null, executor);
+
+        await fs.WalkAsync(new Twalk(1, 0, 1, new[] { "products.json" }));
+        await fs.WriteAsync(new Twrite(2, 1, 0, Encoding.UTF8.GetBytes(overrideQuery)));
+
+        var read = await fs.ReadAsync(new Tread(3, 1, 0, 4096));
+        string payload = Encoding.UTF8.GetString(read.Data.ToArray());
+
+        Assert.Contains(overrideQuery, payload);
+        Assert.Equal(overrideQuery, executor.ExecutedQueries.Last());
     }
 
     private static List<Stat> ParseDirectory(byte[] data)
