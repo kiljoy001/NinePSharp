@@ -11,7 +11,6 @@ using CardanoSharp.Wallet.Models.Keys;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
 using NinePSharp.Constants;
-using NinePSharp.Server.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
@@ -24,7 +23,7 @@ public class CardanoFileSystem : INinePFileSystem
     private readonly ILuxVaultService _vault;
     private List<string> _currentPath = new();
     
-    private ProtectedSecret? _protectedMnemonic;
+    private byte[]? _unlockedMnemonic;
     private string? _unlockedAddress;
 
     public bool DotU { get; set; }
@@ -167,7 +166,7 @@ public class CardanoFileSystem : INinePFileSystem
                     var seed = _vault.DeriveSeed(password, idSalt);
                     var hiddenId = _vault.GenerateHiddenId(seed);
                     
-                    File.WriteAllBytes(LuxVault.GetVaultPath($"ada_vault_{hiddenId}.vlt"), ciphertext);
+                    File.WriteAllBytes(_vault.GetVaultPath($"ada_vault_{hiddenId}.vlt"), ciphertext);
                 }
                 finally {
                     Array.Clear(wordsBytes);
@@ -198,7 +197,7 @@ public class CardanoFileSystem : INinePFileSystem
                         var seed = _vault.DeriveSeed(password, idSalt);
                         var hiddenId = _vault.GenerateHiddenId(seed);
                         
-                        File.WriteAllBytes(LuxVault.GetVaultPath($"ada_vault_{hiddenId}.vlt"), ciphertext);
+                        File.WriteAllBytes(_vault.GetVaultPath($"ada_vault_{hiddenId}.vlt"), ciphertext);
                     }
                     finally {
                         Array.Clear(wordsBytes);
@@ -228,7 +227,7 @@ public class CardanoFileSystem : INinePFileSystem
                 byte[] idSalt = Encoding.UTF8.GetBytes("Cardano_Vault_ID_Salt_v1");
                 var seed = _vault.DeriveSeed(password, idSalt);
                 var hiddenId = _vault.GenerateHiddenId(seed);
-                var vaultFile = LuxVault.GetVaultPath($"ada_vault_{hiddenId}.vlt");
+                var vaultFile = _vault.GetVaultPath($"ada_vault_{hiddenId}.vlt");
 
                 if (File.Exists(vaultFile))
                 {
@@ -237,8 +236,9 @@ public class CardanoFileSystem : INinePFileSystem
                     if (wordsBytes != null)
                     {
                         try {
-                            _protectedMnemonic?.Dispose();
-                            _protectedMnemonic = new ProtectedSecret((ReadOnlySpan<byte>)wordsBytes);
+                            if (_unlockedMnemonic != null) Array.Clear(_unlockedMnemonic);
+                            _unlockedMnemonic = GC.AllocateArray<byte>(wordsBytes.Length, pinned: true);
+                            wordsBytes.CopyTo(_unlockedMnemonic, 0);
                             _unlockedAddress = "Cardano Wallet Unlocked"; 
                             return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                         }
@@ -275,7 +275,11 @@ public class CardanoFileSystem : INinePFileSystem
     {
         var clone = new CardanoFileSystem(_config, _vault);
         clone._currentPath = new List<string>(_currentPath);
-        clone._protectedMnemonic = _protectedMnemonic;
+        if (_unlockedMnemonic != null)
+        {
+            clone._unlockedMnemonic = GC.AllocateArray<byte>(_unlockedMnemonic.Length, pinned: true);
+            _unlockedMnemonic.CopyTo(clone._unlockedMnemonic, 0);
+        }
         clone._unlockedAddress = _unlockedAddress;
         return clone;
     }

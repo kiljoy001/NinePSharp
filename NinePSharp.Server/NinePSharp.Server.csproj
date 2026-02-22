@@ -12,6 +12,7 @@
     <ProjectReference Include="..\NinePSharp.Backends.Rest\NinePSharp.Backends.Rest.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.Soap\NinePSharp.Backends.Soap.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.Grpc\NinePSharp.Backends.Grpc.csproj" />
+    <ProjectReference Include="..\NinePSharp.Backends.Blockchain\NinePSharp.Backends.Blockchain.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -38,14 +39,8 @@
     <PackageReference Include="Akka" Version="1.5.60" />
     <PackageReference Include="Akka.Cluster" Version="1.5.60" />
     <PackageReference Include="Akka.Remote" Version="1.5.60" />
-    <PackageReference Include="CardanoSharp.Wallet" Version="5.1.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.3" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.3" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.3" />
-    <PackageReference Include="NBitcoin" Version="9.0.5" />
-    <PackageReference Include="Nethereum.Web3" Version="4.27.1" />
-    <PackageReference Include="Solnet.Rpc" Version="6.1.0" />
-    <PackageReference Include="Solnet.Wallet" Version="6.1.0" />
-    <PackageReference Include="stellar-dotnet-sdk" Version="14.0.1" />
   </ItemGroup>
 </Project>

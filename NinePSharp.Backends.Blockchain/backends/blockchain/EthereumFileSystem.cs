@@ -9,7 +9,6 @@ using Nethereum.Web3;
 using Nethereum.Web3.Accounts;
 using NinePSharp.Messages;
 using NinePSharp.Constants;
-using NinePSharp.Server.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
@@ -23,7 +22,7 @@ public class EthereumFileSystem : INinePFileSystem
     private readonly ILuxVaultService _vault;
     private List<string> _currentPath = new();
     
-    private ProtectedSecret? _protectedPrivateKey;
+    private byte[]? _unlockedPrivateKey;
     private string? _unlockedAccount;
     
     public bool DotU { get; set; }
@@ -198,7 +197,7 @@ public class EthereumFileSystem : INinePFileSystem
                     var seed = _vault.DeriveSeed(password, idSalt);
                     var hiddenId = _vault.GenerateHiddenId(seed);
                     
-                    File.WriteAllBytes(LuxVault.GetVaultPath($"vault_{hiddenId}.vlt"), ciphertext);
+                    File.WriteAllBytes(_vault.GetVaultPath($"vault_{hiddenId}.vlt"), ciphertext);
                 }
                 finally {
                     Array.Clear(pk);
@@ -231,7 +230,7 @@ public class EthereumFileSystem : INinePFileSystem
                         var seed = _vault.DeriveSeed(password, idSalt);
                         var hiddenId = _vault.GenerateHiddenId(seed);
                         
-                        File.WriteAllBytes(LuxVault.GetVaultPath($"vault_{hiddenId}.vlt"), ciphertext);
+                        File.WriteAllBytes(_vault.GetVaultPath($"vault_{hiddenId}.vlt"), ciphertext);
                     }
                     finally {
                         Array.Clear(pkBytes);
@@ -261,7 +260,7 @@ public class EthereumFileSystem : INinePFileSystem
                 byte[] idSalt = Encoding.UTF8.GetBytes("NinePSharp_Vault_ID_Salt_v1");
                 var seed = _vault.DeriveSeed(password, idSalt);
                 var hiddenId = _vault.GenerateHiddenId(seed);
-                var vaultFile = LuxVault.GetVaultPath($"vault_{hiddenId}.vlt");
+                var vaultFile = _vault.GetVaultPath($"vault_{hiddenId}.vlt");
 
                 if (File.Exists(vaultFile))
                 {
@@ -270,8 +269,9 @@ public class EthereumFileSystem : INinePFileSystem
                     if (pk != null)
                     {
                         try {
-                            _protectedPrivateKey?.Dispose();
-                            _protectedPrivateKey = new ProtectedSecret((ReadOnlySpan<byte>)pk);
+                            if (_unlockedPrivateKey != null) Array.Clear(_unlockedPrivateKey);
+                            _unlockedPrivateKey = GC.AllocateArray<byte>(pk.Length, pinned: true);
+                            pk.CopyTo(_unlockedPrivateKey, 0);
                             
                             var account = new Account(Convert.ToHexString(pk));
                             _unlockedAccount = account.Address;
@@ -288,7 +288,7 @@ public class EthereumFileSystem : INinePFileSystem
 
         if (_currentPath.Count >= 4 && _currentPath[0] == "contracts")
         {
-            if (_protectedPrivateKey == null)
+            if (_unlockedPrivateKey == null)
             {
                 throw new InvalidOperationException("Wallet not unlocked. Write password to /wallets/unlock first.");
             }
@@ -297,29 +297,21 @@ public class EthereumFileSystem : INinePFileSystem
             var callInfo = AbiParser.ParseCall(_currentPath[3]);
             if (callInfo != null)
             {
-                await _protectedPrivateKey.UseAsync(async pkMemory => {
-                    // Leakage point: Nethereum's Account constructor currently requires a hex string.
-                    string pkHex = Convert.ToHexString(pkMemory.Span);
-                    try {
-                        var account = new Account(pkHex);
-                        var web3WithAccount = new Web3(account, _config.RpcUrl);
-                        
-                        if (callInfo.Value.Name == "transfer" && callInfo.Value.Arguments.Length == 2)
-                        {
-                            var to = callInfo.Value.Arguments[0];
-                            var amount = System.Numerics.BigInteger.Parse(callInfo.Value.Arguments[1]);
-                            
-                            var contract = web3WithAccount.Eth.GetContract(ERC20_ABI.Replace('\'', '\"'), contractAddr);
-                            var function = contract.GetFunction("transfer");
-                            
-                            var txHash = await function.SendTransactionAsync(account.Address, to, amount);
-                            _trackedTxs[txHash] = "Pending";
-                        }
-                    }
-                    finally {
-                        // We can't clear a string, but we can ensure the bytes it came from are handled.
-                    }
-                });
+                string pkHex = Convert.ToHexString(_unlockedPrivateKey);
+                var account = new Account(pkHex);
+                var web3WithAccount = new Web3(account, _config.RpcUrl);
+                
+                if (callInfo.Value.Name == "transfer" && callInfo.Value.Arguments.Length == 2)
+                {
+                    var to = callInfo.Value.Arguments[0];
+                    var amount = System.Numerics.BigInteger.Parse(callInfo.Value.Arguments[1]);
+                    
+                    var contract = web3WithAccount.Eth.GetContract(ERC20_ABI.Replace('\'', '\"'), contractAddr);
+                    var function = contract.GetFunction("transfer");
+                    
+                    var txHash = await function.SendTransactionAsync(account.Address, to, amount);
+                    _trackedTxs[txHash] = "Pending";
+                }
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
         }
@@ -344,7 +336,11 @@ public class EthereumFileSystem : INinePFileSystem
     {
         var clone = new EthereumFileSystem(_config, _web3, _vault);
         clone._currentPath = new List<string>(_currentPath);
-        clone._protectedPrivateKey = _protectedPrivateKey; 
+        if (_unlockedPrivateKey != null)
+        {
+            clone._unlockedPrivateKey = GC.AllocateArray<byte>(_unlockedPrivateKey.Length, pinned: true);
+            _unlockedPrivateKey.CopyTo(clone._unlockedPrivateKey, 0);
+        }
         clone._unlockedAccount = _unlockedAccount;
         clone._trackedTxs = _trackedTxs;
         return clone;

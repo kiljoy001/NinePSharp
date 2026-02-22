@@ -5,32 +5,30 @@ using System.Linq;
 using System.Security;
 using System.Text;
 using System.Threading.Tasks;
-using Solnet.Rpc;
-using Solnet.Wallet;
-using Solnet.Wallet.Bip39;
+using NBitcoin;
+using NBitcoin.RPC;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
 using NinePSharp.Constants;
-using NinePSharp.Server.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends;
 
-public class SolanaFileSystem : INinePFileSystem
+public class BitcoinFileSystem : INinePFileSystem
 {
-    private readonly SolanaBackendConfig _config;
-    private readonly IRpcClient? _rpcClient;
+    private readonly BitcoinBackendConfig _config;
+    private readonly RPCClient? _rpcClient;
     private readonly ILuxVaultService _vault;
     private List<string> _currentPath = new();
     
-    private ProtectedSecret? _protectedPrivateKey;
+    private byte[]? _unlockedPrivateKey;
     private string? _unlockedAddress;
 
     public bool DotU { get; set; }
 
-    public SolanaFileSystem(SolanaBackendConfig config, IRpcClient? rpcClient, ILuxVaultService vault)
+    public BitcoinFileSystem(BitcoinBackendConfig config, RPCClient? rpcClient, ILuxVaultService vault)
     {
         _config = config;
         _rpcClient = rpcClient;
@@ -41,6 +39,7 @@ public class SolanaFileSystem : INinePFileSystem
     {
         if (path.Count == 0) return true;
         if (path[0] == "wallets" && path.Count == 1) return true;
+        if (path[0] == "transactions" && path.Count == 1) return true;
         return false;
     }
 
@@ -61,12 +60,6 @@ public class SolanaFileSystem : INinePFileSystem
 
         foreach (var name in twalk.Wname)
         {
-            if (!IsDirectory(tempPath))
-            {
-                if (qids.Count == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>());
-                break;
-            }
-
             if (name == "..")
             {
                 if (tempPath.Count > 0) tempPath.RemoveAt(tempPath.Count - 1);
@@ -101,6 +94,9 @@ public class SolanaFileSystem : INinePFileSystem
             {
                 files.Add(("wallets", QidType.QTDIR));
                 files.Add(("balance", QidType.QTFILE));
+                files.Add(("address", QidType.QTFILE));
+                files.Add(("send", QidType.QTFILE));
+                files.Add(("transactions", QidType.QTDIR));
                 files.Add(("status", QidType.QTFILE));
             }
             else if (_currentPath[0] == "wallets")
@@ -109,12 +105,16 @@ public class SolanaFileSystem : INinePFileSystem
                 files.Add(("import", QidType.QTFILE));
                 files.Add(("unlock", QidType.QTFILE));
             }
+            else if (_currentPath[0] == "transactions")
+            {
+                // List dynamic transactions if available
+            }
 
             foreach (var f in files)
             {
                 var qid = new Qid(f.Type, 0, (ulong)f.Name.GetHashCode());
                 var mode = f.Type == QidType.QTDIR ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0644;
-                if (f.Name == "create" || f.Name == "import" || f.Name == "unlock") mode = 0666;
+                if (f.Name == "create" || f.Name == "import" || f.Name == "unlock" || f.Name == "send") mode = 0666;
                 
                 var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott");
                 
@@ -128,18 +128,29 @@ public class SolanaFileSystem : INinePFileSystem
         else
         {
             string result = "";
-            var last = _currentPath.Last().ToLowerInvariant();
-            if (last == "unlock")
+            switch (_currentPath.Last().ToLowerInvariant())
             {
-                result = _unlockedAddress != null ? $"Unlocked: {_unlockedAddress}\n" : "Locked\n";
-            }
-            else if (last == "balance")
-            {
-                result = "0.0 SOL (Mock)\n";
-            }
-            else if (last == "status")
-            {
-                result = $"RPC: {_config.RpcUrl}\nAddress: {_unlockedAddress ?? "None"}\n";
+                case "unlock":
+                    result = _unlockedAddress != null ? $"Unlocked: {_unlockedAddress}\n" : "Locked\n";
+                    break;
+                case "balance":
+                    if (_rpcClient != null) {
+                        try {
+                            var bal = await _rpcClient.GetBalanceAsync();
+                            result = bal.ToString() + " BTC\n";
+                        } catch (Exception ex) { result = $"Error: {ex.Message}\n"; }
+                    }
+                    else result = "0.00000000 BTC (Offline)\n";
+                    break;
+                case "address":
+                    result = _unlockedAddress ?? "No wallet unlocked.\n";
+                    break;
+                case "status":
+                    result = $"Network: {GetNetwork()}\nRPC: {_config.RpcUrl ?? "N/A"}\n";
+                    break;
+                case "transactions":
+                    result = "No recent transactions.\n";
+                    break;
             }
             allData = Encoding.UTF8.GetBytes(result);
         }
@@ -169,26 +180,25 @@ public class SolanaFileSystem : INinePFileSystem
                 }
                 password.MakeReadOnly();
 
-                var wallet = new Wallet(new Mnemonic(WordList.English, WordCount.Twelve));
-                var account = wallet.GetAccount(0);
-                byte[] pk = Encoding.UTF8.GetBytes(account.PrivateKey.Key);
+                var key = new Key(); // Bitcoin Private Key
+                byte[] pkBytes = key.ToBytes();
                 
                 try {
-                    var ciphertext = _vault.Encrypt(pk, password);
-                    byte[] idSalt = Encoding.UTF8.GetBytes("Solana_Vault_ID_Salt_v1");
+                    var ciphertext = _vault.Encrypt(pkBytes, password);
+                    byte[] idSalt = Encoding.UTF8.GetBytes("Bitcoin_Vault_ID_Salt_v1");
                     var seed = _vault.DeriveSeed(password, idSalt);
                     var hiddenId = _vault.GenerateHiddenId(seed);
                     
-                    File.WriteAllBytes(LuxVault.GetVaultPath($"sol_vault_{hiddenId}.vlt"), ciphertext);
+                    File.WriteAllBytes(_vault.GetVaultPath($"btc_vault_{hiddenId}.vlt"), ciphertext);
                 }
                 finally {
-                    Array.Clear(pk);
+                    Array.Clear(pkBytes);
                 }
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
             else if (_currentPath[1] == "import")
             {
-                // Format: password:base58PrivKey
+                // Format: password:wif
                 var bytes = twrite.Data.Span;
                 char[] chars = GC.AllocateArray<char>(Encoding.UTF8.GetCharCount(bytes), pinned: true);
                 try {
@@ -196,33 +206,33 @@ public class SolanaFileSystem : INinePFileSystem
                     string fullStr = new string(chars).Trim();
                     var parts = fullStr.Split(':', 2);
                     if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0])) 
-                        throw new NinePProtocolException("Invalid format or missing password. Use 'password:base58PrivKey'");
+                        throw new NinePProtocolException("Invalid format or missing password. Use 'password:wif'");
 
                     using var password = new SecureString();
                     foreach (char c in parts[0]) password.AppendChar(c);
                     password.MakeReadOnly();
 
-                    var privKeyBase58 = parts[1];
-                    try { 
-                        var account = new Account(privKeyBase58, ""); 
-                        byte[] pk = Encoding.UTF8.GetBytes(account.PrivateKey.Key);
+                    var wif = parts[1];
+                    try {
+                        var key = Key.Parse(wif, GetNetwork());
+                        byte[] pkBytes = key.ToBytes();
                         try {
-                            var ciphertext = _vault.Encrypt(pk, password);
-                            byte[] idSalt = Encoding.UTF8.GetBytes("Solana_Vault_ID_Salt_v1");
+                            var ciphertext = _vault.Encrypt(pkBytes, password);
+                            byte[] idSalt = Encoding.UTF8.GetBytes("Bitcoin_Vault_ID_Salt_v1");
                             var seed = _vault.DeriveSeed(password, idSalt);
                             var hiddenId = _vault.GenerateHiddenId(seed);
                             
-                            File.WriteAllBytes(LuxVault.GetVaultPath($"sol_vault_{hiddenId}.vlt"), ciphertext);
+                            File.WriteAllBytes(_vault.GetVaultPath($"btc_vault_{hiddenId}.vlt"), ciphertext);
                         }
                         finally {
-                            Array.Clear(pk);
+                            Array.Clear(pkBytes);
                         }
-                        return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
-                    } catch { throw new NinePProtocolException("Invalid Solana private key."); }
+                    } catch { throw new NinePProtocolException("Invalid WIF."); }
                 }
                 finally {
                     Array.Clear(chars);
                 }
+                return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
             else if (_currentPath[1] == "unlock")
             {
@@ -240,46 +250,59 @@ public class SolanaFileSystem : INinePFileSystem
                 }
                 password.MakeReadOnly();
 
-                byte[] idSalt = Encoding.UTF8.GetBytes("Solana_Vault_ID_Salt_v1");
+                byte[] idSalt = Encoding.UTF8.GetBytes("Bitcoin_Vault_ID_Salt_v1");
                 var seed = _vault.DeriveSeed(password, idSalt);
                 var hiddenId = _vault.GenerateHiddenId(seed);
-                var vaultFile = LuxVault.GetVaultPath($"sol_vault_{hiddenId}.vlt");
+                var vaultFile = _vault.GetVaultPath($"btc_vault_{hiddenId}.vlt");
 
                 if (File.Exists(vaultFile))
                 {
                     var encrypted = File.ReadAllBytes(vaultFile);
-                    var privKey = _vault.DecryptToBytes(encrypted, password);
-                    if (privKey != null)
+                    var pkBytes = _vault.DecryptToBytes(encrypted, password);
+                    if (pkBytes != null)
                     {
                         try {
-                            _protectedPrivateKey?.Dispose();
-                            _protectedPrivateKey = new ProtectedSecret((ReadOnlySpan<byte>)privKey);
+                            if (_unlockedPrivateKey != null) Array.Clear(_unlockedPrivateKey);
+                            _unlockedPrivateKey = GC.AllocateArray<byte>(pkBytes.Length, pinned: true);
+                            pkBytes.CopyTo(_unlockedPrivateKey, 0);
                             
-                            var account = new Account(privKey, Array.Empty<byte>());
-                            _unlockedAddress = account.PublicKey;
+                            var key = new Key(pkBytes);
+                            _unlockedAddress = key.PubKey.GetAddress(ScriptPubKeyType.Legacy, GetNetwork()).ToString();
                             return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                         }
                         finally {
-                            Array.Clear(privKey);
+                            Array.Clear(pkBytes);
                         }
                     }
                 }
                 throw new NinePProtocolException("Wallet not found or invalid password.");
             }
         }
+
+        if (_currentPath.Count == 1 && _currentPath[0] == "send")
+        {
+            return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+        }
         
         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
     }
+
+    private Network GetNetwork() => _config.Network.ToLower() switch
+    {
+        "testnet" => Network.TestNet,
+        "regtest" => Network.RegTest,
+        _ => Network.Main
+    };
 
     public async Task<Rclunk> ClunkAsync(Tclunk tclunk) => new Rclunk(tclunk.Tag);
 
     public async Task<Rstat> StatAsync(Tstat tstat)
     {
-        var name = _currentPath.LastOrDefault() ?? "solana";
+        var name = _currentPath.LastOrDefault() ?? "bitcoin";
         bool isDir = IsDirectory(_currentPath);
         uint mode = 0644;
         if (isDir) mode = (uint)NinePConstants.FileMode9P.DMDIR | 0x1ED;
-        else if (name == "import" || name == "create" || name == "unlock") mode = 0666;
+        else if (name == "send" || name == "import" || name == "create" || name == "unlock") mode = 0666;
 
         var stat = new Stat(0, 0, 0, GetQid(_currentPath), mode, 0, 0, 0, name, "scott", "scott", "scott");
         return new Rstat(tstat.Tag, stat);
@@ -290,9 +313,13 @@ public class SolanaFileSystem : INinePFileSystem
 
     public INinePFileSystem Clone()
     {
-        var clone = new SolanaFileSystem(_config, _rpcClient, _vault);
+        var clone = new BitcoinFileSystem(_config, _rpcClient, _vault);
         clone._currentPath = new List<string>(_currentPath);
-        clone._protectedPrivateKey = _protectedPrivateKey;
+        if (_unlockedPrivateKey != null)
+        {
+            clone._unlockedPrivateKey = GC.AllocateArray<byte>(_unlockedPrivateKey.Length, pinned: true);
+            _unlockedPrivateKey.CopyTo(clone._unlockedPrivateKey, 0);
+        }
         clone._unlockedAddress = _unlockedAddress;
         return clone;
     }

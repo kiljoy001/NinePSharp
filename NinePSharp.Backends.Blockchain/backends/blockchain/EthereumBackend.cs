@@ -70,7 +70,7 @@ public class EthereumBackend : IProtocolBackend
             // Look up credentials stored in the vault under the configured key
             var seed = _vault.DeriveSeed(_config.VaultKey, System.Text.Encoding.UTF8.GetBytes(_config.VaultKey));
             var hiddenId = _vault.GenerateHiddenId(seed);
-            var vaultFile = LuxVault.GetVaultPath($"secret_{hiddenId}.vlt");
+            var vaultFile = _vault.GetVaultPath($"secret_{hiddenId}.vlt");
             if (System.IO.File.Exists(vaultFile))
             {
                 var raw = System.IO.File.ReadAllBytes(vaultFile);

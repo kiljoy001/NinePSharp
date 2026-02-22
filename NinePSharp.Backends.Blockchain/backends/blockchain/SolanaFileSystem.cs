@@ -5,35 +5,34 @@ using System.Linq;
 using System.Security;
 using System.Text;
 using System.Threading.Tasks;
-using StellarDotnetSdk;
-using StellarDotnetSdk.Accounts;
+using Solnet.Rpc;
+using Solnet.Wallet;
+using Solnet.Wallet.Bip39;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
 using NinePSharp.Constants;
-using NinePSharp.Server.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
-using StellarServer = StellarDotnetSdk.Server;
 
 namespace NinePSharp.Server.Backends;
 
-public class StellarFileSystem : INinePFileSystem
+public class SolanaFileSystem : INinePFileSystem
 {
-    private readonly StellarBackendConfig _config;
-    private readonly StellarServer? _server;
+    private readonly SolanaBackendConfig _config;
+    private readonly IRpcClient? _rpcClient;
     private readonly ILuxVaultService _vault;
     private List<string> _currentPath = new();
     
-    private ProtectedSecret? _protectedPrivateKey;
+    private byte[]? _unlockedPrivateKey;
     private string? _unlockedAddress;
 
     public bool DotU { get; set; }
 
-    public StellarFileSystem(StellarBackendConfig config, StellarServer? server, ILuxVaultService vault)
+    public SolanaFileSystem(SolanaBackendConfig config, IRpcClient? rpcClient, ILuxVaultService vault)
     {
         _config = config;
-        _server = server;
+        _rpcClient = rpcClient;
         _vault = vault;
     }
 
@@ -61,6 +60,12 @@ public class StellarFileSystem : INinePFileSystem
 
         foreach (var name in twalk.Wname)
         {
+            if (!IsDirectory(tempPath))
+            {
+                if (qids.Count == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>());
+                break;
+            }
+
             if (name == "..")
             {
                 if (tempPath.Count > 0) tempPath.RemoveAt(tempPath.Count - 1);
@@ -96,7 +101,6 @@ public class StellarFileSystem : INinePFileSystem
                 files.Add(("wallets", QidType.QTDIR));
                 files.Add(("balance", QidType.QTFILE));
                 files.Add(("status", QidType.QTFILE));
-                files.Add(("network", QidType.QTFILE));
             }
             else if (_currentPath[0] == "wallets")
             {
@@ -124,20 +128,17 @@ public class StellarFileSystem : INinePFileSystem
         {
             string result = "";
             var last = _currentPath.Last().ToLowerInvariant();
-            switch (last)
+            if (last == "unlock")
             {
-                case "unlock":
-                    result = _unlockedAddress != null ? $"Unlocked: {_unlockedAddress}\n" : "Locked\n";
-                    break;
-                case "balance":
-                    result = "0.0 XLM (Mock)\n";
-                    break;
-                case "status":
-                    result = $"Horizon: {_config.HorizonUrl}\nAddress: {_unlockedAddress ?? "None"}\n";
-                    break;
-                case "network":
-                    result = _config.UsePublicNetwork ? "Public\n" : "TestNet\n";
-                    break;
+                result = _unlockedAddress != null ? $"Unlocked: {_unlockedAddress}\n" : "Locked\n";
+            }
+            else if (last == "balance")
+            {
+                result = "0.0 SOL (Mock)\n";
+            }
+            else if (last == "status")
+            {
+                result = $"RPC: {_config.RpcUrl}\nAddress: {_unlockedAddress ?? "None"}\n";
             }
             allData = Encoding.UTF8.GetBytes(result);
         }
@@ -167,25 +168,26 @@ public class StellarFileSystem : INinePFileSystem
                 }
                 password.MakeReadOnly();
 
-                var kp = KeyPair.Random();
-                byte[] seedBytes = kp.SecretSeed != null ? Encoding.UTF8.GetBytes(kp.SecretSeed) : Array.Empty<byte>();
+                var wallet = new Wallet(new Mnemonic(WordList.English, WordCount.Twelve));
+                var account = wallet.GetAccount(0);
+                byte[] pk = Encoding.UTF8.GetBytes(account.PrivateKey.Key);
                 
                 try {
-                    var ciphertext = _vault.Encrypt(seedBytes, password);
-                    byte[] idSalt = Encoding.UTF8.GetBytes("Stellar_Vault_ID_Salt_v1");
+                    var ciphertext = _vault.Encrypt(pk, password);
+                    byte[] idSalt = Encoding.UTF8.GetBytes("Solana_Vault_ID_Salt_v1");
                     var seed = _vault.DeriveSeed(password, idSalt);
                     var hiddenId = _vault.GenerateHiddenId(seed);
                     
-                    File.WriteAllBytes(LuxVault.GetVaultPath($"xlm_vault_{hiddenId}.vlt"), ciphertext);
+                    File.WriteAllBytes(_vault.GetVaultPath($"sol_vault_{hiddenId}.vlt"), ciphertext);
                 }
                 finally {
-                    Array.Clear(seedBytes);
+                    Array.Clear(pk);
                 }
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
             else if (_currentPath[1] == "import")
             {
-                // Format: password:secretSeed
+                // Format: password:base58PrivKey
                 var bytes = twrite.Data.Span;
                 char[] chars = GC.AllocateArray<char>(Encoding.UTF8.GetCharCount(bytes), pinned: true);
                 try {
@@ -193,32 +195,33 @@ public class StellarFileSystem : INinePFileSystem
                     string fullStr = new string(chars).Trim();
                     var parts = fullStr.Split(':', 2);
                     if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0])) 
-                        throw new NinePProtocolException("Invalid format or missing password. Use 'password:secretSeed'");
+                        throw new NinePProtocolException("Invalid format or missing password. Use 'password:base58PrivKey'");
 
                     using var password = new SecureString();
                     foreach (char c in parts[0]) password.AppendChar(c);
                     password.MakeReadOnly();
 
-                    var secretSeed = parts[1];
-                    byte[] seedBytes = Encoding.UTF8.GetBytes(secretSeed);
+                    var privKeyBase58 = parts[1];
                     try { 
-                        KeyPair.FromSecretSeed(secretSeed); 
-                        var ciphertext = _vault.Encrypt(seedBytes, password);
-                        byte[] idSalt = Encoding.UTF8.GetBytes("Stellar_Vault_ID_Salt_v1");
-                        var seed = _vault.DeriveSeed(password, idSalt);
-                        var hiddenId = _vault.GenerateHiddenId(seed);
-                        
-                        File.WriteAllBytes(LuxVault.GetVaultPath($"xlm_vault_{hiddenId}.vlt"), ciphertext);
-                    } 
-                    catch { throw new NinePProtocolException("Invalid secret seed."); }
-                    finally {
-                        Array.Clear(seedBytes);
-                    }
+                        var account = new Account(privKeyBase58, ""); 
+                        byte[] pk = Encoding.UTF8.GetBytes(account.PrivateKey.Key);
+                        try {
+                            var ciphertext = _vault.Encrypt(pk, password);
+                            byte[] idSalt = Encoding.UTF8.GetBytes("Solana_Vault_ID_Salt_v1");
+                            var seed = _vault.DeriveSeed(password, idSalt);
+                            var hiddenId = _vault.GenerateHiddenId(seed);
+                            
+                            File.WriteAllBytes(_vault.GetVaultPath($"sol_vault_{hiddenId}.vlt"), ciphertext);
+                        }
+                        finally {
+                            Array.Clear(pk);
+                        }
+                        return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                    } catch { throw new NinePProtocolException("Invalid Solana private key."); }
                 }
                 finally {
                     Array.Clear(chars);
                 }
-                return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
             else if (_currentPath[1] == "unlock")
             {
@@ -236,28 +239,28 @@ public class StellarFileSystem : INinePFileSystem
                 }
                 password.MakeReadOnly();
 
-                byte[] idSalt = Encoding.UTF8.GetBytes("Stellar_Vault_ID_Salt_v1");
+                byte[] idSalt = Encoding.UTF8.GetBytes("Solana_Vault_ID_Salt_v1");
                 var seed = _vault.DeriveSeed(password, idSalt);
                 var hiddenId = _vault.GenerateHiddenId(seed);
-                var vaultFile = LuxVault.GetVaultPath($"xlm_vault_{hiddenId}.vlt");
+                var vaultFile = _vault.GetVaultPath($"sol_vault_{hiddenId}.vlt");
 
                 if (File.Exists(vaultFile))
                 {
                     var encrypted = File.ReadAllBytes(vaultFile);
-                    var seedBytes = _vault.DecryptToBytes(encrypted, password);
-                    if (seedBytes != null)
+                    var privKey = _vault.DecryptToBytes(encrypted, password);
+                    if (privKey != null)
                     {
                         try {
-                            _protectedPrivateKey?.Dispose();
-                            _protectedPrivateKey = new ProtectedSecret((ReadOnlySpan<byte>)seedBytes);
+                            if (_unlockedPrivateKey != null) Array.Clear(_unlockedPrivateKey);
+                            _unlockedPrivateKey = GC.AllocateArray<byte>(privKey.Length, pinned: true);
+                            privKey.CopyTo(_unlockedPrivateKey, 0);
                             
-                            var secretSeed = Encoding.UTF8.GetString(seedBytes);
-                            var kp = KeyPair.FromSecretSeed(secretSeed);
-                            _unlockedAddress = kp.AccountId;
+                            var account = new Account(privKey, Array.Empty<byte>());
+                            _unlockedAddress = account.PublicKey;
                             return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                         }
                         finally {
-                            Array.Clear(seedBytes);
+                            Array.Clear(privKey);
                         }
                     }
                 }
@@ -272,7 +275,7 @@ public class StellarFileSystem : INinePFileSystem
 
     public async Task<Rstat> StatAsync(Tstat tstat)
     {
-        var name = _currentPath.LastOrDefault() ?? "stellar";
+        var name = _currentPath.LastOrDefault() ?? "solana";
         bool isDir = IsDirectory(_currentPath);
         uint mode = 0644;
         if (isDir) mode = (uint)NinePConstants.FileMode9P.DMDIR | 0x1ED;
@@ -287,9 +290,13 @@ public class StellarFileSystem : INinePFileSystem
 
     public INinePFileSystem Clone()
     {
-        var clone = new StellarFileSystem(_config, _server, _vault);
+        var clone = new SolanaFileSystem(_config, _rpcClient, _vault);
         clone._currentPath = new List<string>(_currentPath);
-        clone._protectedPrivateKey = _protectedPrivateKey;
+        if (_unlockedPrivateKey != null)
+        {
+            clone._unlockedPrivateKey = GC.AllocateArray<byte>(_unlockedPrivateKey.Length, pinned: true);
+            _unlockedPrivateKey.CopyTo(clone._unlockedPrivateKey, 0);
+        }
         clone._unlockedAddress = _unlockedAddress;
         return clone;
     }
