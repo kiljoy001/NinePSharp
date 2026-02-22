@@ -22,22 +22,21 @@ public class DatabaseBackend : IProtocolBackend
 
     public Task InitializeAsync(IConfiguration configuration)
     {
-        _config = configuration.Get<DatabaseBackendConfig>();
-        Console.WriteLine($"[Database Backend] Initialized with MountPath: {MountPath}");
+        try {
+            _config = configuration.Get<DatabaseBackendConfig>();
+            Console.WriteLine($"[Database Backend] Initialized with MountPath: {MountPath}");
+        }
+        catch (Exception ex) {
+            Console.WriteLine($"[Database Backend] Failed to initialize: {ex.Message}");
+        }
         return Task.CompletedTask;
     }
 
-    public INinePFileSystem GetFileSystem()
-    {
-        if (_config == null) throw new InvalidOperationException("Backend not initialized");
-        return new DatabaseFileSystem(_config, _vault);
-    }
+    public INinePFileSystem GetFileSystem() => GetFileSystem(null);
 
     public INinePFileSystem GetFileSystem(SecureString? credentials)
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
-        // For simplicity, we don't currently use the SecureString credentials here, 
-        // but we've updated the signature for compatibility.
-        return GetFileSystem();
+        return new DatabaseFileSystem(_config, _vault, credentials);
     }
 }

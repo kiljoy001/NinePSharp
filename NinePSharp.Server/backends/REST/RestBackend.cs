@@ -34,14 +34,6 @@ public class RestBackend : IProtocolBackend
 
     public INinePFileSystem GetFileSystem() => GetFileSystem(null);
 
-    private string? SecureStringToString(SecureString? ss)
-    {
-        if (ss == null) return null;
-        IntPtr ptr = Marshal.SecureStringToGlobalAllocUnicode(ss);
-        try { return Marshal.PtrToStringUni(ptr); }
-        finally { Marshal.ZeroFreeGlobalAllocUnicode(ptr); }
-    }
-
     public INinePFileSystem GetFileSystem(SecureString? credentials)
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
@@ -52,11 +44,36 @@ public class RestBackend : IProtocolBackend
             client.BaseAddress = new Uri(_config.BaseUrl.EndsWith("/") ? _config.BaseUrl : _config.BaseUrl + "/");
         }
 
-        string? credsStr = SecureStringToString(credentials);
-        if (!string.IsNullOrEmpty(credsStr))
+        if (credentials != null)
         {
-            var encoded = Convert.ToBase64String(Encoding.ASCII.GetBytes(credsStr));
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", encoded);
+            // Zero-exposure: decode to bytes, then base64 the bytes
+            IntPtr ptr = Marshal.SecureStringToGlobalAllocUnicode(credentials);
+            try {
+                unsafe {
+                    byte* pChars = (byte*)ptr.ToPointer();
+                    int charCount = credentials.Length;
+                    // Basic auth expects "user:pass" in UTF8/ASCII
+                    // We'll decode the Unicode SecureString to UTF8 bytes
+                    int byteCount = Encoding.UTF8.GetByteCount((char*)pChars, charCount);
+                    if (byteCount > 0)
+                    {
+                        byte[] utf8Bytes = GC.AllocateArray<byte>(byteCount, pinned: true);
+                        try {
+                            fixed (byte* pUtf8 = utf8Bytes) {
+                                Encoding.UTF8.GetBytes((char*)pChars, charCount, pUtf8, byteCount);
+                            }
+                            var encoded = Convert.ToBase64String(utf8Bytes);
+                            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", encoded);
+                        }
+                        finally {
+                            Array.Clear(utf8Bytes);
+                        }
+                    }
+                }
+            }
+            finally {
+                Marshal.ZeroFreeGlobalAllocUnicode(ptr);
+            }
         }
 
         return new RestFileSystem(_config, client, _vault);

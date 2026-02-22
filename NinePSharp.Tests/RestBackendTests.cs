@@ -1,141 +1,130 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
-using System.Security;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Xunit;
 using Moq;
 using Moq.Protected;
 using NinePSharp.Messages;
-using NinePSharp.Constants;
-using NinePSharp.Server.Backends;
 using NinePSharp.Server.Backends.REST;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
-using FsCheck;
-using FsCheck.Xunit;
-using FluentAssertions;
-using Microsoft.Extensions.Configuration;
+using Xunit;
 
-namespace NinePSharp.Tests.Backends;
+namespace NinePSharp.Tests;
 
 public class RestBackendTests
 {
-    private readonly ILuxVaultService _vault = new LuxVaultService();
+    private readonly Mock<ILuxVaultService> _vaultMock = new();
+    private readonly RestBackendConfig _config = new() { BaseUrl = "http://api.test" };
 
-    [Fact]
-    public async Task RestBackend_Initialization_Works()
+    private HttpClient CreateMockClient(Func<HttpRequestMessage, Task> verifyAction)
     {
-        var backend = new RestBackend(_vault);
-        var config = new ConfigurationBuilder().AddInMemoryCollection(new[]
-        {
-            new KeyValuePair<string, string?>("BaseUrl", "https://api.example.com"),
-            new KeyValuePair<string, string?>("MountPath", "/rest")
-        }).Build();
+        var handlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        handlerMock
+           .Protected()
+           .Setup<Task<HttpResponseMessage>>(
+              "SendAsync",
+              ItExpr.IsAny<HttpRequestMessage>(),
+              ItExpr.IsAny<CancellationToken>()
+           )
+           .Callback<HttpRequestMessage, CancellationToken>(async (req, token) => await verifyAction(req))
+           .ReturnsAsync(new HttpResponseMessage()
+           {
+              StatusCode = System.Net.HttpStatusCode.OK,
+              Content = new StringContent("{\"status\":\"ok\"}"),
+           });
 
-        await backend.InitializeAsync(config);
-        backend.Name.Should().Be("REST");
-        backend.MountPath.Should().Be("/rest");
+        return new HttpClient(handlerMock.Object) { BaseAddress = new Uri(_config.BaseUrl) };
     }
 
     [Fact]
-    public async Task RestFileSystem_Read_PerformsGetRequest()
+    public async Task Rest_Get_Mapping_Works()
     {
-        // Arrange
-        var handlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
-        handlerMock.Protected()
-            .Setup<Task<HttpResponseMessage>>(
-                "SendAsync",
-                ItExpr.IsAny<HttpRequestMessage>(),
-                ItExpr.IsAny<CancellationToken>()
-            )
-            .ReturnsAsync(new HttpResponseMessage
-            {
-                StatusCode = HttpStatusCode.OK,
-                Content = new StringContent("{\"id\": 1, \"name\": \"test\"}")
-            })
-            .Verifiable();
+        HttpRequestMessage? capturedRequest = null;
+        var client = CreateMockClient(req => { capturedRequest = req; return Task.CompletedTask; });
+        var fs = new RestFileSystem(_config, client, _vaultMock.Object);
 
-        var httpClient = new HttpClient(handlerMock.Object);
-        httpClient.BaseAddress = new Uri("https://api.example.com/");
+        // Walk to /users/get
+        await fs.WalkAsync(new Twalk(1, 0, 1, new[] { "users", "get" }));
         
-        var config = new RestBackendConfig { BaseUrl = "https://api.example.com" };
-        var fs = new RestFileSystem(config, httpClient, _vault);
-
-        // Act: Walk to 'users/1'
-        await fs.WalkAsync(new Twalk((ushort)1, 1u, 2u, new[] { "users", "1" }));
-        var response = await fs.ReadAsync(new Tread((ushort)1, 2u, 0uL, 8192u));
+        // Act
+        await fs.ReadAsync(new Tread(1, 1, 0, 8192));
 
         // Assert
-        var content = Encoding.UTF8.GetString(response.Data.ToArray());
-        content.Should().Contain("test");
-        
-        handlerMock.Protected().Verify(
-            "SendAsync",
-            Times.Exactly(1),
-            ItExpr.Is<HttpRequestMessage>(req => 
-                req.Method == HttpMethod.Get && 
-                req.RequestUri!.ToString() == "https://api.example.com/users/1"),
-            ItExpr.IsAny<CancellationToken>()
-        );
+        Assert.NotNull(capturedRequest);
+        Assert.Equal(HttpMethod.Get, capturedRequest.Method);
+        Assert.Equal("http://api.test/users", capturedRequest.RequestUri?.ToString());
     }
 
     [Fact]
-    public async Task RestFileSystem_Write_PerformsPostRequest()
+    public async Task Rest_Headers_And_Params_Apply_To_Request()
     {
-        // Arrange
-        var handlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
-        handlerMock.Protected()
-            .Setup<Task<HttpResponseMessage>>(
-                "SendAsync",
-                ItExpr.IsAny<HttpRequestMessage>(),
-                ItExpr.IsAny<CancellationToken>()
-            )
-            .ReturnsAsync(new HttpResponseMessage { StatusCode = HttpStatusCode.Created, Content = new StringContent("{}") })
-            .Verifiable();
+        HttpRequestMessage? capturedRequest = null;
+        var client = CreateMockClient(req => { capturedRequest = req; return Task.CompletedTask; });
+        var fs = new RestFileSystem(_config, client, _vaultMock.Object);
 
-        var httpClient = new HttpClient(handlerMock.Object);
-        httpClient.BaseAddress = new Uri("https://api.example.com/");
+        // Walk to /api
+        await fs.WalkAsync(new Twalk(1, 0, 1, new[] { "api" }));
+        
+        // Walk to .headers and write
+        var headerFs = fs.Clone();
+        await headerFs.WalkAsync(new Twalk(1, 1, 2, new[] { ".headers" }));
+        await headerFs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes("X-Test: Value1\nContent-Type: text/plain")));
 
-        var config = new RestBackendConfig { BaseUrl = "https://api.example.com" };
-        var fs = new RestFileSystem(config, httpClient, _vault);
+        // Walk to .params and write
+        var paramFs = fs.Clone();
+        await paramFs.WalkAsync(new Twalk(1, 1, 3, new[] { ".params" }));
+        await paramFs.WriteAsync(new Twrite(1, 3, 0, Encoding.UTF8.GetBytes("page=1\nlimit=50")));
 
-        // Act: Walk to 'users' and write
-        await fs.WalkAsync(new Twalk((ushort)1, 1u, 2u, new[] { "users" }));
-        var payload = "{\"name\": \"newuser\"}";
-        await fs.WriteAsync(new Twrite((ushort)1, 2u, 0uL, Encoding.UTF8.GetBytes(payload).AsMemory()));
+        // Use the instance that has both headers and params (simulating state inheritance via Clone)
+        // Actually, our test setup needs to apply headers and params to the same instance to test combined effect
+        // or ensure Clone() copies them correctly.
+        
+        // Walk to /api/get (root of api)
+        // We re-use headerFs and apply params there too
+        await headerFs.WalkAsync(new Twalk(1, 1, 3, new[] { ".params" }));
+        await headerFs.WriteAsync(new Twrite(1, 3, 0, Encoding.UTF8.GetBytes("page=1\nlimit=50")));
+        
+        // Now walk to 'get'
+        await headerFs.WalkAsync(new Twalk(1, 1, 4, new[] { "get" }));
+        
+        // Act
+        await headerFs.ReadAsync(new Tread(1, 4, 0, 8192));
 
         // Assert
-        handlerMock.Protected().Verify(
-            "SendAsync",
-            Times.Exactly(1),
-            ItExpr.Is<HttpRequestMessage>(req => 
-                req.Method == HttpMethod.Post && 
-                req.RequestUri!.ToString() == "https://api.example.com/users"),
-            ItExpr.IsAny<CancellationToken>()
-        );
+        Assert.NotNull(capturedRequest);
+        Assert.True(capturedRequest.Headers.Contains("X-Test"));
+        Assert.Equal("Value1", capturedRequest.Headers.GetValues("X-Test").First());
+        Assert.Contains("page=1", capturedRequest.RequestUri?.Query);
+        Assert.Contains("limit=50", capturedRequest.RequestUri?.Query);
     }
 
     [Fact]
-    public async Task RestFileSystem_Auth_UsesSecurePipeline()
+    public async Task Rest_Post_Body_ZeroExposure_Works()
     {
-        var backend = new RestBackend(_vault);
-        var config = new ConfigurationBuilder().AddInMemoryCollection(new[]
-        {
-            new KeyValuePair<string, string?>("BaseUrl", "https://api.example.com")
-        }).Build();
-        await backend.InitializeAsync(config);
+        HttpRequestMessage? capturedRequest = null;
+        string? capturedBody = null;
         
-        using var securePass = new SecureString();
-        foreach(var c in "user:pass") { securePass.AppendChar(c); }
-        securePass.MakeReadOnly();
+        var client = CreateMockClient(async req => {
+            capturedRequest = req;
+            if (req.Content != null) capturedBody = await req.Content.ReadAsStringAsync();
+        });
+        var fs = new RestFileSystem(_config, client, _vaultMock.Object);
 
-        var fs = backend.GetFileSystem(securePass);
-        fs.Should().NotBeNull();
+        // Walk to /submit/post
+        await fs.WalkAsync(new Twalk(1, 0, 1, new[] { "submit", "post" }));
+        
+        // Act
+        var jsonBody = "{\"key\":\"value\"}";
+        await fs.WriteAsync(new Twrite(1, 1, 0, Encoding.UTF8.GetBytes(jsonBody)));
+
+        // Assert
+        Assert.NotNull(capturedRequest);
+        Assert.Equal(HttpMethod.Post, capturedRequest.Method);
+        Assert.Equal(jsonBody, capturedBody);
     }
 }

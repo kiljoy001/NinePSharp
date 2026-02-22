@@ -1,0 +1,32 @@
+[INFO] Anti-Dumping protection enabled (PR_SET_DUMPABLE=0).
+info: NinePSharp.Server.Cluster.ClusterManager[0]
+      No cluster configuration found (JSON or cluster.conf). Running in standalone mode.
+info: Microsoft.Hosting.Lifetime[0]
+      Application started. Press Ctrl+C to shut down.
+info: NinePSharp.Server.NinePServer[0]
+      Initializing 9P translation backends...
+[Database Backend] Initialized with MountPath: /db
+info: NinePSharp.Server.NinePServer[0]
+      Backend 'Database' initialized at /db
+info: Microsoft.Hosting.Lifetime[0]
+      Hosting environment: Production
+info: Microsoft.Hosting.Lifetime[0]
+      Content root path: /home/scott/Repo/NinePSharp/NinePSharp.Server/bin/Debug/net10.0/
+[Ethereum Backend] Initialized with MountPath: /eth
+info: NinePSharp.Server.NinePServer[0]
+      Backend 'Ethereum' initialized at /eth
+[Bitcoin Backend] Initialized with MountPath: /btc
+info: NinePSharp.Server.NinePServer[0]
+      Backend 'Bitcoin' initialized at /btc
+[Solana Backend] Initialized with MountPath: /sol
+info: NinePSharp.Server.NinePServer[0]
+      Backend 'Solana' initialized at /sol
+[Stellar Backend] Initialized with MountPath: /stellar
+info: NinePSharp.Server.NinePServer[0]
+      Backend 'Stellar' initialized at /stellar
+[Cardano Backend] Initialized with MountPath: /cardano
+info: NinePSharp.Server.NinePServer[0]
+      Backend 'Cardano' initialized at /cardano
+[Secret Backend] Initialized with MountPath: /secrets
+info: NinePSharp.Server.NinePServer[0]
+      Backend 'secret' initialized at /secrets

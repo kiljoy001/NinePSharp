@@ -15,6 +15,14 @@ public readonly struct Topen : ISerializable
     public uint Fid { get; }
     public byte Mode { get; }
 
+    public Topen(ushort tag, uint fid, byte mode)
+    {
+        Tag = tag;
+        Fid = fid;
+        Mode = mode;
+        Size = NinePConstants.HeaderSize + 4 + 1;
+    }
+
     public Topen(ReadOnlySpan<byte> data)
     {
         Size = BinaryPrimitives.ReadUInt32LittleEndian(data[..4]);

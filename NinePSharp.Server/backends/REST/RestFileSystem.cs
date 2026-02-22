@@ -4,6 +4,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
+using System.Buffers.Binary;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
 using NinePSharp.Constants;
@@ -19,7 +20,13 @@ public class RestFileSystem : INinePFileSystem
     private readonly HttpClient _httpClient;
     private readonly ILuxVaultService _vault;
     private List<string> _currentPath = new();
-    private string? _lastResponse;
+    private byte[]? _lastReadData;
+    private HttpMethod _currentMethod = HttpMethod.Get;
+    private string _targetResource = "";
+    private Dictionary<string, string> _headers = new();
+    private Dictionary<string, string> _params = new();
+
+    public bool DotU { get; set; }
 
     public RestFileSystem(RestBackendConfig config, HttpClient httpClient, ILuxVaultService vault)
     {
@@ -30,6 +37,9 @@ public class RestFileSystem : INinePFileSystem
 
     private bool IsDirectory(List<string> path)
     {
+        if (path.Count == 0) return true;
+        var last = path.Last().ToLowerInvariant();
+        if (last == "get" || last == "post" || last == "put" || last == "delete" || last == ".headers" || last == ".params" || last == "status") return false;
         return true; 
     }
 
@@ -55,6 +65,10 @@ public class RestFileSystem : INinePFileSystem
             }
             else
             {
+                if (!IsDirectory(tempPath)) {
+                    if (qids.Count == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>()); 
+                    break;
+                }
                 tempPath.Add(name);
             }
             qids.Add(GetQid(tempPath));
@@ -63,7 +77,22 @@ public class RestFileSystem : INinePFileSystem
         if (qids.Count == twalk.Wname.Length)
         {
             _currentPath = tempPath;
-            _lastResponse = null;
+            if (_currentPath.Count > 0)
+            {
+                var last = _currentPath.Last().ToLowerInvariant();
+                switch (last)
+                {
+                    case "get": _currentMethod = HttpMethod.Get; break;
+                    case "post": _currentMethod = HttpMethod.Post; break;
+                    case "put": _currentMethod = HttpMethod.Put; break;
+                    case "delete": _currentMethod = HttpMethod.Delete; break;
+                    default: _currentMethod = HttpMethod.Get; break;
+                }
+
+                if (!IsDirectory(_currentPath)) _targetResource = string.Join("/", _currentPath.Take(_currentPath.Count - 1));
+                else _targetResource = string.Join("/", _currentPath);
+            }
+            _lastReadData = null; // Invalidate cache on walk
         }
 
         return new Rwalk(twalk.Tag, qids.ToArray());
@@ -71,51 +100,125 @@ public class RestFileSystem : INinePFileSystem
 
     public Task<Ropen> OpenAsync(Topen topen)
     {
+        _lastReadData = null; // Invalidate cache on open to ensure fresh data
         return Task.FromResult(new Ropen(topen.Tag, GetQid(_currentPath), 0));
+    }
+
+    private string BuildUrl()
+    {
+        var resource = _targetResource.TrimStart('/');
+        var baseUrl = _config.BaseUrl.TrimEnd('/');
+        var fullUrl = string.IsNullOrEmpty(resource) ? baseUrl : $"{baseUrl}/{resource}";
+
+        if (_params.Count == 0) return fullUrl;
+        var query = string.Join("&", _params.Select(p => $"{Uri.EscapeDataString(p.Key)}={Uri.EscapeDataString(p.Value)}"));
+        return fullUrl.Contains("?") ? $"{fullUrl}&{query}" : $"{fullUrl}?{query}";
     }
 
     public async Task<Rread> ReadAsync(Tread tread)
     {
-        if (tread.Offset == 0 && _currentPath.Count > 0)
+        if (IsDirectory(_currentPath))
         {
-            var relativeUrl = string.Join("/", _currentPath);
-            try {
-                var response = await _httpClient.GetStringAsync(relativeUrl);
-                _lastResponse = response + "\n";
+            var entries = new List<byte>();
+            var files = new[] { "get", "post", "put", "delete", ".headers", ".params", "status" };
+            foreach (var f in files)
+            {
+                var qid = new Qid(QidType.QTFILE, 0, (ulong)f.GetHashCode());
+                uint mode = (f == ".headers" || f == ".params" || (f != "status" && f != "get")) ? (uint)0x1B6 : (uint)0x124;
+                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f, "scott", "scott", "scott", dotu: DotU);
+                var entryBuffer = new byte[stat.Size];
+                int offset = 0;
+                stat.WriteTo(entryBuffer, ref offset);
+                entries.AddRange(entryBuffer);
             }
-            catch (Exception ex) {
-                _lastResponse = $"Error: {ex.Message}\n";
+            var allData = entries.ToArray();
+            int totalToSend = 0;
+            int curOff = (int)tread.Offset;
+            while (curOff + 2 <= allData.Length)
+            {
+                ushort sz = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(allData.AsSpan(curOff, 2)) + 2);
+                if (totalToSend + sz > tread.Count) break;
+                totalToSend += sz;
+                curOff += sz;
             }
-        }
-        else if (tread.Offset == 0 && _currentPath.Count == 0)
-        {
-            _lastResponse = "endpoints/\n";
+            if (totalToSend == 0) return new Rread(tread.Tag, Array.Empty<byte>());
+            return new Rread(tread.Tag, allData.AsMemory((int)tread.Offset, totalToSend).ToArray());
         }
 
-        byte[] allData = Encoding.UTF8.GetBytes(_lastResponse ?? "");
-        if (tread.Offset >= (ulong)allData.Length) return new Rread(tread.Tag, Array.Empty<byte>());
-        
-        var chunk = allData.AsSpan((int)tread.Offset, (int)Math.Min((long)tread.Count, (long)allData.Length - (long)tread.Offset)).ToArray();
+        if (tread.Offset == 0 || _lastReadData == null)
+        {
+            var last = _currentPath.Last().ToLowerInvariant();
+            string result = "";
+            if (last == ".headers") {
+                var sb = new StringBuilder();
+                foreach (var h in _headers) sb.AppendLine($"{h.Key}: {h.Value}");
+                result = sb.ToString();
+            }
+            else if (last == ".params") {
+                var sb = new StringBuilder();
+                foreach (var p in _params) sb.AppendLine($"{p.Key}={p.Value}");
+                result = sb.ToString();
+            }
+            else if (last == "status") result = $"REST Backend: {_config.BaseUrl}\nResource: /{_targetResource.TrimStart('/')}\nMethod: {_currentMethod}\n";
+            else if (last == "get") {
+                try {
+                    using var request = new HttpRequestMessage(HttpMethod.Get, BuildUrl());
+                    foreach (var h in _headers) request.Headers.TryAddWithoutValidation(h.Key, h.Value);
+                    var response = await _httpClient.SendAsync(request);
+                    result = await response.Content.ReadAsStringAsync() + "\n";
+                } catch (Exception ex) { result = $"Error: {ex.Message}\n"; }
+            }
+            _lastReadData = Encoding.UTF8.GetBytes(result);
+        }
+
+        if (_lastReadData == null || tread.Offset >= (ulong)_lastReadData.Length) return new Rread(tread.Tag, Array.Empty<byte>());
+        var chunk = _lastReadData.AsSpan((int)tread.Offset, (int)Math.Min((long)tread.Count, (long)_lastReadData.Length - (long)tread.Offset)).ToArray();
         return new Rread(tread.Tag, chunk);
     }
 
     public async Task<Rwrite> WriteAsync(Twrite twrite)
     {
-        if (_currentPath.Count > 0)
+        if (IsDirectory(_currentPath)) throw new NinePProtocolException("Cannot write to directory.");
+        _lastReadData = null; // Invalidate cache
+
+        var last = _currentPath.Last().ToLowerInvariant();
+        if (last == ".headers")
         {
-            var relativeUrl = string.Join("/", _currentPath);
-            var content = new StringContent(Encoding.UTF8.GetString(twrite.Data.ToArray()), Encoding.UTF8, "application/json");
-            
+            var content = Encoding.UTF8.GetString(twrite.Data.ToArray());
+            var lines = content.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var line in lines) {
+                var parts = line.Split(':', 2);
+                if (parts.Length == 2) _headers[parts[0].Trim()] = parts[1].Trim();
+            }
+            return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+        }
+        if (last == ".params")
+        {
+            var content = Encoding.UTF8.GetString(twrite.Data.ToArray());
+            var lines = content.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var line in lines) {
+                var parts = line.Split('=', 2);
+                if (parts.Length == 2) _params[parts[0].Trim()] = parts[1].Trim();
+            }
+            return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+        }
+
+        var bodyBytes = twrite.Data.Span;
+        char[] bodyChars = GC.AllocateArray<char>(Encoding.UTF8.GetCharCount(bodyBytes), pinned: true);
+        try {
+            Encoding.UTF8.GetChars(bodyBytes, bodyChars);
+            string json = new string(bodyChars);
             try {
-                var response = await _httpClient.PostAsync(relativeUrl, content);
-                _lastResponse = await response.Content.ReadAsStringAsync() + "\n";
+                using var request = new HttpRequestMessage(_currentMethod, BuildUrl());
+                if (_currentMethod != HttpMethod.Get && _currentMethod != HttpMethod.Delete) request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+                foreach (var h in _headers) request.Headers.TryAddWithoutValidation(h.Key, h.Value);
+                var response = await _httpClient.SendAsync(request);
+                // Invalidate cache so subsequent READ sees the effect if applicable
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
-            catch (Exception ex) {
-                throw new NinePProtocolException($"REST write failed: {ex.Message}");
-            }
+            catch (Exception ex) { throw new NinePProtocolException($"REST {_currentMethod} failed: {ex.Message}"); }
         }
-        throw new NinePProtocolException("Cannot write to root.");
+        finally { Array.Clear(bodyChars); }
     }
 
     public async Task<Rclunk> ClunkAsync(Tclunk tclunk) => new Rclunk(tclunk.Tag);
@@ -123,7 +226,9 @@ public class RestFileSystem : INinePFileSystem
     public async Task<Rstat> StatAsync(Tstat tstat)
     {
         var name = _currentPath.LastOrDefault() ?? "rest";
-        var stat = new Stat(0, 0, 0, GetQid(_currentPath), (uint)NinePConstants.FileMode9P.DMDIR | 0755, 0, 0, 0, name, "scott", "scott", "scott");
+        bool isDir = IsDirectory(_currentPath);
+        uint mode = isDir ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0644;
+        var stat = new Stat(0, 0, 0, GetQid(_currentPath), mode, 0, 0, 0, name, "scott", "scott", "scott", dotu: DotU);
         return new Rstat(tstat.Tag, stat);
     }
 
@@ -134,6 +239,11 @@ public class RestFileSystem : INinePFileSystem
     {
         var clone = new RestFileSystem(_config, _httpClient, _vault);
         clone._currentPath = new List<string>(_currentPath);
+        clone._headers = new Dictionary<string, string>(_headers);
+        clone._params = new Dictionary<string, string>(_params);
+        clone._targetResource = _targetResource;
+        clone._currentMethod = _currentMethod;
+        clone.DotU = DotU;
         return clone;
     }
 }

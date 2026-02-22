@@ -6,4 +6,5 @@ public class DatabaseBackendConfig : BackendConfigBase
 {
     public string ConnectionString { get; set; } = string.Empty;
     public string ProviderName { get; set; } = string.Empty; // e.g., Npgsql, Microsoft.Data.Sqlite, System.Data.SqlClient
+    public string? VaultKey { get; set; }
 }

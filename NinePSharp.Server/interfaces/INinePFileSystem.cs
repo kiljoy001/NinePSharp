@@ -5,6 +5,7 @@ namespace NinePSharp.Server.Interfaces;
 
 public interface INinePFileSystem
 {
+    bool DotU { get; set; }
     Task<Rwalk> WalkAsync(Twalk twalk);
     Task<Ropen> OpenAsync(Topen topen);
     Task<Rread> ReadAsync(Tread tread);

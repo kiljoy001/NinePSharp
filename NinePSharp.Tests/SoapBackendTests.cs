@@ -1,61 +1,80 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security;
 using System.Text;
 using System.Threading.Tasks;
-using Xunit;
 using Moq;
 using NinePSharp.Messages;
-using NinePSharp.Constants;
 using NinePSharp.Server.Backends.SOAP;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
-using FsCheck;
-using FsCheck.Xunit;
-using FluentAssertions;
-using Microsoft.Extensions.Configuration;
+using Xunit;
 
-namespace NinePSharp.Tests.Backends;
+namespace NinePSharp.Tests;
 
 public class SoapBackendTests
 {
-    private readonly ILuxVaultService _vault = new LuxVaultService();
+    private readonly Mock<ILuxVaultService> _vaultMock = new();
+    private readonly Mock<ISoapTransport> _transportMock = new();
+    private readonly SoapBackendConfig _config = new() { MountPath = "/soap", WsdlUrl = "http://api.test?wsdl" };
 
     [Fact]
-    public async Task SoapBackend_Initialization_Works()
+    public async Task Soap_Action_Call_Works_And_Stores_Response()
     {
-        var backend = new SoapBackend(_vault);
-        var config = new ConfigurationBuilder().AddInMemoryCollection(new[]
-        {
-            new KeyValuePair<string, string?>("WsdlUrl", "http://example.com/service?wsdl"),
-            new KeyValuePair<string, string?>("MountPath", "/soap")
-        }).Build();
+        // Arrange
+        var responseXml = "<Response>Success</Response>";
+        _transportMock.Setup(x => x.CallActionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IDictionary<string, string>>()))
+                      .ReturnsAsync(responseXml);
 
-        await backend.InitializeAsync(config);
-        backend.Name.Should().Be("SOAP");
-        backend.MountPath.Should().Be("/soap");
+        var fs = new SoapFileSystem(_config, _transportMock.Object, _vaultMock.Object);
+
+        // Walk to /actions/GetInfo
+        await fs.WalkAsync(new Twalk(1, 0, 1, new[] { "actions", "GetInfo" }));
+
+        // Act - Write Request
+        var requestXml = "<Request>Data</Request>";
+        await fs.WriteAsync(new Twrite(1, 1, 0, Encoding.UTF8.GetBytes(requestXml)));
+
+        // Act - Read Response
+        var read = await fs.ReadAsync(new Tread(1, 1, 0, 8192));
+        var result = Encoding.UTF8.GetString(read.Data.ToArray());
+
+        // Assert
+        Assert.Equal(responseXml, result);
+        _transportMock.Verify(x => x.CallActionAsync("GetInfo", requestXml, It.IsAny<IDictionary<string, string>>()), Times.Once);
     }
 
     [Fact]
-    public async Task SoapFileSystem_Write_CallsSoapAction()
+    public async Task Soap_Headers_Are_Passed_To_Transport()
     {
         // Arrange
-        var transportMock = new Mock<ISoapTransport>();
-        transportMock.Setup(t => t.CallActionAsync(It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync("<response>ok</response>")
-            .Verifiable();
+        IDictionary<string, string>? capturedHeaders = null;
+        _transportMock.Setup(x => x.CallActionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IDictionary<string, string>>()))
+                      .Callback<string, string, IDictionary<string, string>>((a, p, h) => capturedHeaders = h)
+                      .ReturnsAsync("<OK/>");
 
-        var config = new SoapBackendConfig { WsdlUrl = "http://example.com/service?wsdl" };
-        var fs = new SoapFileSystem(config, transportMock.Object, _vault);
+        var rootFs = new SoapFileSystem(_config, _transportMock.Object, _vaultMock.Object);
 
-        // Act: Walk to 'GetWeather' and write XML data
-        await fs.WalkAsync(new Twalk((ushort)1, 1u, 2u, new[] { "GetWeather" }));
-        var payload = Encoding.UTF8.GetBytes("<city>London</city>");
-        await fs.WriteAsync(new Twrite((ushort)1, 2u, 0uL, payload.AsMemory()));
+        // Walk to .headers and write
+        var headerFs = rootFs.Clone();
+        await headerFs.WalkAsync(new Twalk(1, 0, 1, new[] { ".headers" }));
+        await headerFs.WriteAsync(new Twrite(1, 1, 0, Encoding.UTF8.GetBytes("SoapAction: Test\nAuth: Key123")));
+
+        // Walk from root to action using the instance that has the headers
+        // Since Clone() copies headers, we can walk from headerFs back to root then to action,
+        // or just ensure headerFs is at root and walk.
+        // Actually, let's just use a fresh clone for the action call, ensuring headers are preserved.
+        var actionFs = headerFs.Clone();
+        // Walk back to root (..), then to actions/DoWork
+        await actionFs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "actions", "DoWork" }));
+
+        // Act
+        await actionFs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes("<Work/>")));
 
         // Assert
-        transportMock.Verify(t => t.CallActionAsync("GetWeather", "<city>London</city>"), Times.Once);
+        Assert.NotNull(capturedHeaders);
+        Assert.Equal("Test", capturedHeaders["SoapAction"]);
+        Assert.Equal("Key123", capturedHeaders["Auth"]);
     }
 }

@@ -14,6 +14,8 @@ public class MockFileSystem : INinePFileSystem
     private readonly ILuxVaultService _vault;
     private List<string> _currentPath = new();
 
+    public bool DotU { get; set; }
+
     public MockFileSystem(ILuxVaultService vault)
     {
         _vault = vault;
@@ -60,7 +62,7 @@ public class MockFileSystem : INinePFileSystem
     public Task<Rstat> StatAsync(Tstat tstat)
     {
         var name = _currentPath.Count > 0 ? _currentPath.Last() : "mock";
-        var stat = new Stat(0, 0, 0, new Qid(QidType.QTFILE, 0, 1), 0644, 0, 0, 0, name, "scott", "scott", "scott");
+        var stat = new Stat(0, 0, 0, new Qid(QidType.QTFILE, 0, 1), 0644, 0, 0, 0, name, "scott", "scott", "scott", dotu: DotU);
         return Task.FromResult(new Rstat(tstat.Tag, stat));
     }
 
@@ -72,6 +74,7 @@ public class MockFileSystem : INinePFileSystem
     {
         var clone = new MockFileSystem(_vault);
         clone._currentPath = new List<string>(_currentPath);
+        clone.DotU = DotU;
         return clone;
     }
 }

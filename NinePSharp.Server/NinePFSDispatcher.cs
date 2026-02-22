@@ -4,29 +4,36 @@ using NinePSharp.Parser;
 using NinePSharp.Constants;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
+using NinePSharp.Server.Cluster;
+using NinePSharp.Server.Cluster.Messages;
+using NinePSharp.Server.Cluster.Actors;
+using Akka.Actor;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Security;
 using System.Threading.Tasks;
 
 namespace NinePSharp.Server;
 
-public class NinePFSDispatcher
+public class NinePFSDispatcher : INinePFSDispatcher
 {
     private readonly ILogger<NinePFSDispatcher> _logger;
     private readonly IEnumerable<IProtocolBackend> _backends;
+    private readonly IClusterManager _clusterManager;
     private readonly ConcurrentDictionary<uint, INinePFileSystem> _fids = new();
     private readonly ConcurrentDictionary<uint, SecureString> _authFids = new();
 
-    public NinePFSDispatcher(ILogger<NinePFSDispatcher> logger, IEnumerable<IProtocolBackend> backends)
+    public NinePFSDispatcher(ILogger<NinePFSDispatcher> logger, IEnumerable<IProtocolBackend> backends, IClusterManager clusterManager)
     {
         _logger = logger;
         _backends = backends;
+        _clusterManager = clusterManager;
     }
 
-    public async Task<object> DispatchAsync(NinePMessage message)
+    public async Task<object> DispatchAsync(NinePMessage message, bool dotu)
     {
         ushort tag = GetTag(message);
         try
@@ -72,13 +79,13 @@ public class NinePFSDispatcher
                 var t = ((NinePMessage.MsgTwalk)message).Item;
                 if (!_fids.TryGetValue(t.Fid, out var fs)) throw new NinePProtocolException("Unknown FID");
 
-                // Atomicity: Clone first, but only store in _fids if successful.
                 var targetFs = fs.Clone();
                 var response = await targetFs.WalkAsync(t);
                 
-                // Per 9P spec: If nwname > 0 and the walk was fully successful, newfid becomes a new fid.
-                // If it was partially successful or failed, newfid is NOT created.
-                if (t.Wname.Length == 0 || response.Wqid.Length == t.Wname.Length)
+                // Atomic Twalk: only assign newfid if walk is successful
+                // Per spec: nwname = 0 means clone, always successful.
+                // Otherwise, must return exactly nwname QIDs.
+                if (t.Wname.Length == 0 || (response.Wqid != null && response.Wqid.Length == t.Wname.Length))
                 {
                     _fids[t.NewFid] = targetFs;
                 }

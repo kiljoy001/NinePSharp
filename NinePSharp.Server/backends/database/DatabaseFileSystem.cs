@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.Linq;
+using System.Security;
 using System.Threading.Tasks;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
@@ -16,12 +17,16 @@ public class DatabaseFileSystem : INinePFileSystem
 {
     private readonly DatabaseBackendConfig _config;
     private readonly ILuxVaultService _vault;
+    private readonly SecureString? _credentials;
     private List<string> _currentPath = new();
 
-    public DatabaseFileSystem(DatabaseBackendConfig config, ILuxVaultService vault)
+    public bool DotU { get; set; }
+
+    public DatabaseFileSystem(DatabaseBackendConfig config, ILuxVaultService vault, SecureString? credentials = null)
     {
         _config = config;
         _vault = vault;
+        _credentials = credentials;
     }
 
     private IDbConnection CreateConnection()
@@ -43,7 +48,6 @@ public class DatabaseFileSystem : INinePFileSystem
 
     private bool IsDirectory(List<string> path)
     {
-        // Currently all nodes in Database FS are directories (root, tables)
         return true;
     }
 
@@ -56,13 +60,6 @@ public class DatabaseFileSystem : INinePFileSystem
 
         foreach (var name in twalk.Wname)
         {
-            if (!IsDirectory(tempPath))
-            {
-                // Cannot walk into a file
-                if (qids.Count == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>()); // Error
-                break;
-            }
-
             if (name == "..")
             {
                 if (tempPath.Count > 0) tempPath.RemoveAt(tempPath.Count - 1);
@@ -76,7 +73,6 @@ public class DatabaseFileSystem : INinePFileSystem
             qids.Add(new Qid(type, 0, (ulong)name.GetHashCode()));
         }
         
-        // Only update state if the walk was partially or fully successful
         if (qids.Count == twalk.Wname.Length)
         {
             _currentPath = tempPath;
@@ -136,8 +132,9 @@ public class DatabaseFileSystem : INinePFileSystem
 
     public INinePFileSystem Clone()
     {
-        var clone = new DatabaseFileSystem(_config, _vault);
+        var clone = new DatabaseFileSystem(_config, _vault, _credentials);
         clone._currentPath = new List<string>(_currentPath);
+        clone.DotU = this.DotU;
         return clone;
     }
 }

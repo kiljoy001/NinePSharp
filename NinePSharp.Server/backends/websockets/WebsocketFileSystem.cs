@@ -18,6 +18,9 @@ public class WebsocketFileSystem : INinePFileSystem
     private readonly IWebsocketTransport _transport;
     private readonly ILuxVaultService _vault;
     private List<string> _currentPath = new();
+    private byte[]? _lastReadData;
+
+    public bool DotU { get; set; }
 
     public WebsocketFileSystem(WebsocketBackendConfig config, IWebsocketTransport transport, ILuxVaultService vault)
     {
@@ -48,20 +51,18 @@ public class WebsocketFileSystem : INinePFileSystem
 
         foreach (var name in twalk.Wname)
         {
-            if (name == "..")
-            {
-                if (tempPath.Count > 0) tempPath.RemoveAt(tempPath.Count - 1);
-            }
-            else
-            {
-                tempPath.Add(name);
-            }
+            if (name == "..") { if (tempPath.Count > 0) tempPath.RemoveAt(tempPath.Count - 1); }
+            else tempPath.Add(name);
             qids.Add(GetQid(tempPath));
         }
 
         if (qids.Count == twalk.Wname.Length)
         {
             _currentPath = tempPath;
+            if (_lastReadData != null) {
+                Array.Clear(_lastReadData);
+                _lastReadData = null;
+            }
         }
 
         return new Rwalk(twalk.Tag, qids.ToArray());
@@ -74,31 +75,91 @@ public class WebsocketFileSystem : INinePFileSystem
 
     public async Task<Rread> ReadAsync(Tread tread)
     {
-        if (tread.Offset == 0 && _currentPath.Count == 0)
+        byte[]? dataToRead = null;
+
+        if (IsDirectory(_currentPath))
         {
-            var content = "data\nstatus\n";
-            var bytes = Encoding.UTF8.GetBytes(content);
-            return new Rread(tread.Tag, bytes);
+            var entries = new List<byte>();
+            var files = new[] { "data", "status" };
+            
+            foreach (var f in files)
+            {
+                var qid = new Qid(QidType.QTFILE, 0, (ulong)f.GetHashCode());
+                var stat = new Stat(0, 0, 0, qid, 0644, 0, 0, 0, f, "scott", "scott", "scott");
+                
+                var entryBuffer = new byte[stat.Size];
+                int offset = 0;
+                stat.WriteTo(entryBuffer, ref offset);
+                entries.AddRange(entryBuffer.Take(offset));
+            }
+            dataToRead = entries.ToArray();
         }
-        if (_currentPath.Count == 1 && _currentPath[0] == "data")
+        else if (tread.Offset == 0)
         {
-            var data = await _transport.ReceiveAsync();
-            return new Rread(tread.Tag, data);
+            if (_currentPath.Count == 1 && _currentPath[0].ToLowerInvariant() == "data")
+            {
+                dataToRead = await _transport.GetNextMessageAsync();
+                if (dataToRead != null)
+                {
+                    if (_lastReadData != null) Array.Clear(_lastReadData);
+                    _lastReadData = GC.AllocateArray<byte>(dataToRead.Length, pinned: true);
+                    dataToRead.CopyTo(_lastReadData, 0);
+                    Array.Clear(dataToRead); // Zero original buffer
+                    dataToRead = _lastReadData;
+                }
+            }
+            else if (_currentPath.Count == 1 && _currentPath[0].ToLowerInvariant() == "status")
+            {
+                dataToRead = Encoding.UTF8.GetBytes($"WebSocket Backend: {_config.Url}\nConnected: {_transport.IsConnected}\n");
+            }
         }
-        return new Rread(tread.Tag, Array.Empty<byte>());
+        else if (_currentPath.Count == 1 && _currentPath[0].ToLowerInvariant() == "data")
+        {
+            dataToRead = _lastReadData;
+        }
+
+        if (dataToRead == null || tread.Offset >= (ulong)dataToRead.Length)
+            return new Rread(tread.Tag, Array.Empty<byte>());
+        
+        var chunk = dataToRead.AsSpan((int)tread.Offset, (int)Math.Min((long)tread.Count, (long)dataToRead.Length - (long)tread.Offset)).ToArray();
+        return new Rread(tread.Tag, chunk);
     }
 
     public async Task<Rwrite> WriteAsync(Twrite twrite)
     {
-        if (_currentPath.Count == 1 && _currentPath[0] == "data")
+        if (IsDirectory(_currentPath)) throw new NinePProtocolException("Cannot write to directory.");
+
+        if (_currentPath.Count == 1 && _currentPath[0].ToLowerInvariant() == "data")
         {
-            await _transport.SendAsync(twrite.Data.ToArray());
-            return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+            // Hardening: use pinned buffer for payload
+            var payloadBytes = twrite.Data.ToArray();
+            byte[] pinnedPayload = GC.AllocateArray<byte>(payloadBytes.Length, pinned: true);
+            payloadBytes.CopyTo(pinnedPayload, 0);
+            Array.Clear(payloadBytes);
+
+            try {
+                await _transport.SendAsync(pinnedPayload);
+                return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+            }
+            catch (Exception ex) {
+                throw new NinePProtocolException($"WebSocket send failed: {ex.Message}");
+            }
+            finally {
+                Array.Clear(pinnedPayload);
+            }
         }
-        throw new NotSupportedException("Cannot write to root.");
+
+        throw new NotSupportedException("Invalid WebSocket path for write.");
     }
 
-    public async Task<Rclunk> ClunkAsync(Tclunk tclunk) => new Rclunk(tclunk.Tag);
+    public async Task<Rclunk> ClunkAsync(Tclunk tclunk)
+    {
+        if (_lastReadData != null) {
+            Array.Clear(_lastReadData);
+            _lastReadData = null;
+        }
+        return new Rclunk(tclunk.Tag);
+    }
 
     public async Task<Rstat> StatAsync(Tstat tstat)
     {

@@ -33,20 +33,6 @@ public class JsonRpcBackend : IProtocolBackend
 
     public INinePFileSystem GetFileSystem() => GetFileSystem(null);
 
-    private string? SecureStringToString(SecureString? ss)
-    {
-        if (ss == null) return null;
-        IntPtr ptr = Marshal.SecureStringToGlobalAllocUnicode(ss);
-        try
-        {
-            return Marshal.PtrToStringUni(ptr);
-        }
-        finally
-        {
-            Marshal.ZeroFreeGlobalAllocUnicode(ptr);
-        }
-    }
-
     public INinePFileSystem GetFileSystem(SecureString? credentials)
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
@@ -55,13 +41,19 @@ public class JsonRpcBackend : IProtocolBackend
         string user = _config.RpcUser;
         string password = _config.RpcPassword;
 
-        string? credsStr = SecureStringToString(credentials);
-        if (credsStr != null)
+        if (credentials != null)
         {
             // Client supplied "user:password" via the 9P auth fid
-            var parts = credsStr.Split(':', 2);
-            user = parts[0];
-            password = parts.Length == 2 ? parts[1] : string.Empty;
+            IntPtr ptr = Marshal.SecureStringToGlobalAllocUnicode(credentials);
+            try {
+                string credsStr = Marshal.PtrToStringUni(ptr)!;
+                var parts = credsStr.Split(':', 2);
+                user = parts[0];
+                password = parts.Length == 2 ? parts[1] : string.Empty;
+            }
+            finally {
+                Marshal.ZeroFreeGlobalAllocUnicode(ptr);
+            }
         }
         else if (!string.IsNullOrEmpty(_config.VaultKey))
         {
@@ -72,10 +64,18 @@ public class JsonRpcBackend : IProtocolBackend
             if (File.Exists(vaultFile))
             {
                 var raw = File.ReadAllBytes(vaultFile);
-                var stored = _vault.Decrypt(raw, _config.VaultKey) ?? string.Empty;
-                var parts = stored.Split(':', 2);
-                user = parts[0];
-                password = parts.Length == 2 ? parts[1] : string.Empty;
+                var storedBytes = _vault.DecryptToBytes(raw, _config.VaultKey);
+                if (storedBytes != null) {
+                    try {
+                        var stored = Encoding.UTF8.GetString(storedBytes);
+                        var parts = stored.Split(':', 2);
+                        user = parts[0];
+                        password = parts.Length == 2 ? parts[1] : string.Empty;
+                    }
+                    finally {
+                        Array.Clear(storedBytes);
+                    }
+                }
             }
         }
 

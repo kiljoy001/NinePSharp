@@ -12,7 +12,7 @@ public class SoapTransport : ISoapTransport
         return Task.CompletedTask;
     }
 
-    public async Task<string> CallActionAsync(string action, string xmlPayload)
+    public async Task<string> CallActionAsync(string action, string xmlPayload, System.Collections.Generic.IDictionary<string, string> headers)
     {
         // Simple manual SOAP envelope wrapping for prototype
         // In full impl, we'd use ChannelFactory with a generic interface

@@ -12,8 +12,10 @@ using NinePSharp.Parser;
 using NinePSharp.Protocol;
 using NinePSharp.Server;
 using NinePSharp.Server.Backends;
+using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
+using Moq;
 using Xunit;
 
 namespace NinePSharp.Tests;
@@ -73,27 +75,32 @@ internal class SpyBackend : IProtocolBackend
 
 internal static class Auth
 {
-    public static NinePFSDispatcher Dispatcher(SpyBackend backend)
-        => new NinePFSDispatcher(new NullLoggerAuth(), new[] { backend });
+    private static IClusterManager CreateMockClusterManager()
+    {
+        return new Mock<IClusterManager>().Object;
+    }
 
-    public static async Task<uint> DoTauth(NinePFSDispatcher d, uint afid = 42, ushort tag = 1)
+    public static INinePFSDispatcher Dispatcher(SpyBackend backend)
+        => new NinePFSDispatcher(new NullLoggerAuth(), new[] { backend }, CreateMockClusterManager());
+
+    public static async Task<uint> DoTauth(INinePFSDispatcher d, uint afid = 42, ushort tag = 1)
     {
         var tauth = new Tauth(tag, afid, "root", "/spy");
-        await d.DispatchAsync(NinePMessage.NewMsgTauth(tauth));
+        await d.DispatchAsync(NinePMessage.NewMsgTauth(tauth), false);
         return afid;
     }
 
-    public static async Task WriteCredentials(NinePFSDispatcher d, uint afid, string creds, ushort tag = 2)
+    public static async Task WriteCredentials(INinePFSDispatcher d, uint afid, string creds, ushort tag = 2)
     {
         var data = Encoding.UTF8.GetBytes(creds);
         var twrite = new Twrite(tag, afid, 0, data);
-        await d.DispatchAsync(NinePMessage.NewMsgTwrite(twrite));
+        await d.DispatchAsync(NinePMessage.NewMsgTwrite(twrite), false);
     }
 
-    public static async Task<object> DoTattach(NinePFSDispatcher d, uint afid, uint fid = 100, ushort tag = 3)
+    public static async Task<object> DoTattach(INinePFSDispatcher d, uint afid, uint fid = 100, ushort tag = 3)
     {
         var tattach = new Tattach(tag, fid, afid, "root", "/spy");
-        return await d.DispatchAsync(NinePMessage.NewMsgTattach(tattach));
+        return await d.DispatchAsync(NinePMessage.NewMsgTattach(tattach), false);
     }
 }
 
@@ -110,7 +117,7 @@ public class AuthPassThroughDispatcherTests
         var d = Auth.Dispatcher(new SpyBackend());
         var tauth = new Tauth(1, 42, "root", "/spy");
 
-        var response = await d.DispatchAsync(NinePMessage.NewMsgTauth(tauth));
+        var response = await d.DispatchAsync(NinePMessage.NewMsgTauth(tauth), false);
 
         response.Should().BeOfType<Rauth>();
         var rauth = (Rauth)response;
@@ -166,7 +173,7 @@ public class AuthPassThroughDispatcherTests
 
         var data = Encoding.UTF8.GetBytes("mypassword");
         var twrite = new Twrite(2, 42, 0, data);
-        var response = await d.DispatchAsync(NinePMessage.NewMsgTwrite(twrite));
+        var response = await d.DispatchAsync(NinePMessage.NewMsgTwrite(twrite), false);
 
         response.Should().BeOfType<Rwrite>();
         ((Rwrite)response).Count.Should().Be((uint)data.Length);
@@ -179,7 +186,7 @@ public class AuthPassThroughDispatcherTests
         // Write to fid 99 which has never been attached or authed
         var data = Encoding.UTF8.GetBytes("data");
         var twrite = new Twrite(1, 99, 0, data);
-        var response = await d.DispatchAsync(NinePMessage.NewMsgTwrite(twrite));
+        var response = await d.DispatchAsync(NinePMessage.NewMsgTwrite(twrite), false);
 
         response.Should().BeOfType<Rerror>();
     }
@@ -208,7 +215,7 @@ public class AuthPassThroughDispatcherTests
 
         // NOFID = no auth used
         var tattach = new Tattach(1, 100, NinePConstants.NoFid, "root", "/spy");
-        var response = await d.DispatchAsync(NinePMessage.NewMsgTattach(tattach));
+        var response = await d.DispatchAsync(NinePMessage.NewMsgTattach(tattach), false);
 
         response.Should().BeOfType<Rattach>();
         spy.LastCredentials.Should().BeNull();
@@ -259,7 +266,7 @@ public class AuthPassThroughDispatcherTests
 
         // Clunk the auth fid before attaching
         var tclunk = new Tclunk(99, 42);
-        var clunkResp = await d.DispatchAsync(NinePMessage.NewMsgTclunk(tclunk));
+        var clunkResp = await d.DispatchAsync(NinePMessage.NewMsgTclunk(tclunk), false);
         clunkResp.Should().BeOfType<Rclunk>();
 
         // Now attach — buffer is gone, credentials should be null
@@ -276,7 +283,7 @@ public class AuthPassThroughDispatcherTests
         var d = Auth.Dispatcher(spy);
 
         var tattach = new Tattach(1, 100, NinePConstants.NoFid, "root", "/nonexistent");
-        var response = await d.DispatchAsync(NinePMessage.NewMsgTattach(tattach));
+        var response = await d.DispatchAsync(NinePMessage.NewMsgTattach(tattach), false);
 
         response.Should().BeOfType<Rerror>();
     }
@@ -289,10 +296,15 @@ public class AuthPassThroughPropertyTests
 {
     private static readonly ILuxVaultService _vault = new LuxVaultService();
 
-    private static NinePFSDispatcher MakeDispatcher(out SpyBackend spy)
+    private static IClusterManager CreateMockClusterManager()
+    {
+        return new Mock<IClusterManager>().Object;
+    }
+
+    private static INinePFSDispatcher MakeDispatcher(out SpyBackend spy)
     {
         spy = new SpyBackend();
-        return new NinePFSDispatcher(new NullLoggerAuth(), new[] { spy });
+        return new NinePFSDispatcher(new NullLoggerAuth(), new[] { spy }, CreateMockClusterManager());
     }
 
     /// <summary>
@@ -368,7 +380,7 @@ public class AuthPassThroughPropertyTests
 
         var data = Encoding.UTF8.GetBytes(c);
         var twrite = new Twrite(1, 42, 0, data);
-        var resp = d.DispatchAsync(NinePMessage.NewMsgTwrite(twrite)).GetAwaiter().GetResult();
+        var resp = d.DispatchAsync(NinePMessage.NewMsgTwrite(twrite), false).GetAwaiter().GetResult();
 
         return resp is Rwrite rw && rw.Count == (uint)data.Length;
     }
@@ -381,7 +393,7 @@ public class AuthPassThroughPropertyTests
     {
         var d = MakeDispatcher(out var spy);
         var tattach = new Tattach((ushort)(tag.Get % 65535 + 1), 100, NinePConstants.NoFid, "root", "/spy");
-        d.DispatchAsync(NinePMessage.NewMsgTattach(tattach)).GetAwaiter().GetResult();
+        d.DispatchAsync(NinePMessage.NewMsgTattach(tattach), false).GetAwaiter().GetResult();
 
         return spy.LastCredentials == null;
     }

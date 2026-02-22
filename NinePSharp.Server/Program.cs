@@ -11,6 +11,13 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using NinePSharp.Server;
 using NinePSharp.Server.Backends;
+using NinePSharp.Server.Backends.Cloud;
+using NinePSharp.Server.Backends.JsonRpc;
+using NinePSharp.Server.Backends.REST;
+using NinePSharp.Server.Backends.SOAP;
+using NinePSharp.Server.Backends.gRPC;
+using NinePSharp.Server.Backends.Websockets;
+using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Configuration.Parser;
@@ -24,9 +31,9 @@ public class Program
         byte[] seedBytes = new byte[8]; // 64 bits
         RandomNumberGenerator.Fill(seedBytes);
         
-        var hex = Convert.ToHexString(seedBytes);
         var secure = new SecureString();
-        foreach (var c in hex) secure.AppendChar(c);
+        // Zero-exposure: append bytes as chars without hex string conversion
+        foreach (var b in seedBytes) secure.AppendChar((char)b);
         secure.MakeReadOnly();
         
         Array.Clear(seedBytes);
@@ -39,12 +46,17 @@ public class Program
         IntPtr ptr = Marshal.SecureStringToGlobalAllocUnicode(secureSeed);
         try
         {
-            string hex = Marshal.PtrToStringUni(ptr)!;
-            byte[] seedBytes = Convert.FromHexString(hex);
-            
-            MonocypherNative.crypto_blake2b(hashedKey, (nuint)hashedKey.Length, seedBytes, (nuint)seedBytes.Length);
-            
-            Array.Clear(seedBytes);
+            unsafe {
+                byte* pSeed = (byte*)ptr.ToPointer();
+                // Extract original bytes from the Unicode chars
+                byte[] seedBytes = new byte[secureSeed.Length];
+                for (int i = 0; i < secureSeed.Length; i++) {
+                    seedBytes[i] = (byte)pSeed[i * 2]; // Unicode is 2 bytes per char
+                }
+                
+                MonocypherNative.crypto_blake2b(hashedKey, (nuint)hashedKey.Length, seedBytes, (nuint)seedBytes.Length);
+                Array.Clear(seedBytes);
+            }
         }
         finally
         {
@@ -55,6 +67,9 @@ public class Program
 
     public static async Task Main(string[] args)
     {
+        // Apply OS-level hardening (Anti-Dumping)
+        ProcessHardening.Apply();
+
         // 0. Cleanup vaults on startup
         LuxVault.CleanupVaults();
 
@@ -96,7 +111,13 @@ public class Program
                 if (serverConfig.Stellar != null) services.AddSingleton(serverConfig.Stellar);
                 if (serverConfig.Cardano != null) services.AddSingleton(serverConfig.Cardano);
                 if (serverConfig.Secret != null) services.AddSingleton(serverConfig.Secret);
+                if (serverConfig.Aws != null) services.AddSingleton(serverConfig.Aws);
+                if (serverConfig.Azure != null) services.AddSingleton(serverConfig.Azure);
+                if (serverConfig.Gcp != null) services.AddSingleton(serverConfig.Gcp);
+                if (serverConfig.Websocket != null) services.AddSingleton(serverConfig.Websocket);
+                services.AddSingleton<SrvBackend>();
 
+                services.AddSingleton<IClusterManager, ClusterManager>();
                 services.AddSingleton<ILuxVaultService, LuxVaultService>();
                 services.AddSingleton<IParser, ConfigParser>();
                 
@@ -107,8 +128,17 @@ public class Program
                 if (serverConfig.Stellar != null) services.AddSingleton<IProtocolBackend, StellarBackend>();
                 if (serverConfig.Cardano != null) services.AddSingleton<IProtocolBackend, CardanoBackend>();
                 if (serverConfig.Secret != null) services.AddSingleton<IProtocolBackend, SecretBackend>();
+                if (serverConfig.Aws != null) services.AddSingleton<IProtocolBackend, AwsBackend>();
+                if (serverConfig.Azure != null) services.AddSingleton<IProtocolBackend, AzureBackend>();
+                if (serverConfig.Gcp != null) services.AddSingleton<IProtocolBackend, GcpBackend>();
+                if (serverConfig.Websocket != null) services.AddSingleton<IProtocolBackend, WebsocketBackend>();
+                if (serverConfig.JsonRpc != null) services.AddSingleton<IProtocolBackend, JsonRpcBackend>();
+                if (serverConfig.Rest != null) services.AddSingleton<IProtocolBackend, RestBackend>();
+                if (serverConfig.Soap != null) services.AddSingleton<IProtocolBackend, SoapBackend>();
+                if (serverConfig.Grpc != null) services.AddSingleton<IProtocolBackend, GrpcBackend>();
+                services.AddSingleton<IProtocolBackend, SrvBackend>();
 
-                services.AddSingleton<NinePFSDispatcher>();
+                services.AddSingleton<INinePFSDispatcher, NinePFSDispatcher>();
                 services.AddHostedService<NinePServer>();
             })
             .Build();

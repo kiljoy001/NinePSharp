@@ -20,7 +20,7 @@ public readonly struct Ropen : ISerializable
         Tag = tag;
         Qid = qid;
         Iounit = iounit;
-        Size = NinePConstants.HeaderSize + 13 + 4;
+        Size = (uint)(NinePConstants.HeaderSize + 13 + 4);
     }
 
     public Ropen(ReadOnlySpan<byte> data)

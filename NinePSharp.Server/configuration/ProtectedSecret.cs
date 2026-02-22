@@ -1,4 +1,6 @@
 using System;
+using System.Runtime.InteropServices;
+using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -24,8 +26,16 @@ public sealed class ProtectedSecret : IDisposable
         // Allocate pinned array for session key
         _sessionKey = GC.AllocateArray<byte>(sessionKey.Length, pinned: true);
         sessionKey.CopyTo(_sessionKey);
+        
+        // Memory-lock the static session key
+        unsafe {
+            fixed (byte* pKey = _sessionKey) {
+                MemoryLock.Lock((IntPtr)pKey, (nuint)_sessionKey.Length);
+            }
+        }
     }
 
+    [Obsolete("Use the SecureString or ReadOnlySpan<byte> constructor to prevent cleartext leakage into the managed heap.")]
     public ProtectedSecret(string clearText)
     {
         if (_sessionKey == null) throw new InvalidOperationException("Session key not initialized.");
@@ -33,14 +43,78 @@ public sealed class ProtectedSecret : IDisposable
         byte[] clearBytes = GC.AllocateArray<byte>(Encoding.UTF8.GetByteCount(clearText), pinned: true);
         Encoding.UTF8.GetBytes(clearText, 0, clearText.Length, clearBytes, 0);
         
+        unsafe {
+            fixed (byte* pClear = clearBytes) {
+                MemoryLock.Lock((IntPtr)pClear, (nuint)clearBytes.Length);
+            }
+        }
+        
         try
         {
             _encryptedData = LuxVault.Encrypt(clearBytes, _sessionKey);
         }
         finally
         {
+            unsafe {
+                fixed (byte* pClear = clearBytes) {
+                    MemoryLock.Unlock((IntPtr)pClear, (nuint)clearBytes.Length);
+                }
+            }
             Array.Clear(clearBytes);
         }
+    }
+
+    public ProtectedSecret(SecureString secureString)
+    {
+        if (_sessionKey == null) throw new InvalidOperationException("Session key not initialized.");
+        
+        IntPtr ptr = Marshal.SecureStringToGlobalAllocUnicode(secureString);
+        nuint unmanagedLen = (nuint)(secureString.Length * 2);
+        MemoryLock.Lock(ptr, unmanagedLen);
+        
+        try
+        {
+            unsafe {
+                int length = secureString.Length;
+                char* chars = (char*)ptr.ToPointer();
+                int byteCount = Encoding.UTF8.GetByteCount(chars, length);
+                if (byteCount == 0)
+                {
+                    _encryptedData = LuxVault.Encrypt(Array.Empty<byte>(), _sessionKey);
+                    return;
+                }
+                byte[] clearBytes = GC.AllocateArray<byte>(byteCount, pinned: true);
+                
+                fixed (byte* pBytes = clearBytes) {
+                    MemoryLock.Lock((IntPtr)pBytes, (nuint)clearBytes.Length);
+                }
+                
+                try {
+                    fixed (byte* pBytes = clearBytes)
+                    {
+                        Encoding.UTF8.GetBytes(chars, length, pBytes, byteCount);
+                    }
+                    _encryptedData = LuxVault.Encrypt(clearBytes, _sessionKey);
+                }
+                finally {
+                    fixed (byte* pBytes = clearBytes) {
+                        MemoryLock.Unlock((IntPtr)pBytes, (nuint)clearBytes.Length);
+                    }
+                    Array.Clear(clearBytes);
+                }
+            }
+        }
+        finally
+        {
+            MemoryLock.Unlock(ptr, unmanagedLen);
+            Marshal.ZeroFreeGlobalAllocUnicode(ptr);
+        }
+    }
+
+    public ProtectedSecret(ReadOnlySpan<byte> clearBytes)
+    {
+        if (_sessionKey == null) throw new InvalidOperationException("Session key not initialized.");
+        _encryptedData = LuxVault.Encrypt(clearBytes, _sessionKey);
     }
 
     /// <summary>
@@ -54,6 +128,7 @@ public sealed class ProtectedSecret : IDisposable
         byte[]? decrypted = null;
         try
         {
+            // LuxVault.DecryptToBytes returns a pinned and locked buffer
             decrypted = LuxVault.DecryptToBytes(_encryptedData, _sessionKey);
             if (decrypted != null)
             {
@@ -64,6 +139,11 @@ public sealed class ProtectedSecret : IDisposable
         {
             if (decrypted != null)
             {
+                unsafe {
+                    fixed (byte* pDec = decrypted) {
+                        MemoryLock.Unlock((IntPtr)pDec, (nuint)decrypted.Length);
+                    }
+                }
                 Array.Clear(decrypted);
             }
         }
@@ -80,6 +160,7 @@ public sealed class ProtectedSecret : IDisposable
         byte[]? decrypted = null;
         try
         {
+            // LuxVault.DecryptToBytes returns a pinned and locked buffer
             decrypted = LuxVault.DecryptToBytes(_encryptedData, _sessionKey);
             if (decrypted != null)
             {
@@ -90,6 +171,11 @@ public sealed class ProtectedSecret : IDisposable
         {
             if (decrypted != null)
             {
+                unsafe {
+                    fixed (byte* pDec = decrypted) {
+                        MemoryLock.Unlock((IntPtr)pDec, (nuint)decrypted.Length);
+                    }
+                }
                 Array.Clear(decrypted);
             }
         }

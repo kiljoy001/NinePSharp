@@ -1,43 +1,74 @@
 using System;
+using System.Collections.Concurrent;
+using System.Net.WebSockets;
+using System.Threading;
 using System.Threading.Tasks;
-using Websocket.Client;
-using System.Reactive.Linq;
 
 namespace NinePSharp.Server.Backends.Websockets;
 
-public class WebsocketTransport : IWebsocketTransport, IDisposable
+public class WebsocketTransport : IWebsocketTransport
 {
-    private WebsocketClient? _client;
-    private byte[]? _lastMessage;
+    private ClientWebSocket? _webSocket;
+    private readonly ConcurrentQueue<byte[]> _messageBuffer = new();
+    private CancellationTokenSource? _cts;
+
+    public bool IsConnected => _webSocket?.State == WebSocketState.Open;
 
     public async Task ConnectAsync(string url)
     {
-        _client = new WebsocketClient(new Uri(url));
+        _webSocket = new ClientWebSocket();
+        _cts = new CancellationTokenSource();
         
-        _client.MessageReceived.Subscribe(msg =>
+        await _webSocket.ConnectAsync(new Uri(url), _cts.Token);
+        
+        // Start background receive loop
+        _ = Task.Run(() => ReceiveLoop(_cts.Token));
+    }
+
+    private async Task ReceiveLoop(CancellationToken token)
+    {
+        var buffer = new byte[8192];
+        try {
+            while (!token.IsCancellationRequested && _webSocket?.State == WebSocketState.Open)
+            {
+                var result = await _webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), token);
+                if (result.MessageType == WebSocketMessageType.Close)
+                {
+                    await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", token);
+                }
+                else
+                {
+                    var data = new byte[result.Count];
+                    Array.Copy(buffer, data, result.Count);
+                    _messageBuffer.Enqueue(data);
+                }
+            }
+        }
+        catch (Exception ex) {
+            Console.WriteLine($"[WS Transport] Receive error: {ex.Message}");
+        }
+    }
+
+    public async Task SendAsync(byte[] payload)
+    {
+        if (_webSocket?.State != WebSocketState.Open) throw new InvalidOperationException("WebSocket not connected.");
+        
+        await _webSocket.SendAsync(new ArraySegment<byte>(payload), WebSocketMessageType.Binary, true, CancellationToken.None);
+    }
+
+    public Task<byte[]?> GetNextMessageAsync()
+    {
+        if (_messageBuffer.TryDequeue(out var message))
         {
-            _lastMessage = msg.Binary;
-        });
-
-        await _client.Start();
-    }
-
-    public Task SendAsync(byte[] payload)
-    {
-        if (_client == null || !_client.IsRunning) throw new InvalidOperationException("WS not connected.");
-        _client.Send(payload);
-        return Task.CompletedTask;
-    }
-
-    public Task<byte[]> ReceiveAsync()
-    {
-        var msg = _lastMessage;
-        _lastMessage = null; // Clear on read
-        return Task.FromResult(msg ?? Array.Empty<byte>());
+            return Task.FromResult<byte[]?>(message);
+        }
+        return Task.FromResult<byte[]?>(null);
     }
 
     public void Dispose()
     {
-        _client?.Dispose();
+        _cts?.Cancel();
+        _webSocket?.Dispose();
+        _cts?.Dispose();
     }
 }

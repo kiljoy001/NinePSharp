@@ -16,13 +16,17 @@ public interface ILuxVaultService
     byte[] Encrypt(string text, string password);
     byte[] Encrypt(string text, SecureString password);
     byte[] Encrypt(byte[] plaintextBytes, ReadOnlySpan<byte> key);
+    byte[] Encrypt(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> keyMaterial);
     
     byte[]? DecryptToBytes(byte[] payload, string password);
     byte[]? DecryptToBytes(byte[] payload, SecureString password);
     byte[]? DecryptToBytes(byte[] payload, ReadOnlySpan<byte> key);
 
+    [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
     string? Decrypt(byte[] payload, string password);
+    [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
     string? Decrypt(byte[] payload, SecureString password);
+    [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
     string? Decrypt(byte[] payload, ReadOnlySpan<byte> key);
 
     // Config Protection (Master Key)

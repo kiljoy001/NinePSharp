@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
@@ -15,6 +16,8 @@ internal class RootFileSystem : INinePFileSystem
 {
     private readonly List<IProtocolBackend> _backends;
 
+    public bool DotU { get; set; }
+
     public RootFileSystem(List<IProtocolBackend> backends)
     {
         _backends = backends;
@@ -29,28 +32,38 @@ internal class RootFileSystem : INinePFileSystem
     public async Task<Rread> ReadAsync(Tread tread)
     {
         // Root read returns directory entries for backends
-        if (tread.Offset == 0)
+        var entries = new List<byte>();
+        foreach (var backend in _backends)
         {
-            var entries = new List<byte>();
-            foreach (var backend in _backends)
-            {
-                var name = backend.MountPath.Trim('/');
-                var stat = new Stat(0, 0, 0, new Qid(QidType.QTDIR, 0, 0), 0755 | (uint)NinePConstants.FileMode9P.DMDIR, 0, 0, 0, name, "scott", "scott", "scott");
-                
-                var entryBuffer = new byte[stat.Size + 2];
-                int offset = 0;
-                stat.WriteTo(entryBuffer, ref offset);
-                entries.AddRange(entryBuffer.Take(offset));
-            }
-            return new Rread(tread.Tag, entries.ToArray());
+            var name = backend.MountPath.Trim('/');
+            if (string.IsNullOrEmpty(name)) continue;
+            var stat = new Stat(0, 0, 0, new Qid(QidType.QTDIR, 0, (ulong)name.GetHashCode()), 0755 | (uint)NinePConstants.FileMode9P.DMDIR, 0, 0, 0, name, "scott", "scott", "scott", dotu: DotU);
+            
+            var entryBuffer = new byte[stat.Size];
+            int offset = 0;
+            stat.WriteTo(entryBuffer, ref offset);
+            entries.AddRange(entryBuffer);
+        }
+
+        var allData = entries.ToArray();
+        
+        int totalToSend = 0;
+        int currentOffset = (int)tread.Offset;
+        while (currentOffset + 2 <= allData.Length)
+        {
+            ushort entrySize = (ushort)(System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(allData.AsSpan(currentOffset, 2)) + 2);
+            if (totalToSend + entrySize > tread.Count) break;
+            totalToSend += entrySize;
+            currentOffset += entrySize;
         }
         
-        return new Rread(tread.Tag, Array.Empty<byte>());
+        if (totalToSend == 0) return new Rread(tread.Tag, Array.Empty<byte>());
+        return new Rread(tread.Tag, allData.AsMemory((int)tread.Offset, totalToSend).ToArray());
     }
 
     public Task<Rstat> StatAsync(Tstat tstat)
     {
-        var stat = new Stat(0, 0, 0, new Qid(QidType.QTDIR, 0, 0), 0755 | (uint)NinePConstants.FileMode9P.DMDIR, 0, 0, 0, "/", "scott", "scott", "scott");
+        var stat = new Stat(0, 0, 0, new Qid(QidType.QTDIR, 0, 0), 0755 | (uint)NinePConstants.FileMode9P.DMDIR, 0, 0, 0, "/", "scott", "scott", "scott", dotu: DotU);
         return Task.FromResult(new Rstat(tstat.Tag, stat));
     }
 
@@ -62,6 +75,6 @@ internal class RootFileSystem : INinePFileSystem
 
     public INinePFileSystem Clone()
     {
-        return new RootFileSystem(_backends);
+        return new RootFileSystem(_backends) { DotU = this.DotU };
     }
 }

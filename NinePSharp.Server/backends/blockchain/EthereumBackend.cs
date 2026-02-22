@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Nethereum.Web3;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
+using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends;
 
@@ -26,12 +27,17 @@ public class EthereumBackend : IProtocolBackend
 
     public Task InitializeAsync(IConfiguration configuration)
     {
-        _config = configuration.Get<EthereumBackendConfig>();
-        if (_config != null && !string.IsNullOrEmpty(_config.RpcUrl))
-        {
-            _web3 = new Web3(_config.RpcUrl);
+        try {
+            _config = configuration.Get<EthereumBackendConfig>();
+            if (_config != null && !string.IsNullOrEmpty(_config.RpcUrl))
+            {
+                _web3 = new Web3(_config.RpcUrl);
+            }
+            Console.WriteLine($"[Ethereum Backend] Initialized with MountPath: {MountPath}");
         }
-        Console.WriteLine($"[Ethereum Backend] Initialized with MountPath: {MountPath}");
+        catch (Exception ex) {
+            Console.WriteLine($"[Ethereum Backend] Failed to initialize: {ex.Message}");
+        }
         return Task.CompletedTask;
     }
 
@@ -41,37 +47,44 @@ public class EthereumBackend : IProtocolBackend
         return new EthereumFileSystem(_config, _web3, _vault);
     }
 
-    private string? SecureStringToString(SecureString? ss)
-    {
-        if (ss == null) return null;
-        IntPtr ptr = Marshal.SecureStringToGlobalAllocUnicode(ss);
-        try
-        {
-            return Marshal.PtrToStringUni(ptr);
-        }
-        finally
-        {
-            Marshal.ZeroFreeGlobalAllocUnicode(ptr);
-        }
-    }
-
     public INinePFileSystem GetFileSystem(SecureString? credentials)
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
 
-        // Credential resolution: client-supplied → vault → config
-        string? rpcUrl = SecureStringToString(credentials);
+        string? rpcUrl = null;
+        if (credentials != null)
+        {
+            // If credentials contain an RPC URL, we have to convert it for Nethereum.
+            // This is a known leakage point if RPC URLs contain API keys.
+            IntPtr ptr = Marshal.SecureStringToGlobalAllocUnicode(credentials);
+            try {
+                rpcUrl = Marshal.PtrToStringUni(ptr);
+            }
+            finally {
+                Marshal.ZeroFreeGlobalAllocUnicode(ptr);
+            }
+        }
 
         if (rpcUrl == null && !string.IsNullOrEmpty(_config.VaultKey))
         {
             // Look up credentials stored in the vault under the configured key
             var seed = _vault.DeriveSeed(_config.VaultKey, System.Text.Encoding.UTF8.GetBytes(_config.VaultKey));
             var hiddenId = _vault.GenerateHiddenId(seed);
-            var vaultFile = $"secret_{hiddenId}.vlt";
+            var vaultFile = LuxVault.GetVaultPath($"secret_{hiddenId}.vlt");
             if (System.IO.File.Exists(vaultFile))
             {
                 var raw = System.IO.File.ReadAllBytes(vaultFile);
-                rpcUrl = _vault.Decrypt(raw, _config.VaultKey);
+                // Use DecryptToBytes to minimize exposure, but Nethereum still needs a string for the RPC URL.
+                var decrypted = _vault.DecryptToBytes(raw, _config.VaultKey);
+                if (decrypted != null)
+                {
+                    try {
+                        rpcUrl = System.Text.Encoding.UTF8.GetString(decrypted);
+                    }
+                    finally {
+                        Array.Clear(decrypted);
+                    }
+                }
             }
         }
 

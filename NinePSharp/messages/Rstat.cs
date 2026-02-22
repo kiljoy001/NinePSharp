@@ -18,7 +18,8 @@ public readonly struct Rstat : ISerializable
     {
         Tag = tag;
         Stat = stat;
-        Size = (uint)(NinePConstants.HeaderSize + Stat.Size);
+        // Size = Header(7) + n[2] + Stat.Size
+        Size = (uint)(NinePConstants.HeaderSize + 2 + Stat.Size);
     }
 
     public Rstat(ReadOnlySpan<byte> data)
@@ -27,6 +28,9 @@ public readonly struct Rstat : ISerializable
         Tag = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(5, 2));
 
         int offset = NinePConstants.HeaderSize;
+        // Skip the redundant n[2]
+        ushort n = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(offset, 2));
+        offset += 2;
         Stat = new Stat(data, ref offset);
     }
 
@@ -34,6 +38,10 @@ public readonly struct Rstat : ISerializable
     {
         data.WriteHeaders(Size, Tag, Type);
         int offset = NinePConstants.HeaderSize;
+
+        // Write the redundant n[2] (size of the following stat)
+        BinaryPrimitives.WriteUInt16LittleEndian(data.Slice(offset, 2), Stat.Size);
+        offset += 2;
 
         Stat.WriteTo(data, ref offset);
     }

@@ -6,17 +6,31 @@ using NinePSharp.Server;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
 using NinePSharp.Server.Backends;
+using NinePSharp.Server.Cluster;
+using NinePSharp.Server.Configuration.Models;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security;
 using System.Threading.Tasks;
 using Xunit;
 using FluentAssertions;
+using Moq;
+using System;
+using System.Text;
 
 namespace NinePSharp.Tests;
 
 public class NinePFSDispatcherTests
 {
     private static readonly ILuxVaultService _vault = new LuxVaultService();
+
+    private ClusterManager CreateMockClusterManager()
+    {
+        var logger = new Mock<ILogger<ClusterManager>>();
+        var factory = new Mock<ILoggerFactory>();
+        var config = new ServerConfig(); 
+        return new ClusterManager(logger.Object, factory.Object, config);
+    }
 
     private class TestLogger<T> : ILogger<T>
     {
@@ -40,12 +54,12 @@ public class NinePFSDispatcherTests
         // Arrange
         var logger = new TestLogger<NinePFSDispatcher>();
         var backends = new List<IProtocolBackend>();
-        var dispatcher = new NinePFSDispatcher(logger, backends);
+        var dispatcher = new NinePFSDispatcher(logger, backends, CreateMockClusterManager());
         var tversion = new Tversion(1, 8192, "9P2000");
         var message = NinePMessage.NewMsgTversion(tversion);
 
         // Act
-        var response = await dispatcher.DispatchAsync(message);
+        var response = await dispatcher.DispatchAsync(message, false);
 
         // Assert
         response.Should().BeOfType<Rversion>();
@@ -61,12 +75,12 @@ public class NinePFSDispatcherTests
         // Arrange
         var logger = new TestLogger<NinePFSDispatcher>();
         var backends = new List<IProtocolBackend>();
-        var dispatcher = new NinePFSDispatcher(logger, backends);
+        var dispatcher = new NinePFSDispatcher(logger, backends, CreateMockClusterManager());
         var tattach = new Tattach(1, 100, uint.MaxValue, "root", "none");
         var message = NinePMessage.NewMsgTattach(tattach);
 
         // Act
-        var response = await dispatcher.DispatchAsync(message);
+        var response = await dispatcher.DispatchAsync(message, false);
 
         // Assert — no backends registered, so dispatcher returns Rerror
         response.Should().BeOfType<Rerror>();
@@ -79,17 +93,17 @@ public class NinePFSDispatcherTests
         // Arrange
         var logger = new TestLogger<NinePFSDispatcher>();
         var backends = new List<IProtocolBackend>();
-        var dispatcher = new NinePFSDispatcher(logger, backends);
+        var dispatcher = new NinePFSDispatcher(logger, backends, CreateMockClusterManager());
         
         // First attach to create a FID
         var tattach = new Tattach(1, 100, uint.MaxValue, "root", "none");
-        await dispatcher.DispatchAsync(NinePMessage.NewMsgTattach(tattach));
+        await dispatcher.DispatchAsync(NinePMessage.NewMsgTattach(tattach), false);
 
         var tclunk = new Tclunk(2, 100);
         var message = NinePMessage.NewMsgTclunk(tclunk);
 
         // Act
-        var response = await dispatcher.DispatchAsync(message);
+        var response = await dispatcher.DispatchAsync(message, false);
 
         // Assert
         response.Should().BeOfType<Rclunk>();
@@ -101,14 +115,62 @@ public class NinePFSDispatcherTests
         // Arrange
         var logger = new TestLogger<NinePFSDispatcher>();
         var backends = new List<IProtocolBackend>();
-        var dispatcher = new NinePFSDispatcher(logger, backends);
+        var dispatcher = new NinePFSDispatcher(logger, backends, CreateMockClusterManager());
         var tflush = new Tflush(1, 1);
         var message = NinePMessage.NewMsgTflush(tflush);
 
         // Act
-        var response = await dispatcher.DispatchAsync(message);
+        var response = await dispatcher.DispatchAsync(message, false);
 
         // Assert — Tflush is now handled
         response.Should().BeOfType<Rflush>();
+    }
+
+    [Fact]
+    public async Task DispatchAsync_Twrite_AuthFid_Populates_SecureString()
+    {
+        // Arrange
+        var logger = new TestLogger<NinePFSDispatcher>();
+        var mockBackend = new Mock<IProtocolBackend>();
+        mockBackend.Setup(b => b.Name).Returns("test");
+        mockBackend.Setup(b => b.MountPath).Returns("/test");
+        
+        SecureString? capturedCredentials = null;
+        mockBackend.Setup(b => b.GetFileSystem(It.IsAny<SecureString>()))
+                   .Callback<SecureString>(ss => capturedCredentials = ss)
+                   .Returns(new Mock<INinePFileSystem>().Object);
+
+        var dispatcher = new NinePFSDispatcher(logger, new[] { mockBackend.Object }, CreateMockClusterManager());
+
+        uint authFid = 100;
+        ushort tag = 1;
+
+        // 1. Tauth to create the auth fid
+        var tauth = new Tauth(tag, authFid, "user", "test");
+        await dispatcher.DispatchAsync(NinePMessage.NewMsgTauth(tauth), false);
+
+        // 2. Twrite to the auth fid with a secret
+        string secret = "P@ssw0rd123";
+        byte[] secretBytes = Encoding.UTF8.GetBytes(secret);
+        var twrite = new Twrite(tag, authFid, 0, secretBytes);
+        await dispatcher.DispatchAsync(NinePMessage.NewMsgTwrite(twrite), false);
+
+        // 3. Tattach to consume the secret
+        var tattach = new Tattach(tag, 200, authFid, "scott", "test");
+        await dispatcher.DispatchAsync(NinePMessage.NewMsgTattach(tattach), false);
+
+        // Assert
+        capturedCredentials.Should().NotBeNull();
+        capturedCredentials!.Length.Should().Be(secret.Length);
+        
+        // Final verification of content via Scoped Reveal logic
+        IntPtr ptr = System.Runtime.InteropServices.Marshal.SecureStringToGlobalAllocUnicode(capturedCredentials);
+        try {
+            string recovered = System.Runtime.InteropServices.Marshal.PtrToStringUni(ptr);
+            recovered.Should().Be(secret);
+        }
+        finally {
+            System.Runtime.InteropServices.Marshal.ZeroFreeGlobalAllocUnicode(ptr);
+        }
     }
 }

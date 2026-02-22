@@ -1,0 +1,51 @@
+{
+  "Server": {
+    "Endpoints": [
+      { "Address": "127.0.0.1", "Port": 5642, "Protocol": "9P2000" }
+    ],
+    "JsonRpc": {
+      "MountPath": "/emc",
+      "EndpointUrl": "http://localhost:6662/",
+      "Endpoints": [
+        { "Name": "test", "Method": "help", "Writable": false }
+      ]
+    },
+    "REST": {
+      "MountPath": "/rest",
+      "BaseUrl": "https://httpbin.org"
+    },
+    "SOAP": {
+      "MountPath": "/soap",
+      "WsdlUrl": "http://www.dneonline.com/calculator.asmx?WSDL"
+    },
+    "gRPC": {
+      "MountPath": "/grpc",
+      "Host": "localhost",
+      "Port": 50051
+    },
+    "MQTT": {
+      "MountPath": "/mqtt",
+      "Broker": "localhost",
+      "Port": 1883
+    },
+    "Database": {
+      "MountPath": "/db",
+      "ConnectionString": "Host=localhost;Database=test"
+    },
+    "Secret": {
+      "MountPath": "/secrets"
+    },
+    "Websocket": {
+      "MountPath": "/ws",
+      "Url": "ws://localhost:8080"
+    },
+    "Bitcoin": { "MountPath": "/btc" },
+    "Ethereum": { "MountPath": "/eth" },
+    "Cardano": { "MountPath": "/ada" },
+    "Solana": { "MountPath": "/sol" },
+    "Stellar": { "MountPath": "/xlm" },
+    "Aws": { "MountPath": "/aws" },
+    "Azure": { "MountPath": "/azure" },
+    "Gcp": { "MountPath": "/gcp" }
+  }
+}

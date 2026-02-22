@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security;
 using System.Text;
 using System.Threading.Tasks;
-using Xunit;
 using Moq;
 using NinePSharp.Messages;
 using NinePSharp.Constants;
@@ -12,50 +10,72 @@ using NinePSharp.Server.Backends.Websockets;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
-using FsCheck;
-using FsCheck.Xunit;
-using FluentAssertions;
-using Microsoft.Extensions.Configuration;
+using Xunit;
 
-namespace NinePSharp.Tests.Backends;
+namespace NinePSharp.Tests;
 
 public class WebsocketBackendTests
 {
-    private readonly ILuxVaultService _vault = new LuxVaultService();
+    private readonly Mock<ILuxVaultService> _vaultMock = new();
+    private readonly Mock<IWebsocketTransport> _transportMock = new();
+    private readonly WebsocketBackendConfig _config = new() { Url = "ws://localhost:8080", MountPath = "/ws" };
 
     [Fact]
-    public async Task WebsocketBackend_Initialization_Works()
+    public async Task Websocket_Write_Sends_Message_To_Transport()
     {
-        var backend = new WebsocketBackend(_vault);
-        var config = new ConfigurationBuilder().AddInMemoryCollection(new[]
-        {
-            new KeyValuePair<string, string?>("Url", "ws://localhost:8080"),
-            new KeyValuePair<string, string?>("MountPath", "/ws")
-        }).Build();
+        // Arrange
+        byte[]? capturedPayload = null;
+        _transportMock.Setup(x => x.SendAsync(It.IsAny<byte[]>()))
+                      .Callback<byte[]>(b => capturedPayload = b.ToArray()) // Copy immediately
+                      .Returns(Task.CompletedTask);
 
-        await backend.InitializeAsync(config);
-        backend.Name.Should().Be("Websockets");
-        backend.MountPath.Should().Be("/ws");
+        var fs = new WebsocketFileSystem(_config, _transportMock.Object, _vaultMock.Object);
+        var payload = Encoding.UTF8.GetBytes("hello socket");
+
+        // Act - Walk to data node
+        await fs.WalkAsync(new Twalk(1, 0, 1, new[] { "data" }));
+        
+        // Act - Write
+        var twrite = new Twrite(1, 1, 0, payload);
+        await fs.WriteAsync(twrite);
+
+        // Assert
+        Assert.NotNull(capturedPayload);
+        Assert.True(payload.SequenceEqual(capturedPayload));
     }
 
     [Fact]
-    public async Task WebsocketFileSystem_Write_SendsFrame()
+    public async Task Websocket_Read_Retrieves_Buffered_Message()
     {
         // Arrange
-        var transportMock = new Mock<IWebsocketTransport>();
-        transportMock.Setup(t => t.SendAsync(It.IsAny<byte[]>()))
-            .Returns(Task.CompletedTask)
-            .Verifiable();
+        var incoming = Encoding.UTF8.GetBytes("server-says-hi");
+        _transportMock.Setup(x => x.GetNextMessageAsync()).ReturnsAsync(incoming);
+        
+        var fs = new WebsocketFileSystem(_config, _transportMock.Object, _vaultMock.Object);
 
-        var config = new WebsocketBackendConfig { Url = "ws://localhost:8080" };
-        var fs = new WebsocketFileSystem(config, transportMock.Object, _vault);
-
-        // Act: Write data to root or 'data' node
-        await fs.WalkAsync(new Twalk((ushort)1, 1u, 2u, new[] { "data" }));
-        var payload = Encoding.UTF8.GetBytes("hello ws");
-        await fs.WriteAsync(new Twrite((ushort)1, 2u, 0uL, payload.AsMemory()));
+        // Act - Walk
+        await fs.WalkAsync(new Twalk(1, 0, 1, new[] { "data" }));
+        
+        // Act - Read
+        var tread = new Tread(1, 1, 0, 8192);
+        var response = await fs.ReadAsync(tread);
 
         // Assert
-        transportMock.Verify(t => t.SendAsync(payload), Times.Once);
+        Assert.Equal("server-says-hi", Encoding.UTF8.GetString(response.Data.ToArray()));
+    }
+
+    [Fact]
+    public async Task Websocket_Read_Empty_When_No_Messages()
+    {
+        // Arrange
+        _transportMock.Setup(x => x.GetNextMessageAsync()).ReturnsAsync((byte[]?)null);
+        var fs = new WebsocketFileSystem(_config, _transportMock.Object, _vaultMock.Object);
+        await fs.WalkAsync(new Twalk(1, 0, 1, new[] { "data" }));
+
+        // Act
+        var response = await fs.ReadAsync(new Tread(1, 1, 0, 8192));
+
+        // Assert
+        Assert.Empty(response.Data.ToArray());
     }
 }

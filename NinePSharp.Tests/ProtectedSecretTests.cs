@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using NinePSharp.Server.Configuration;
@@ -29,7 +30,9 @@ namespace NinePSharp.Tests
             Assert.Equal("********", secret.ToString());
 
             // Reveal should return the original
+            #pragma warning disable CS0618
             string? revealed = secret.Reveal();
+            #pragma warning restore CS0618
             Assert.Equal(original, revealed);
         }
 
@@ -48,12 +51,61 @@ namespace NinePSharp.Tests
         }
 
         [Fact]
+        public void ProtectedSecret_SecureString_RoundTrip_Works()
+        {
+            string original = "my-secure-password";
+            using var ss = new SecureString();
+            foreach (char c in original) ss.AppendChar(c);
+            ss.MakeReadOnly();
+
+            using var secret = new ProtectedSecret(ss);
+            
+            string recovered = "";
+            secret.Use(bytes => {
+                recovered = Encoding.UTF8.GetString(bytes);
+            });
+
+            Assert.Equal(original, recovered);
+        }
+
+        [Fact]
+        public void ProtectedSecret_ReadOnlySpan_Constructor_Works()
+        {
+            byte[] original = { 0xDE, 0xAD, 0xBE, 0xEF };
+            using var secret = new ProtectedSecret((ReadOnlySpan<byte>)original);
+            
+            byte[] recovered = null;
+            secret.Use(bytes => {
+                recovered = bytes.ToArray();
+            });
+
+            Assert.True(original.SequenceEqual(recovered));
+        }
+
+        [Fact]
+        public void ProtectedSecret_Use_DecodesCorrectly()
+        {
+            string original = "use-test-data";
+            using var secret = new ProtectedSecret(original);
+            
+            secret.Use(bytes => {
+                Assert.Equal(original, Encoding.UTF8.GetString(bytes));
+            });
+        }
+
+        [Fact]
         public void ProtectedSecret_DisposeClearsData()
         {
             var secret = new ProtectedSecret("data");
             secret.Dispose();
             
+            #pragma warning disable CS0618
             Assert.Null(secret.Reveal());
+            #pragma warning restore CS0618
+
+            bool executed = false;
+            secret.Use(_ => executed = true);
+            Assert.False(executed);
         }
 
         [Fact]

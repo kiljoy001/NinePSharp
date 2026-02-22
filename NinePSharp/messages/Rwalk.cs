@@ -14,7 +14,7 @@ public readonly struct Rwalk : ISerializable
 
     public Qid[] Wqid { get; }
 
-    public Rwalk(ushort tag, Qid[] wqid)
+    public Rwalk(ushort tag, Qid[]? wqid)
     {
         Tag = tag;
         Wqid = wqid ?? Array.Empty<Qid>();

@@ -14,6 +14,13 @@ public readonly struct Tremove : ISerializable
 
     public uint Fid { get; }
 
+    public Tremove(ushort tag, uint fid)
+    {
+        Tag = tag;
+        Fid = fid;
+        Size = NinePConstants.HeaderSize + 4;
+    }
+
     public Tremove(ReadOnlySpan<byte> data)
     {
         Size = BinaryPrimitives.ReadUInt32LittleEndian(data[..4]);

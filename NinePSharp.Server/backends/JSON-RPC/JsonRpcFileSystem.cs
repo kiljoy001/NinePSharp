@@ -5,6 +5,7 @@ using System.Security;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Buffers.Binary;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
 using NinePSharp.Constants;
@@ -14,16 +15,14 @@ using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends.JsonRpc;
 
-/// <summary>
-/// 9P filesystem that translates file reads/writes into explicit, allowlisted JSON-RPC calls.
-/// Only endpoints declared in <see cref="JsonRpcBackendConfig.Endpoints"/> are accessible.
-/// </summary>
 public class JsonRpcFileSystem : INinePFileSystem
 {
     private readonly JsonRpcBackendConfig _config;
     private readonly IJsonRpcTransport _transport;
     private List<string> _currentPath = new();
     private string? _lastResponse;
+
+    public bool DotU { get; set; }
 
     public JsonRpcFileSystem(JsonRpcBackendConfig config, IJsonRpcTransport transport)
     {
@@ -69,7 +68,7 @@ public class JsonRpcFileSystem : INinePFileSystem
             {
                 if (tempPath.Count == 0)
                 {
-                    if (!_config.Endpoints.Any(e => e.Name == name))
+                    if (!_config.Endpoints.Any(e => e.Name == name) && name != "status")
                     {
                         if (qids.Count == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>());
                         break;
@@ -99,25 +98,53 @@ public class JsonRpcFileSystem : INinePFileSystem
     {
         byte[] allData;
 
-        if (_currentPath.Count == 0)
+        if (IsDirectory(_currentPath))
         {
-            // Root directory listing - only at offset 0
-            if (tread.Offset > 0) {
-                // Technically Tread could be mid-directory, but for now we generate full and slice
+            var entries = new List<byte>();
+            var files = new List<(string Name, QidType Type, bool Writable)>();
+            
+            foreach (var endpoint in _config.Endpoints)
+            {
+                files.Add((endpoint.Name, QidType.QTFILE, endpoint.Writable));
             }
-            var content = string.Join("\n", _config.Endpoints.Select(e => e.Name)) + "\n";
-            allData = Encoding.UTF8.GetBytes(content);
+
+            if (_currentPath.Count == 0)
+            {
+                files.Add(("status", QidType.QTFILE, false));
+            }
+
+            foreach (var f in files)
+            {
+                var qid = new Qid(f.Type, 0, (ulong)f.Name.GetHashCode());
+                var mode = f.Type == QidType.QTDIR ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : (f.Writable ? (uint)0x1B6 : (uint)0x124);
+                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott", dotu: DotU);
+                
+                var entryBuffer = new byte[stat.Size];
+                int offset = 0;
+                stat.WriteTo(entryBuffer, ref offset);
+                entries.AddRange(entryBuffer);
+            }
+
+            allData = entries.ToArray();
+            
+            int totalToSend = 0;
+            int currentOffset = (int)tread.Offset;
+            while (currentOffset + 2 <= allData.Length)
+            {
+                ushort entrySize = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(allData.AsSpan(currentOffset, 2)) + 2);
+                if (totalToSend + entrySize > tread.Count) break;
+                totalToSend += entrySize;
+                currentOffset += entrySize;
+            }
+            
+            if (totalToSend == 0) return new Rread(tread.Tag, Array.Empty<byte>());
+            return new Rread(tread.Tag, allData.AsMemory((int)tread.Offset, totalToSend).ToArray());
         }
         else if (_currentPath.Count == 1)
         {
-            // File read
             if (_lastResponse == null)
             {
-                // ONLY trigger the RPC call if Offset is 0. 
-                // Subsequent reads with Offset > 0 will use the cached _lastResponse.
-                if (tread.Offset != 0) {
-                    return new Rread(tread.Tag, Array.Empty<byte>());
-                }
+                if (tread.Offset != 0) return new Rread(tread.Tag, Array.Empty<byte>());
 
                 var endpoint = _config.Endpoints.FirstOrDefault(e => e.Name == _currentPath[0]);
                 if (endpoint != null)
@@ -130,6 +157,10 @@ public class JsonRpcFileSystem : INinePFileSystem
                     catch (Exception ex) {
                         _lastResponse = $"Error: {ex.Message}\n";
                     }
+                }
+                else if (_currentPath[0] == "status")
+                {
+                    _lastResponse = $"JSON-RPC Backend: {_config.EndpointUrl}\nEndpoints: {_config.Endpoints.Count}\n";
                 }
                 else {
                     _lastResponse = "Endpoint not found.\n";
@@ -148,29 +179,23 @@ public class JsonRpcFileSystem : INinePFileSystem
 
     public async Task<Rwrite> WriteAsync(Twrite twrite)
     {
+        if (IsDirectory(_currentPath)) throw new NinePProtocolException("Cannot write to directory.");
+
         if (_currentPath.Count == 1)
         {
             var endpoint = _config.Endpoints.FirstOrDefault(e => e.Name == _currentPath[0]);
             if (endpoint != null)
             {
-                if (!endpoint.Writable) {
-                    // Test expects return Count=0 for read-only write attempts
-                    return new Rwrite(twrite.Tag, 0);
-                }
+                if (!endpoint.Writable) return new Rwrite(twrite.Tag, 0);
 
                 string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
                 try {
                     object?[]? args;
-                    if (input.StartsWith("[") && input.EndsWith("]")) {
-                        args = JsonSerializer.Deserialize<object?[]>(input);
-                    }
-                    else {
-                        args = new object?[] { input };
-                    }
+                    if (input.StartsWith("[") && input.EndsWith("]")) args = JsonSerializer.Deserialize<object?[]>(input);
+                    else args = new object?[] { input };
 
                     var response = await _transport.CallAsync(endpoint.Method, args);
-                    _lastResponse = response?.ToString() ?? "null";
-                    _lastResponse += "\n";
+                    _lastResponse = (response?.ToString() ?? "null") + "\n";
                     return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                 }
                 catch (Exception ex) {
@@ -187,20 +212,13 @@ public class JsonRpcFileSystem : INinePFileSystem
     {
         var name = _currentPath.Count > 0 ? _currentPath.Last() : "jsonrpc";
         bool isDir = IsDirectory(_currentPath);
-        
-        // Mode bits: DMDIR (0x80000000)
-        uint mode = 0;
-        if (isDir) {
-            mode = (uint)NinePConstants.FileMode9P.DMDIR | 0x1ED; // 0755
-        }
-        else {
+        uint mode = isDir ? (uint)NinePConstants.FileMode9P.DMDIR | 0x1ED : 0x124;
+        if (!isDir) {
             var endpoint = _config.Endpoints.FirstOrDefault(e => e.Name == name);
-            // 0666 octal = 0x1B6
-            // 0444 octal = 0x124
-            mode = (endpoint != null && endpoint.Writable) ? (uint)0x1B6 : (uint)0x124;
+            if (endpoint != null && endpoint.Writable) mode = 0x1B6;
         }
 
-        var stat = new Stat(0, 0, 0, GetQid(_currentPath), mode, 0, 0, 0, name, "scott", "scott", "scott");
+        var stat = new Stat(0, 0, 0, GetQid(_currentPath), mode, 0, 0, 0, name, "scott", "scott", "scott", dotu: DotU);
         return new Rstat(tstat.Tag, stat);
     }
 
@@ -212,6 +230,7 @@ public class JsonRpcFileSystem : INinePFileSystem
         var clone = new JsonRpcFileSystem(_config, _transport);
         clone._currentPath = new List<string>(_currentPath);
         clone._lastResponse = _lastResponse;
+        clone.DotU = DotU;
         return clone;
     }
 }

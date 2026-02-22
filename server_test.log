@@ -1,0 +1,39 @@
+/home/scott/Repo/NinePSharp/NinePSharp.Server/NinePSharp.Server.csproj : warning NU1608: Detected package version outside of dependency constraint: Nethereum.JsonRpc.Client 4.27.1 requires Microsoft.Extensions.Logging.Abstractions (>= 6.0.0 && < 10.0.0) but version Microsoft.Extensions.Logging.Abstractions 10.0.3 was resolved.
+/home/scott/Repo/NinePSharp/NinePSharp.Server/NinePSharp.Server.csproj : warning NU1608: Detected package version outside of dependency constraint: Nethereum.JsonRpc.Client 4.27.1 requires Microsoft.Extensions.Logging.Abstractions (>= 6.0.0 && < 10.0.0) but version Microsoft.Extensions.Logging.Abstractions 10.0.3 was resolved.
+/home/scott/Repo/NinePSharp/NinePSharp.Server/utils/LuxVault.cs(402,20): warning CS0618: 'LuxVault.Decrypt(byte[], ReadOnlySpan<byte>)' is obsolete: 'Use DecryptToBytes to avoid leaking secrets into the managed string pool.' [/home/scott/Repo/NinePSharp/NinePSharp.Server/NinePSharp.Server.csproj]
+/home/scott/Repo/NinePSharp/NinePSharp.Server/NinePFSDispatcher.cs(88,90): warning CS8604: Possible null reference argument for parameter 'path' in 'GetBackend.GetBackend(string path)'. [/home/scott/Repo/NinePSharp/NinePSharp.Server/NinePSharp.Server.csproj]
+/home/scott/Repo/NinePSharp/NinePSharp.Server/backends/JSON-RPC/JsonRpcTransport.cs(44,52): warning CS8620: Argument of type 'List<object?>' cannot be used for parameter 'parameterList' of type 'IList<object>' in 'RpcRequest RpcRequest.WithParameterList(string method, IList<object> parameterList, RpcId id = default(RpcId))' due to differences in the nullability of reference types. [/home/scott/Repo/NinePSharp/NinePSharp.Server/NinePSharp.Server.csproj]
+[INFO] Anti-Dumping protection enabled (PR_SET_DUMPABLE=0).
+info: Microsoft.Hosting.Lifetime[0]
+      Application started. Press Ctrl+C to shut down.
+info: NinePSharp.Server.Cluster.ClusterManager[0]
+      No cluster configuration found (JSON or cluster.conf). Running in standalone mode.
+info: NinePSharp.Server.NinePServer[0]
+      Initializing 9P translation backends...
+[Database Backend] Initialized with MountPath: /db
+info: Microsoft.Hosting.Lifetime[0]
+      Hosting environment: Production
+info: NinePSharp.Server.NinePServer[0]
+      Backend 'Database' initialized at /db
+info: Microsoft.Hosting.Lifetime[0]
+      Content root path: /home/scott/Repo/NinePSharp/NinePSharp.Server/bin/Debug/net10.0/
+[Ethereum Backend] Initialized with MountPath: /eth
+info: NinePSharp.Server.NinePServer[0]
+      Backend 'Ethereum' initialized at /eth
+[Bitcoin Backend] Initialized with MountPath: /btc
+info: NinePSharp.Server.NinePServer[0]
+      Backend 'Bitcoin' initialized at /btc
+[Solana Backend] Initialized with MountPath: /sol
+info: NinePSharp.Server.NinePServer[0]
+      Backend 'Solana' initialized at /sol
+[Stellar Backend] Initialized with MountPath: /stellar
+info: NinePSharp.Server.NinePServer[0]
+      Backend 'Stellar' initialized at /stellar
+[Cardano Backend] Initialized with MountPath: /cardano
+info: NinePSharp.Server.NinePServer[0]
+      Backend 'Cardano' initialized at /cardano
+[Secret Backend] Initialized with MountPath: /secrets
+info: NinePSharp.Server.NinePServer[0]
+      Backend 'secret' initialized at /secrets
+info: Microsoft.Hosting.Lifetime[0]
+      Application is shutting down...

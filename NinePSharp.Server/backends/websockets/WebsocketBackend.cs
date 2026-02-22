@@ -35,6 +35,7 @@ public class WebsocketBackend : IProtocolBackend
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
         
         var transport = new WebsocketTransport();
+        // Background connection task
         _ = transport.ConnectAsync(_config.Url);
 
         return new WebsocketFileSystem(_config, transport, _vault);

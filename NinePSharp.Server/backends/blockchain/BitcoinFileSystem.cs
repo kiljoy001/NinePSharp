@@ -27,6 +27,8 @@ public class BitcoinFileSystem : INinePFileSystem
     private ProtectedSecret? _protectedPrivateKey;
     private string? _unlockedAddress;
 
+    public bool DotU { get; set; }
+
     public BitcoinFileSystem(BitcoinBackendConfig config, RPCClient? rpcClient, ILuxVaultService vault)
     {
         _config = config;
@@ -82,20 +84,56 @@ public class BitcoinFileSystem : INinePFileSystem
 
     public async Task<Rread> ReadAsync(Tread tread)
     {
-        string result = "";
-        if (_currentPath.Count == 0)
+        byte[] allData;
+
+        if (IsDirectory(_currentPath))
         {
-            result = "wallets/\nbalance\naddress\nsend\ntransactions/\nstatus\n";
-        }
-        else if (_currentPath[0] == "wallets")
-        {
-            if (_currentPath.Count == 1) result = "create\nimport\nunlock\n";
-            else if (_currentPath.Count == 2 && _currentPath[1] == "unlock") result = _unlockedAddress != null ? $"Unlocked: {_unlockedAddress}\n" : "Locked\n";
-        }
-        else if (_currentPath.Count == 1)
-        {
-            switch (_currentPath[0])
+            var entries = new List<byte>();
+            var files = new List<(string Name, QidType Type)>();
+
+            if (_currentPath.Count == 0)
             {
+                files.Add(("wallets", QidType.QTDIR));
+                files.Add(("balance", QidType.QTFILE));
+                files.Add(("address", QidType.QTFILE));
+                files.Add(("send", QidType.QTFILE));
+                files.Add(("transactions", QidType.QTDIR));
+                files.Add(("status", QidType.QTFILE));
+            }
+            else if (_currentPath[0] == "wallets")
+            {
+                files.Add(("create", QidType.QTFILE));
+                files.Add(("import", QidType.QTFILE));
+                files.Add(("unlock", QidType.QTFILE));
+            }
+            else if (_currentPath[0] == "transactions")
+            {
+                // List dynamic transactions if available
+            }
+
+            foreach (var f in files)
+            {
+                var qid = new Qid(f.Type, 0, (ulong)f.Name.GetHashCode());
+                var mode = f.Type == QidType.QTDIR ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0644;
+                if (f.Name == "create" || f.Name == "import" || f.Name == "unlock" || f.Name == "send") mode = 0666;
+                
+                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott");
+                
+                var entryBuffer = new byte[stat.Size];
+                int offset = 0;
+                stat.WriteTo(entryBuffer, ref offset);
+                entries.AddRange(entryBuffer.Take(offset));
+            }
+            allData = entries.ToArray();
+        }
+        else
+        {
+            string result = "";
+            switch (_currentPath.Last().ToLowerInvariant())
+            {
+                case "unlock":
+                    result = _unlockedAddress != null ? $"Unlocked: {_unlockedAddress}\n" : "Locked\n";
+                    break;
                 case "balance":
                     if (_rpcClient != null) {
                         try {
@@ -109,15 +147,15 @@ public class BitcoinFileSystem : INinePFileSystem
                     result = _unlockedAddress ?? "No wallet unlocked.\n";
                     break;
                 case "status":
-                    result = $"Network: {_config.Network}\nRPC: {_config.RpcUrl ?? "N/A"}\n";
+                    result = $"Network: {GetNetwork()}\nRPC: {_config.RpcUrl ?? "N/A"}\n";
                     break;
                 case "transactions":
                     result = "No recent transactions.\n";
                     break;
             }
+            allData = Encoding.UTF8.GetBytes(result);
         }
 
-        byte[] allData = Encoding.UTF8.GetBytes(result);
         if (tread.Offset >= (ulong)allData.Length) return new Rread(tread.Tag, Array.Empty<byte>());
         var chunk = allData.AsSpan((int)tread.Offset, (int)Math.Min((long)tread.Count, (long)allData.Length - (long)tread.Offset)).ToArray();
         return new Rread(tread.Tag, chunk);
@@ -129,54 +167,88 @@ public class BitcoinFileSystem : INinePFileSystem
         {
             if (_currentPath[1] == "create")
             {
-                string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
-                if (string.IsNullOrWhiteSpace(input)) throw new NinePProtocolException("Password is required for wallet creation.");
+                var bytes = twrite.Data.Span;
+                if (bytes.Length == 0) throw new NinePProtocolException("Password is required for wallet creation.");
 
                 using var password = new SecureString();
-                foreach (char c in input) password.AppendChar(c);
+                char[] chars = GC.AllocateArray<char>(Encoding.UTF8.GetCharCount(bytes), pinned: true);
+                try {
+                    Encoding.UTF8.GetChars(bytes, chars);
+                    foreach (char c in chars) if (c != '\n' && c != '\r') password.AppendChar(c);
+                }
+                finally {
+                    Array.Clear(chars);
+                }
                 password.MakeReadOnly();
 
                 var key = new Key(); // Bitcoin Private Key
-                var secret = key.GetWif(GetNetwork());
+                byte[] pkBytes = key.ToBytes();
                 
-                var ciphertext = _vault.Encrypt(secret.ToString(), password);
-                byte[] idSalt = Encoding.UTF8.GetBytes("Bitcoin_Vault_ID_Salt_v1");
-                var seed = _vault.DeriveSeed(password, idSalt);
-                var hiddenId = _vault.GenerateHiddenId(seed);
-                
-                File.WriteAllBytes(LuxVault.GetVaultPath($"btc_vault_{hiddenId}.vlt"), ciphertext);
+                try {
+                    var ciphertext = _vault.Encrypt(pkBytes, password);
+                    byte[] idSalt = Encoding.UTF8.GetBytes("Bitcoin_Vault_ID_Salt_v1");
+                    var seed = _vault.DeriveSeed(password, idSalt);
+                    var hiddenId = _vault.GenerateHiddenId(seed);
+                    
+                    File.WriteAllBytes(LuxVault.GetVaultPath($"btc_vault_{hiddenId}.vlt"), ciphertext);
+                }
+                finally {
+                    Array.Clear(pkBytes);
+                }
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
             else if (_currentPath[1] == "import")
             {
                 // Format: password:wif
-                string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
-                var parts = input.Split(':', 2);
-                if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0])) 
-                    throw new NinePProtocolException("Invalid format or missing password. Use 'password:wif'");
+                var bytes = twrite.Data.Span;
+                char[] chars = GC.AllocateArray<char>(Encoding.UTF8.GetCharCount(bytes), pinned: true);
+                try {
+                    Encoding.UTF8.GetChars(bytes, chars);
+                    string fullStr = new string(chars).Trim();
+                    var parts = fullStr.Split(':', 2);
+                    if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0])) 
+                        throw new NinePProtocolException("Invalid format or missing password. Use 'password:wif'");
 
-                using var password = new SecureString();
-                foreach (char c in parts[0]) password.AppendChar(c);
-                password.MakeReadOnly();
+                    using var password = new SecureString();
+                    foreach (char c in parts[0]) password.AppendChar(c);
+                    password.MakeReadOnly();
 
-                var wif = parts[1];
-                try { Key.Parse(wif, GetNetwork()); } catch { throw new NinePProtocolException("Invalid WIF."); }
-
-                var ciphertext = _vault.Encrypt(wif, password);
-                byte[] idSalt = Encoding.UTF8.GetBytes("Bitcoin_Vault_ID_Salt_v1");
-                var seed = _vault.DeriveSeed(password, idSalt);
-                var hiddenId = _vault.GenerateHiddenId(seed);
-                
-                File.WriteAllBytes(LuxVault.GetVaultPath($"btc_vault_{hiddenId}.vlt"), ciphertext);
+                    var wif = parts[1];
+                    try {
+                        var key = Key.Parse(wif, GetNetwork());
+                        byte[] pkBytes = key.ToBytes();
+                        try {
+                            var ciphertext = _vault.Encrypt(pkBytes, password);
+                            byte[] idSalt = Encoding.UTF8.GetBytes("Bitcoin_Vault_ID_Salt_v1");
+                            var seed = _vault.DeriveSeed(password, idSalt);
+                            var hiddenId = _vault.GenerateHiddenId(seed);
+                            
+                            File.WriteAllBytes(LuxVault.GetVaultPath($"btc_vault_{hiddenId}.vlt"), ciphertext);
+                        }
+                        finally {
+                            Array.Clear(pkBytes);
+                        }
+                    } catch { throw new NinePProtocolException("Invalid WIF."); }
+                }
+                finally {
+                    Array.Clear(chars);
+                }
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
             else if (_currentPath[1] == "unlock")
             {
-                string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
-                if (string.IsNullOrWhiteSpace(input)) throw new NinePProtocolException("Password is required to unlock wallet.");
+                var bytes = twrite.Data.Span;
+                if (bytes.Length == 0) throw new NinePProtocolException("Password is required to unlock wallet.");
 
                 using var password = new SecureString();
-                foreach (char c in input) password.AppendChar(c);
+                char[] chars = GC.AllocateArray<char>(Encoding.UTF8.GetCharCount(bytes), pinned: true);
+                try {
+                    Encoding.UTF8.GetChars(bytes, chars);
+                    foreach (char c in chars) if (c != '\n' && c != '\r') password.AppendChar(c);
+                }
+                finally {
+                    Array.Clear(chars);
+                }
                 password.MakeReadOnly();
 
                 byte[] idSalt = Encoding.UTF8.GetBytes("Bitcoin_Vault_ID_Salt_v1");
@@ -187,15 +259,20 @@ public class BitcoinFileSystem : INinePFileSystem
                 if (File.Exists(vaultFile))
                 {
                     var encrypted = File.ReadAllBytes(vaultFile);
-                    var wif = _vault.Decrypt(encrypted, password);
-                    if (wif != null)
+                    var pkBytes = _vault.DecryptToBytes(encrypted, password);
+                    if (pkBytes != null)
                     {
-                        _protectedPrivateKey?.Dispose();
-                        _protectedPrivateKey = new ProtectedSecret(wif);
-                        
-                        var key = Key.Parse(wif, GetNetwork());
-                        _unlockedAddress = key.PubKey.GetAddress(ScriptPubKeyType.Legacy, GetNetwork()).ToString();
-                        return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                        try {
+                            _protectedPrivateKey?.Dispose();
+                            _protectedPrivateKey = new ProtectedSecret((ReadOnlySpan<byte>)pkBytes);
+                            
+                            var key = new Key(pkBytes);
+                            _unlockedAddress = key.PubKey.GetAddress(ScriptPubKeyType.Legacy, GetNetwork()).ToString();
+                            return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                        }
+                        finally {
+                            Array.Clear(pkBytes);
+                        }
                     }
                 }
                 throw new NinePProtocolException("Wallet not found or invalid password.");

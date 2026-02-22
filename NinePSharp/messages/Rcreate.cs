@@ -15,6 +15,14 @@ public readonly struct Rcreate : ISerializable
     public Qid Qid { get; }
     public uint Iounit { get; }
 
+    public Rcreate(ushort tag, Qid qid, uint iounit)
+    {
+        Tag = tag;
+        Qid = qid;
+        Iounit = iounit;
+        Size = (uint)(NinePConstants.HeaderSize + 13 + 4);
+    }
+
     public Rcreate(ReadOnlySpan<byte> data)
     {
         Size = BinaryPrimitives.ReadUInt32LittleEndian(data[..4]);

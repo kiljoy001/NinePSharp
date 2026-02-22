@@ -1,0 +1,20 @@
+{
+  "Server": {
+    "Endpoints": [
+      { "Address": "0.0.0.0", "Port": 5641, "Protocol": "9P2000" }
+    ],
+    "JsonRpc": {
+      "MountPath": "/emc",
+      "EndpointUrl": "http://127.0.0.1:6662/",
+      "VaultKey": "emc-rpc",
+      "Endpoints": [
+        {
+          "Name": "nameshow",
+          "Method": "name_show",
+          "Writable": true,
+          "Description": "Look up a name record in Emercoin NVS."
+        }
+      ]
+    }
+  }
+}

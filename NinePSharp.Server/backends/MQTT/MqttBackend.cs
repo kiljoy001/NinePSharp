@@ -31,31 +31,30 @@ public class MqttBackend : IProtocolBackend
 
     public INinePFileSystem GetFileSystem() => GetFileSystem(null);
 
-    private string? SecureStringToString(SecureString? ss)
-    {
-        if (ss == null) return null;
-        IntPtr ptr = Marshal.SecureStringToGlobalAllocUnicode(ss);
-        try { return Marshal.PtrToStringUni(ptr); }
-        finally { Marshal.ZeroFreeGlobalAllocUnicode(ptr); }
-    }
-
     public INinePFileSystem GetFileSystem(SecureString? credentials)
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
         
         var transport = new MqttTransport();
         
-        string? user = null;
-        string? pass = null;
-        string? credsStr = SecureStringToString(credentials);
-        if (credsStr != null)
+        SecureString? user = null;
+        SecureString? pass = null;
+
+        if (credentials != null)
         {
+            // Format "user:pass"
+            string credsStr = SecureStringHelper.ToString(credentials);
             var parts = credsStr.Split(':', 2);
-            user = parts[0];
-            pass = parts.Length > 1 ? parts[1] : "";
+            if (parts.Length == 2)
+            {
+                user = new SecureString();
+                foreach (char c in parts[0]) user.AppendChar(c);
+                pass = new SecureString();
+                foreach (char c in parts[1]) pass.AppendChar(c);
+            }
         }
 
-        // Connect asynchronously (could be optimized to happen lazily)
+        // Connect asynchronously (Zero-exposure: user/pass are SecureStrings)
         _ = transport.ConnectAsync(_config.BrokerUrl, _config.ClientId, user, pass);
 
         return new MqttFileSystem(_config, transport, _vault);

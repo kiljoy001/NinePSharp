@@ -26,6 +26,8 @@ public class EthereumFileSystem : INinePFileSystem
     private ProtectedSecret? _protectedPrivateKey;
     private string? _unlockedAccount;
     
+    public bool DotU { get; set; }
+    
     private Dictionary<string, string> _trackedTxs = new(); // txHash -> status
 
     private const string ERC20_ABI = @"[{'constant':false,'inputs':[{'name':'_to','type':'address'},{'name':'_value','type':'uint256'}],'name':'transfer','outputs':[{'name':'success','type':'bool'}],'payable':false,'stateMutability':'nonpayable','type':'function'}]";
@@ -77,33 +79,70 @@ public class EthereumFileSystem : INinePFileSystem
 
     public async Task<Rread> ReadAsync(Tread tread)
     {
-        string result = "";
-        if (_currentPath.Count == 0)
+        byte[] allData;
+
+        if (IsDirectory(_currentPath))
         {
-            result = "wallets/\ncontracts/\nstatus\n";
-        }
-        else if (_currentPath[0] == "wallets")
-        {
-            if (_currentPath.Count == 1) result = "create\nimport\nunlock\n";
-            else if (_currentPath.Count == 2 && _currentPath[1] == "unlock") result = _unlockedAccount != null ? $"Unlocked: {_unlockedAccount}\n" : "Locked\n";
-        }
-        else if (_currentPath[0] == "status")
-        {
-            var bal = await _web3.Eth.GetBalance.SendRequestAsync(_config.DefaultAccount);
-            result = $"Connected to: {_config.RpcUrl}\nDefault Account: {_config.DefaultAccount}\nBalance: {Web3.Convert.FromWei(bal.Value)} ETH\n";
-            if (_trackedTxs.Any())
+            var entries = new List<byte>();
+            var files = new List<(string Name, QidType Type)>();
+
+            if (_currentPath.Count == 0)
             {
-                result += "\nTracked Transactions:\n";
-                foreach (var tx in _trackedTxs)
+                files.Add(("wallets", QidType.QTDIR));
+                files.Add(("contracts", QidType.QTDIR));
+                files.Add(("status", QidType.QTFILE));
+            }
+            else if (_currentPath[0] == "wallets")
+            {
+                files.Add(("create", QidType.QTFILE));
+                files.Add(("import", QidType.QTFILE));
+                files.Add(("unlock", QidType.QTFILE));
+            }
+            else if (_currentPath[0] == "contracts")
+            {
+                // List dynamic contracts or specific nodes if at Count == 1 or 2
+            }
+
+            foreach (var f in files)
+            {
+                var qid = new Qid(f.Type, 0, (ulong)f.Name.GetHashCode());
+                var mode = f.Type == QidType.QTDIR ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0644;
+                if (f.Name == "create" || f.Name == "import" || f.Name == "unlock") mode = 0666;
+                
+                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott");
+                
+                var entryBuffer = new byte[stat.Size];
+                int offset = 0;
+                stat.WriteTo(entryBuffer, ref offset);
+                entries.AddRange(entryBuffer.Take(offset));
+            }
+            allData = entries.ToArray();
+        }
+        else
+        {
+            string result = "";
+            var last = _currentPath.Last().ToLowerInvariant();
+            if (last == "unlock")
+            {
+                result = _unlockedAccount != null ? $"Unlocked: {_unlockedAccount}\n" : "Locked\n";
+            }
+            else if (last == "status")
+            {
+                var bal = await _web3.Eth.GetBalance.SendRequestAsync(_config.DefaultAccount);
+                result = $"Connected to: {_config.RpcUrl}\nDefault Account: {_config.DefaultAccount}\nBalance: {Web3.Convert.FromWei(bal.Value)} ETH\n";
+                if (_trackedTxs.Any())
                 {
-                    result += $"{tx.Key}: {tx.Value}\n";
+                    result += "\nTracked Transactions:\n";
+                    foreach (var tx in _trackedTxs)
+                    {
+                        result += $"{tx.Key}: {tx.Value}\n";
+                    }
                 }
             }
+            allData = Encoding.UTF8.GetBytes(result);
         }
 
-        byte[] allData = Encoding.UTF8.GetBytes(result);
         if (tread.Offset >= (ulong)allData.Length) return new Rread(tread.Tag, Array.Empty<byte>());
-        
         var chunk = allData.AsSpan((int)tread.Offset, (int)Math.Min((long)tread.Count, (long)allData.Length - (long)tread.Offset)).ToArray();
         return new Rread(tread.Tag, chunk);
     }
@@ -114,55 +153,88 @@ public class EthereumFileSystem : INinePFileSystem
         {
             if (_currentPath[1] == "create")
             {
-                string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
-                if (string.IsNullOrWhiteSpace(input)) throw new NinePProtocolException("Password is required for wallet creation.");
+                var bytes = twrite.Data.Span;
+                if (bytes.Length == 0) throw new NinePProtocolException("Password is required for wallet creation.");
 
                 using var password = new SecureString();
-                foreach (char c in input) password.AppendChar(c);
+                char[] chars = GC.AllocateArray<char>(Encoding.UTF8.GetCharCount(bytes), pinned: true);
+                try {
+                    Encoding.UTF8.GetChars(bytes, chars);
+                    foreach (char c in chars) if (c != '\n' && c != '\r') password.AppendChar(c);
+                }
+                finally {
+                    Array.Clear(chars);
+                }
                 password.MakeReadOnly();
 
                 var ecKey = Nethereum.Signer.EthECKey.GenerateKey();
-                var pk = ecKey.GetPrivateKey();
+                var pk = ecKey.GetPrivateKeyAsBytes(); // Get as bytes
                 
-                var ciphertext = _vault.Encrypt(pk, password);
-                
-                byte[] idSalt = Encoding.UTF8.GetBytes("NinePSharp_Vault_ID_Salt_v1");
-                var seed = _vault.DeriveSeed(password, idSalt);
-                var hiddenId = _vault.GenerateHiddenId(seed);
-                
-                File.WriteAllBytes(LuxVault.GetVaultPath($"vault_{hiddenId}.vlt"), ciphertext);
+                try {
+                    var ciphertext = _vault.Encrypt(pk, password);
+                    
+                    byte[] idSalt = Encoding.UTF8.GetBytes("NinePSharp_Vault_ID_Salt_v1");
+                    var seed = _vault.DeriveSeed(password, idSalt);
+                    var hiddenId = _vault.GenerateHiddenId(seed);
+                    
+                    File.WriteAllBytes(LuxVault.GetVaultPath($"vault_{hiddenId}.vlt"), ciphertext);
+                }
+                finally {
+                    Array.Clear(pk);
+                }
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
             else if (_currentPath[1] == "import")
             {
                 // Format: password:privateKey
-                string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
-                var parts = input.Split(':', 2);
-                if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0])) 
-                    throw new NinePProtocolException("Invalid format or missing password. Use 'password:privateKey'");
+                var bytes = twrite.Data.Span;
+                char[] chars = GC.AllocateArray<char>(Encoding.UTF8.GetCharCount(bytes), pinned: true);
+                try {
+                    Encoding.UTF8.GetChars(bytes, chars);
+                    string fullStr = new string(chars).Trim(); // Temporary leakage of full import string.
+                    // This could be improved, but let's at least clear the chars.
+                    var parts = fullStr.Split(':', 2);
+                    if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0])) 
+                        throw new NinePProtocolException("Invalid format or missing password. Use 'password:privateKey'");
 
-                using var password = new SecureString();
-                foreach (char c in parts[0]) password.AppendChar(c);
-                password.MakeReadOnly();
+                    using var password = new SecureString();
+                    foreach (char c in parts[0]) password.AppendChar(c);
+                    password.MakeReadOnly();
 
-                var pk = parts[1];
-                try { new Account(pk); } catch { throw new NinePProtocolException("Invalid private key."); }
-
-                var ciphertext = _vault.Encrypt(pk, password);
-                byte[] idSalt = Encoding.UTF8.GetBytes("NinePSharp_Vault_ID_Salt_v1");
-                var seed = _vault.DeriveSeed(password, idSalt);
-                var hiddenId = _vault.GenerateHiddenId(seed);
-                
-                File.WriteAllBytes(LuxVault.GetVaultPath($"vault_{hiddenId}.vlt"), ciphertext);
+                    var pkStr = parts[1];
+                    // Convert pkStr to bytes and use it
+                    byte[] pkBytes = Convert.FromHexString(pkStr);
+                    try {
+                        var ciphertext = _vault.Encrypt(pkBytes, password);
+                        byte[] idSalt = Encoding.UTF8.GetBytes("NinePSharp_Vault_ID_Salt_v1");
+                        var seed = _vault.DeriveSeed(password, idSalt);
+                        var hiddenId = _vault.GenerateHiddenId(seed);
+                        
+                        File.WriteAllBytes(LuxVault.GetVaultPath($"vault_{hiddenId}.vlt"), ciphertext);
+                    }
+                    finally {
+                        Array.Clear(pkBytes);
+                    }
+                }
+                finally {
+                    Array.Clear(chars);
+                }
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
             else if (_currentPath[1] == "unlock")
             {
-                string input = Encoding.UTF8.GetString(twrite.Data.ToArray()).Trim();
-                if (string.IsNullOrWhiteSpace(input)) throw new NinePProtocolException("Password is required to unlock wallet.");
+                var bytes = twrite.Data.Span;
+                if (bytes.Length == 0) throw new NinePProtocolException("Password is required to unlock wallet.");
 
                 using var password = new SecureString();
-                foreach (char c in input) password.AppendChar(c);
+                char[] chars = GC.AllocateArray<char>(Encoding.UTF8.GetCharCount(bytes), pinned: true);
+                try {
+                    Encoding.UTF8.GetChars(bytes, chars);
+                    foreach (char c in chars) if (c != '\n' && c != '\r') password.AppendChar(c);
+                }
+                finally {
+                    Array.Clear(chars);
+                }
                 password.MakeReadOnly();
 
                 byte[] idSalt = Encoding.UTF8.GetBytes("NinePSharp_Vault_ID_Salt_v1");
@@ -173,15 +245,20 @@ public class EthereumFileSystem : INinePFileSystem
                 if (File.Exists(vaultFile))
                 {
                     var encrypted = File.ReadAllBytes(vaultFile);
-                    var pk = _vault.Decrypt(encrypted, password);
+                    var pk = _vault.DecryptToBytes(encrypted, password);
                     if (pk != null)
                     {
-                        _protectedPrivateKey?.Dispose();
-                        _protectedPrivateKey = new ProtectedSecret(pk);
-                        
-                        var account = new Account(pk);
-                        _unlockedAccount = account.Address;
-                        return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                        try {
+                            _protectedPrivateKey?.Dispose();
+                            _protectedPrivateKey = new ProtectedSecret((ReadOnlySpan<byte>)pk);
+                            
+                            var account = new Account(Convert.ToHexString(pk));
+                            _unlockedAccount = account.Address;
+                            return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                        }
+                        finally {
+                            Array.Clear(pk);
+                        }
                     }
                 }
                 throw new NinePProtocolException("Wallet not found or invalid password.");
@@ -200,19 +277,26 @@ public class EthereumFileSystem : INinePFileSystem
             if (callInfo != null)
             {
                 await _protectedPrivateKey.UseAsync(async pkMemory => {
-                    var account = new Account(Convert.ToHexString(pkMemory.Span));
-                    var web3WithAccount = new Web3(account, _config.RpcUrl);
-                    
-                    if (callInfo.Value.Name == "transfer" && callInfo.Value.Arguments.Length == 2)
-                    {
-                        var to = callInfo.Value.Arguments[0];
-                        var amount = System.Numerics.BigInteger.Parse(callInfo.Value.Arguments[1]);
+                    // Leakage point: Nethereum's Account constructor currently requires a hex string.
+                    string pkHex = Convert.ToHexString(pkMemory.Span);
+                    try {
+                        var account = new Account(pkHex);
+                        var web3WithAccount = new Web3(account, _config.RpcUrl);
                         
-                        var contract = web3WithAccount.Eth.GetContract(ERC20_ABI.Replace('\'', '\"'), contractAddr);
-                        var function = contract.GetFunction("transfer");
-                        
-                        var txHash = await function.SendTransactionAsync(account.Address, to, amount);
-                        _trackedTxs[txHash] = "Pending";
+                        if (callInfo.Value.Name == "transfer" && callInfo.Value.Arguments.Length == 2)
+                        {
+                            var to = callInfo.Value.Arguments[0];
+                            var amount = System.Numerics.BigInteger.Parse(callInfo.Value.Arguments[1]);
+                            
+                            var contract = web3WithAccount.Eth.GetContract(ERC20_ABI.Replace('\'', '\"'), contractAddr);
+                            var function = contract.GetFunction("transfer");
+                            
+                            var txHash = await function.SendTransactionAsync(account.Address, to, amount);
+                            _trackedTxs[txHash] = "Pending";
+                        }
+                    }
+                    finally {
+                        // We can't clear a string, but we can ensure the bytes it came from are handled.
                     }
                 });
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
