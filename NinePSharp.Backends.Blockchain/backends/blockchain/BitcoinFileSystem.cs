@@ -288,6 +288,15 @@ public class BitcoinFileSystem : INinePFileSystem
             }
 
             var transfer = ParseTransferCommand(twrite.Data, "address:amount");
+            if (_rpcClient != null)
+            {
+                var txHash = await SendLiveTransferAsync(transfer.To, transfer.Amount);
+                _mockTxCounter++;
+                _mockTransactions.Insert(
+                    0,
+                    $"{txHash} to={transfer.To} amount={transfer.Amount.ToString("0.########", CultureInfo.InvariantCulture)} status=submitted");
+                return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+            }
 
             if (_mockBalanceBtc < transfer.Amount)
             {
@@ -320,6 +329,26 @@ public class BitcoinFileSystem : INinePFileSystem
         }
 
         return (parts[0], amount);
+    }
+
+    private async Task<string> SendLiveTransferAsync(string destination, decimal amountBtc)
+    {
+        if (_rpcClient == null)
+        {
+            throw new NinePProtocolException("Bitcoin RPC client is not configured.");
+        }
+
+        try
+        {
+            var address = BitcoinAddress.Create(destination, GetNetwork());
+            var money = Money.Coins(amountBtc);
+            var txId = await _rpcClient.SendToAddressAsync(address, money, System.Threading.CancellationToken.None);
+            return txId.ToString();
+        }
+        catch (Exception ex)
+        {
+            throw new NinePProtocolException($"Bitcoin transfer failed: {ex.Message}");
+        }
     }
 
     private Network GetNetwork() => _config.Network.ToLower() switch

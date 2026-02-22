@@ -13,6 +13,11 @@ using System.Threading.Tasks;
 using CardanoSharp.Wallet;
 using CardanoSharp.Wallet.Enums;
 using CardanoSharp.Wallet.Extensions.Models;
+using CardanoSharp.Wallet.Extensions.Models.Transactions;
+using CardanoSharp.Wallet.Models.Addresses;
+using CardanoSharp.Wallet.Models.Keys;
+using CardanoSharp.Wallet.Models.Transactions;
+using CardanoSharp.Wallet.TransactionBuilding;
 using CardanoSharp.Wallet.Utilities;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
@@ -329,7 +334,15 @@ public class CardanoFileSystem : INinePFileSystem
                 var command = Encoding.UTF8.GetString(twrite.Data.Span).Trim();
                 if (!TryExtractSignedCborHex(command, out var cborHex))
                 {
-                    throw new NinePProtocolException("Live mode requires signed transaction CBOR: use 'cbor:<hex>'.");
+                    if (!TryParseAddressAmount(command, out var destination, out var amountAda))
+                    {
+                        throw new NinePProtocolException("Live mode requires 'address:amount' or signed CBOR: use 'cbor:<hex>'.");
+                    }
+
+                    var builtTxHash = await BuildSignAndSubmitTransferAsync(destination, amountAda);
+                    _mockTxCounter++;
+                    _mockTransactions.Insert(0, $"ada-live-{_mockTxCounter:D6} hash={builtTxHash} status=submitted");
+                    return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                 }
 
                 var txHash = await SubmitSignedTransactionAsync(cborHex);
@@ -394,6 +407,26 @@ public class CardanoFileSystem : INinePFileSystem
         return true;
     }
 
+    private static bool TryParseAddressAmount(string command, out string destination, out decimal amountAda)
+    {
+        destination = string.Empty;
+        amountAda = 0;
+
+        var parts = command.Split(':', 2, StringSplitOptions.TrimEntries);
+        if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]))
+        {
+            return false;
+        }
+
+        if (!decimal.TryParse(parts[1], NumberStyles.Number, CultureInfo.InvariantCulture, out amountAda) || amountAda <= 0)
+        {
+            return false;
+        }
+
+        destination = parts[0];
+        return true;
+    }
+
     private static bool IsEvenLengthHex(string value)
     {
         if (value.Length == 0 || (value.Length % 2) != 0)
@@ -424,6 +457,101 @@ public class CardanoFileSystem : INinePFileSystem
             throw new NinePProtocolException("Invalid signed transaction hex.");
         }
 
+        return await SubmitSignedTransactionBytesAsync(txBytes);
+    }
+
+    private async Task<string> BuildSignAndSubmitTransferAsync(string destinationAddress, decimal amountAda)
+    {
+        if (_unlockedMnemonic == null || string.IsNullOrWhiteSpace(_unlockedAddress))
+        {
+            throw new NinePProtocolException("Wallet is not unlocked.");
+        }
+
+        if (!TryDerivePaymentKeys(_unlockedMnemonic, out var paymentPublicKey, out var paymentPrivateKey))
+        {
+            throw new NinePProtocolException("Unable to derive signing keys from mnemonic.");
+        }
+
+        Address destination;
+        Address sender;
+        try
+        {
+            destination = destinationAddress.ToAddress();
+            sender = _unlockedAddress.ToAddress();
+        }
+        catch
+        {
+            throw new NinePProtocolException("Destination address is invalid.");
+        }
+
+        var amountLovelace = ToLovelace(amountAda);
+        var utxos = await FetchAddressUtxosAsync(_unlockedAddress);
+
+        // Conservative static fee to avoid underestimating in the absence of protocol params.
+        ulong feeLovelace = 200_000;
+        ulong required = checked(amountLovelace + feeLovelace);
+
+        var selected = new List<CardanoUtxo>();
+        ulong selectedTotal = 0;
+        foreach (var utxo in utxos.OrderByDescending(u => u.Lovelace))
+        {
+            selected.Add(utxo);
+            selectedTotal = checked(selectedTotal + utxo.Lovelace);
+            if (selectedTotal >= required)
+            {
+                break;
+            }
+        }
+
+        if (selectedTotal < required)
+        {
+            throw new NinePProtocolException("Insufficient funds.");
+        }
+
+        ulong change = selectedTotal - required;
+        const ulong minChangeLovelace = 1_000_000;
+        if (change > 0 && change < minChangeLovelace)
+        {
+            feeLovelace = checked(feeLovelace + change);
+            change = 0;
+        }
+
+        var bodyBuilder = TransactionBodyBuilder.Create;
+        foreach (var input in selected)
+        {
+            bodyBuilder = bodyBuilder.AddInput(input.TxHash, input.TxIndex);
+        }
+
+        bodyBuilder = bodyBuilder
+            .AddOutput(destination, amountLovelace, null!, null!, null!, OutputPurpose.Spend)
+            .SetFee(feeLovelace)
+            .SetNetworkId(ResolveNetworkType() == NetworkType.Mainnet ? 1u : 0u);
+
+        if (change > 0)
+        {
+            bodyBuilder = bodyBuilder.AddOutput(sender, change, null!, null!, null!, OutputPurpose.Change);
+        }
+
+        var ttl = await TryGetLatestBlockSlotAsync();
+        if (ttl.HasValue)
+        {
+            bodyBuilder = bodyBuilder.SetTtl(checked(ttl.Value + 1_000u));
+        }
+
+        var witnessBuilder = TransactionWitnessSetBuilder.Create
+            .AddVKeyWitness(paymentPublicKey, paymentPrivateKey);
+
+        var transaction = TransactionBuilder.Create
+            .SetBody(bodyBuilder)
+            .SetWitnesses(witnessBuilder)
+            .Build();
+
+        var txBytes = transaction.Serialize();
+        return await SubmitSignedTransactionBytesAsync(txBytes);
+    }
+
+    private async Task<string> SubmitSignedTransactionBytesAsync(byte[] txBytes)
+    {
         if (txBytes.Length == 0)
         {
             throw new NinePProtocolException("Signed transaction payload is empty.");
@@ -449,6 +577,162 @@ public class CardanoFileSystem : INinePFileSystem
         }
 
         return txHash;
+    }
+
+    private async Task<List<CardanoUtxo>> FetchAddressUtxosAsync(string address)
+    {
+        using var req = BuildBlockfrostRequest($"addresses/{Uri.EscapeDataString(address)}/utxos?count=100&page=1&order=asc");
+        using var resp = await _httpClient.SendAsync(req);
+        if (!resp.IsSuccessStatusCode)
+        {
+            throw new NinePProtocolException($"Failed to fetch Cardano UTXOs: HTTP {(int)resp.StatusCode}");
+        }
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        if (doc.RootElement.ValueKind != JsonValueKind.Array)
+        {
+            throw new NinePProtocolException("Cardano UTXO response was invalid.");
+        }
+
+        var utxos = new List<CardanoUtxo>();
+        foreach (var entry in doc.RootElement.EnumerateArray())
+        {
+            if (!entry.TryGetProperty("tx_hash", out var txHashValue))
+            {
+                continue;
+            }
+
+            var txHash = txHashValue.GetString();
+            if (string.IsNullOrWhiteSpace(txHash))
+            {
+                continue;
+            }
+
+            uint txIndex = 0;
+            if (entry.TryGetProperty("tx_index", out var txIndexValue))
+            {
+                txIndex = ParseUInt(txIndexValue);
+            }
+            else if (entry.TryGetProperty("output_index", out var outputIndexValue))
+            {
+                txIndex = ParseUInt(outputIndexValue);
+            }
+
+            ulong lovelace = 0;
+            if (entry.TryGetProperty("amount", out var amountValue) && amountValue.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var amountEntry in amountValue.EnumerateArray())
+                {
+                    var unit = amountEntry.TryGetProperty("unit", out var unitValue) ? unitValue.GetString() : null;
+                    if (!string.Equals(unit, "lovelace", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    var qtyText = amountEntry.TryGetProperty("quantity", out var qtyValue) ? qtyValue.GetString() : null;
+                    if (ulong.TryParse(qtyText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var qty))
+                    {
+                        lovelace = qty;
+                    }
+
+                    break;
+                }
+            }
+
+            if (lovelace > 0)
+            {
+                utxos.Add(new CardanoUtxo(txHash, txIndex, lovelace));
+            }
+        }
+
+        return utxos;
+    }
+
+    private async Task<uint?> TryGetLatestBlockSlotAsync()
+    {
+        if (!HasLiveApi)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var req = BuildBlockfrostRequest("blocks/latest");
+            using var resp = await _httpClient.SendAsync(req);
+            if (!resp.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            if (doc.RootElement.TryGetProperty("slot", out var slotValue))
+            {
+                return ParseUInt(slotValue);
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static ulong ToLovelace(decimal amountAda)
+    {
+        if (amountAda <= 0)
+        {
+            throw new NinePProtocolException("Transfer amount must be positive.");
+        }
+
+        decimal lovelace = amountAda * LovelacePerAda;
+        if (lovelace > ulong.MaxValue)
+        {
+            throw new NinePProtocolException("Transfer amount is too large.");
+        }
+
+        return decimal.ToUInt64(decimal.Round(lovelace, 0, MidpointRounding.ToZero));
+    }
+
+    private static uint ParseUInt(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.Number when element.TryGetUInt32(out var value) => value,
+            JsonValueKind.String when uint.TryParse(element.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) => value,
+            _ => 0
+        };
+    }
+
+    private bool TryDerivePaymentKeys(ReadOnlySpan<byte> mnemonicBytes, out PublicKey paymentPublicKey, out PrivateKey paymentPrivateKey)
+    {
+        paymentPublicKey = null!;
+        paymentPrivateKey = null!;
+
+        try
+        {
+            var mnemonicWords = Encoding.UTF8.GetString(mnemonicBytes).Trim();
+            if (string.IsNullOrWhiteSpace(mnemonicWords))
+            {
+                return false;
+            }
+
+            var mnemonic = new MnemonicService().Restore(mnemonicWords, WordLists.English);
+            var payment = mnemonic.GetMasterNode()
+                .Derive(PurposeType.Shelley)
+                .Derive(CoinType.Ada)
+                .Derive(0)
+                .Derive(RoleType.ExternalChain)
+                .Derive(0);
+
+            paymentPublicKey = payment.PublicKey;
+            paymentPrivateKey = payment.PrivateKey;
+            return paymentPublicKey != null && paymentPrivateKey != null;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public async Task<Rclunk> ClunkAsync(Tclunk tclunk) => new Rclunk(tclunk.Tag);
@@ -516,6 +800,8 @@ public class CardanoFileSystem : INinePFileSystem
             return null;
         }
     }
+
+    private readonly record struct CardanoUtxo(string TxHash, uint TxIndex, ulong Lovelace);
 
     private async Task<string?> TryGetLiveTransactionsAsync()
     {

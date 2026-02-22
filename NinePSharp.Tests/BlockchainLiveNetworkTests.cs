@@ -153,4 +153,86 @@ public class BlockchainLiveNetworkTests
 
         Assert.False(string.IsNullOrWhiteSpace(hash));
     }
+
+    [Fact]
+    [Trait("Category", "Live")]
+    public async Task Cardano_Blockfrost_AddressUtxos_When_Configured()
+    {
+        if (!IsLiveEnabled()) return;
+
+        var projectId = Environment.GetEnvironmentVariable("NINEPSHARP_CARDANO_BLOCKFROST_PROJECT_ID");
+        var address = Environment.GetEnvironmentVariable("NINEPSHARP_CARDANO_ADDRESS");
+        if (string.IsNullOrWhiteSpace(projectId) || string.IsNullOrWhiteSpace(address))
+        {
+            return;
+        }
+
+        var apiUrl = Environment.GetEnvironmentVariable("NINEPSHARP_CARDANO_BLOCKFROST_URL")
+                     ?? "https://cardano-preprod.blockfrost.io/api/v0";
+        var endpoint = $"{apiUrl.TrimEnd('/')}/addresses/{Uri.EscapeDataString(address)}/utxos?count=1&page=1&order=desc";
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, endpoint);
+        req.Headers.Add("project_id", projectId);
+
+        using var resp = await Http.SendAsync(req);
+        resp.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        Assert.Equal(JsonValueKind.Array, doc.RootElement.ValueKind);
+    }
+
+    [Fact]
+    [Trait("Category", "Live")]
+    public async Task Solana_GetBalance_When_Address_Configured()
+    {
+        if (!IsLiveEnabled()) return;
+
+        var address = Environment.GetEnvironmentVariable("NINEPSHARP_SOL_ADDRESS");
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            return;
+        }
+
+        var url = Environment.GetEnvironmentVariable("NINEPSHARP_SOL_RPC_URL")
+                  ?? "https://api.devnet.solana.com";
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(
+                $$"""{"jsonrpc":"2.0","id":1,"method":"getBalance","params":["{{address}}"]}""",
+                Encoding.UTF8,
+                "application/json")
+        };
+
+        using var resp = await Http.SendAsync(req);
+        resp.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var value = doc.RootElement.GetProperty("result").GetProperty("value").GetInt64();
+        Assert.True(value >= 0);
+    }
+
+    [Fact]
+    [Trait("Category", "Live")]
+    public async Task Stellar_Account_When_Address_Configured()
+    {
+        if (!IsLiveEnabled()) return;
+
+        var address = Environment.GetEnvironmentVariable("NINEPSHARP_STELLAR_ADDRESS");
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            return;
+        }
+
+        var horizon = Environment.GetEnvironmentVariable("NINEPSHARP_STELLAR_HORIZON_URL")
+                      ?? "https://horizon-testnet.stellar.org";
+        var endpoint = $"{horizon.TrimEnd('/')}/accounts/{Uri.EscapeDataString(address)}";
+
+        using var resp = await Http.GetAsync(endpoint);
+        resp.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var accountId = doc.RootElement.GetProperty("account_id").GetString();
+        Assert.Equal(address, accountId);
+    }
 }

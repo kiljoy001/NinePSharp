@@ -7,7 +7,10 @@ using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using Solnet.Programs;
 using Solnet.Rpc;
+using Solnet.Rpc.Models;
+using Solnet.Rpc.Types;
 using Solnet.Wallet;
 using Solnet.Wallet.Bip39;
 using NinePSharp.Messages;
@@ -142,7 +145,8 @@ public class SolanaFileSystem : INinePFileSystem
             }
             else if (last == "balance")
             {
-                result = $"{_mockBalanceSol.ToString("0.000000", CultureInfo.InvariantCulture)} SOL (Mock)\n";
+                result = await TryGetLiveBalanceTextAsync()
+                    ?? $"{_mockBalanceSol.ToString("0.000000", CultureInfo.InvariantCulture)} SOL (Mock)\n";
             }
             else if (last == "address")
             {
@@ -156,7 +160,7 @@ public class SolanaFileSystem : INinePFileSystem
             }
             else if (last == "status")
             {
-                result = $"RPC: {_config.RpcUrl}\nAddress: {_unlockedAddress ?? "None"}\nTrackedTx: {_mockTransactions.Count}\n";
+                result = $"RPC: {_config.RpcUrl}\nAddress: {_unlockedAddress ?? "None"}\nTrackedTx: {_mockTransactions.Count}\nMode: {(_rpcClient != null ? "Live" : "Mock")}\n";
             }
             allData = Encoding.UTF8.GetBytes(result);
         }
@@ -188,10 +192,10 @@ public class SolanaFileSystem : INinePFileSystem
 
                 var wallet = new Wallet(new Mnemonic(WordList.English, WordCount.Twelve));
                 var account = wallet.GetAccount(0);
-                byte[] pk = Encoding.UTF8.GetBytes(account.PrivateKey.Key);
+                byte[] keyMaterial = Encoding.UTF8.GetBytes(SerializeKeyMaterial(account.PrivateKey.Key, account.PublicKey.Key));
                 
                 try {
-                    var ciphertext = _vault.Encrypt(pk, password);
+                    var ciphertext = _vault.Encrypt(keyMaterial, password);
                     byte[] idSalt = Encoding.UTF8.GetBytes("Solana_Vault_ID_Salt_v1");
                     var seed = _vault.DeriveSeed(password, idSalt);
                     var hiddenId = _vault.GenerateHiddenId(seed);
@@ -199,32 +203,33 @@ public class SolanaFileSystem : INinePFileSystem
                     File.WriteAllBytes(_vault.GetVaultPath($"sol_vault_{hiddenId}.vlt"), ciphertext);
                 }
                 finally {
-                    Array.Clear(pk);
+                    Array.Clear(keyMaterial);
                 }
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
             else if (_currentPath[1] == "import")
             {
-                // Format: password:base58PrivKey
+                // Format: password:base58PrivKey[:base58PublicKey]
                 var bytes = twrite.Data.Span;
                 char[] chars = GC.AllocateArray<char>(Encoding.UTF8.GetCharCount(bytes), pinned: true);
                 try {
                     Encoding.UTF8.GetChars(bytes, chars);
                     string fullStr = new string(chars).Trim();
-                    var parts = fullStr.Split(':', 2);
-                    if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0])) 
-                        throw new NinePProtocolException("Invalid format or missing password. Use 'password:base58PrivKey'");
+                    var parts = fullStr.Split(':', 3);
+                    if (parts.Length < 2 || string.IsNullOrWhiteSpace(parts[0])) 
+                        throw new NinePProtocolException("Invalid format or missing password. Use 'password:base58PrivKey[:base58PublicKey]'");
 
                     using var password = new SecureString();
                     foreach (char c in parts[0]) password.AppendChar(c);
                     password.MakeReadOnly();
 
                     var privKeyBase58 = parts[1];
+                    var pubKeyBase58 = parts.Length == 3 ? parts[2] : string.Empty;
                     try { 
-                        var account = new Account(privKeyBase58, ""); 
-                        byte[] pk = Encoding.UTF8.GetBytes(account.PrivateKey.Key);
+                        _ = new Account(privKeyBase58, pubKeyBase58);
+                        byte[] keyMaterial = Encoding.UTF8.GetBytes(SerializeKeyMaterial(privKeyBase58, pubKeyBase58));
                         try {
-                            var ciphertext = _vault.Encrypt(pk, password);
+                            var ciphertext = _vault.Encrypt(keyMaterial, password);
                             byte[] idSalt = Encoding.UTF8.GetBytes("Solana_Vault_ID_Salt_v1");
                             var seed = _vault.DeriveSeed(password, idSalt);
                             var hiddenId = _vault.GenerateHiddenId(seed);
@@ -232,7 +237,7 @@ public class SolanaFileSystem : INinePFileSystem
                             File.WriteAllBytes(_vault.GetVaultPath($"sol_vault_{hiddenId}.vlt"), ciphertext);
                         }
                         finally {
-                            Array.Clear(pk);
+                            Array.Clear(keyMaterial);
                         }
                         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                     } catch { throw new NinePProtocolException("Invalid Solana private key."); }
@@ -269,13 +274,17 @@ public class SolanaFileSystem : INinePFileSystem
                     if (privKey != null)
                     {
                         try {
-                            if (_unlockedPrivateKey != null) Array.Clear(_unlockedPrivateKey);
-                            _unlockedPrivateKey = GC.AllocateArray<byte>(privKey.Length, pinned: true);
-                            privKey.CopyTo(_unlockedPrivateKey, 0);
+                            var keyMaterialText = Encoding.UTF8.GetString(privKey);
+                            var (privateKeyText, storedPublicKeyText) = ParseKeyMaterial(keyMaterialText);
 
-                            var privateKeyText = Encoding.UTF8.GetString(privKey);
-                            var account = new Account(privateKeyText, string.Empty);
-                            var address = account.PublicKey.ToString();
+                            byte[] privateKeyBytes = Encoding.UTF8.GetBytes(privateKeyText);
+                            if (_unlockedPrivateKey != null) Array.Clear(_unlockedPrivateKey);
+                            _unlockedPrivateKey = GC.AllocateArray<byte>(privateKeyBytes.Length, pinned: true);
+                            privateKeyBytes.CopyTo(_unlockedPrivateKey, 0);
+                            Array.Clear(privateKeyBytes);
+
+                            var account = new Account(privateKeyText, storedPublicKeyText ?? string.Empty);
+                            var address = account.PublicKey.Key;
                             if (string.IsNullOrWhiteSpace(address))
                             {
                                 var digest = SHA256.HashData(privKey);
@@ -306,6 +315,16 @@ public class SolanaFileSystem : INinePFileSystem
             }
 
             var transfer = ParseTransferCommand(twrite.Data, "address:amount");
+            if (_rpcClient != null)
+            {
+                var signature = await SendLiveTransferAsync(transfer.To, transfer.Amount);
+                _mockTxCounter++;
+                _mockTransactions.Insert(
+                    0,
+                    $"{signature} to={transfer.To} amount={transfer.Amount.ToString("0.######", CultureInfo.InvariantCulture)} status=submitted");
+                return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+            }
+
             if (_mockBalanceSol < transfer.Amount)
             {
                 throw new NinePProtocolException("Insufficient funds.");
@@ -337,6 +356,113 @@ public class SolanaFileSystem : INinePFileSystem
         }
 
         return (parts[0], amount);
+    }
+
+    private async Task<string?> TryGetLiveBalanceTextAsync()
+    {
+        if (_rpcClient == null || string.IsNullOrWhiteSpace(_unlockedAddress))
+        {
+            return null;
+        }
+
+        try
+        {
+            var balance = await _rpcClient.GetBalanceAsync(_unlockedAddress, Commitment.Finalized);
+            if (!balance.WasSuccessful || balance.Result == null)
+            {
+                return null;
+            }
+
+            decimal sol = balance.Result.Value / 1_000_000_000m;
+            return $"{sol.ToString("0.000000", CultureInfo.InvariantCulture)} SOL (Live)\n";
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<string> SendLiveTransferAsync(string destination, decimal amountSol)
+    {
+        if (_rpcClient == null || _unlockedPrivateKey == null)
+        {
+            throw new NinePProtocolException("Solana RPC client is not configured.");
+        }
+
+        string privateKeyText = Encoding.UTF8.GetString(_unlockedPrivateKey);
+        ulong lamports = ToLamports(amountSol);
+
+        try
+        {
+            var sender = new Account(privateKeyText, _unlockedAddress ?? string.Empty);
+            var latest = await _rpcClient.GetLatestBlockHashAsync(Commitment.Finalized);
+            if (!latest.WasSuccessful || latest.Result?.Value?.Blockhash == null)
+            {
+                throw new NinePProtocolException($"Failed to fetch latest block hash: {latest.Reason}");
+            }
+
+            var tx = new Transaction
+            {
+                FeePayer = sender.PublicKey,
+                RecentBlockHash = latest.Result.Value.Blockhash
+            };
+
+            tx.Add(SystemProgram.Transfer(sender.PublicKey, new PublicKey(destination), lamports));
+            byte[] signed = tx.Build(sender);
+
+            var submitted = await _rpcClient.SendTransactionAsync(signed, false, Commitment.Confirmed);
+            if (!submitted.WasSuccessful || string.IsNullOrWhiteSpace(submitted.Result))
+            {
+                throw new NinePProtocolException($"Solana transfer failed: {submitted.Reason}");
+            }
+
+            return submitted.Result;
+        }
+        catch (NinePProtocolException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new NinePProtocolException($"Solana transfer failed: {ex.Message}");
+        }
+    }
+
+    private static ulong ToLamports(decimal amountSol)
+    {
+        if (amountSol <= 0)
+        {
+            throw new NinePProtocolException("Transfer amount must be positive.");
+        }
+
+        decimal lamports = amountSol * 1_000_000_000m;
+        if (lamports > ulong.MaxValue)
+        {
+            throw new NinePProtocolException("Transfer amount is too large.");
+        }
+
+        return decimal.ToUInt64(decimal.Round(lamports, 0, MidpointRounding.ToZero));
+    }
+
+    private static string SerializeKeyMaterial(string privateKey, string? publicKey)
+    {
+        if (string.IsNullOrWhiteSpace(publicKey))
+        {
+            return privateKey;
+        }
+
+        return $"{privateKey}:{publicKey}";
+    }
+
+    private static (string PrivateKey, string? PublicKey) ParseKeyMaterial(string keyMaterial)
+    {
+        var parts = keyMaterial.Split(':', 2, StringSplitOptions.TrimEntries);
+        if (parts.Length == 2 && !string.IsNullOrWhiteSpace(parts[1]))
+        {
+            return (parts[0], parts[1]);
+        }
+
+        return (keyMaterial, null);
     }
 
     public async Task<Rclunk> ClunkAsync(Tclunk tclunk) => new Rclunk(tclunk.Tag);

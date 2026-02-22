@@ -24,5 +24,6 @@ Configuration keys:
 - `BlockfrostProjectId`: required for live mode
 - `BlockfrostApiUrl`: optional override (defaults from `Network`)
 
-When live mode is enabled, `/cardano/send` accepts signed transaction CBOR:
-- `cbor:<hex>` (or raw even-length hex)
+When live mode is enabled, `/cardano/send` accepts:
+- `address:amount` (auto-build/sign/submit using unlocked mnemonic)
+- `cbor:<hex>` (or raw even-length hex) for pre-signed transactions

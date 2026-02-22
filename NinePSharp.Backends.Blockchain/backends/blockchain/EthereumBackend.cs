@@ -28,7 +28,7 @@ public class EthereumBackend : IProtocolBackend
     public Task InitializeAsync(IConfiguration configuration)
     {
         try {
-            _config = configuration.Get<EthereumBackendConfig>();
+            _config = configuration.GetSection("Server:Ethereum").Get<EthereumBackendConfig>();
             if (_config != null && !string.IsNullOrEmpty(_config.RpcUrl))
             {
                 _web3 = new Web3(_config.RpcUrl);

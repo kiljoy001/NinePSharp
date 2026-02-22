@@ -8,6 +8,9 @@ using System.Text;
 using System.Threading.Tasks;
 using StellarDotnetSdk;
 using StellarDotnetSdk.Accounts;
+using StellarDotnetSdk.Assets;
+using StellarDotnetSdk.Operations;
+using StellarDotnetSdk.Transactions;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
 using NinePSharp.Constants;
@@ -136,7 +139,8 @@ public class StellarFileSystem : INinePFileSystem
                     result = _unlockedAddress != null ? $"Unlocked: {_unlockedAddress}\n" : "Locked\n";
                     break;
                 case "balance":
-                    result = $"{_mockBalanceXlm.ToString("0.000000", CultureInfo.InvariantCulture)} XLM (Mock)\n";
+                    result = await TryGetLiveBalanceTextAsync()
+                        ?? $"{_mockBalanceXlm.ToString("0.000000", CultureInfo.InvariantCulture)} XLM (Mock)\n";
                     break;
                 case "address":
                     result = _unlockedAddress ?? "No wallet unlocked.\n";
@@ -147,7 +151,7 @@ public class StellarFileSystem : INinePFileSystem
                         : string.Join('\n', _mockTransactions) + '\n';
                     break;
                 case "status":
-                    result = $"Horizon: {_config.HorizonUrl}\nAddress: {_unlockedAddress ?? "None"}\nTrackedTx: {_mockTransactions.Count}\n";
+                    result = $"Horizon: {_config.HorizonUrl}\nAddress: {_unlockedAddress ?? "None"}\nTrackedTx: {_mockTransactions.Count}\nMode: {(_server != null ? "Live" : "Mock")}\n";
                     break;
                 case "network":
                     result = _config.UsePublicNetwork ? "Public\n" : "TestNet\n";
@@ -288,6 +292,16 @@ public class StellarFileSystem : INinePFileSystem
             }
 
             var transfer = ParseTransferCommand(twrite.Data, "address:amount");
+            if (_server != null)
+            {
+                var txHash = await SendLiveTransferAsync(transfer.To, transfer.Amount);
+                _mockTxCounter++;
+                _mockTransactions.Insert(
+                    0,
+                    $"{txHash} to={transfer.To} amount={transfer.Amount.ToString("0.######", CultureInfo.InvariantCulture)} status=submitted");
+                return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+            }
+
             if (_mockBalanceXlm < transfer.Amount)
             {
                 throw new NinePProtocolException("Insufficient funds.");
@@ -319,6 +333,79 @@ public class StellarFileSystem : INinePFileSystem
         }
 
         return (parts[0], amount);
+    }
+
+    private async Task<string?> TryGetLiveBalanceTextAsync()
+    {
+        if (_server == null || string.IsNullOrWhiteSpace(_unlockedAddress))
+        {
+            return null;
+        }
+
+        try
+        {
+            var account = await _server.Accounts.Account(_unlockedAddress);
+            var native = account.Balances?.FirstOrDefault(b => string.Equals(b.AssetType, "native", StringComparison.OrdinalIgnoreCase));
+            if (native == null || !decimal.TryParse(native.BalanceString, NumberStyles.Number, CultureInfo.InvariantCulture, out var xlm))
+            {
+                return null;
+            }
+
+            return $"{xlm.ToString("0.000000", CultureInfo.InvariantCulture)} XLM (Live)\n";
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<string> SendLiveTransferAsync(string destination, decimal amountXlm)
+    {
+        if (_server == null || _unlockedPrivateKey == null)
+        {
+            throw new NinePProtocolException("Stellar server is not configured.");
+        }
+
+        if (amountXlm <= 0)
+        {
+            throw new NinePProtocolException("Transfer amount must be positive.");
+        }
+
+        try
+        {
+            var sourceSeed = Encoding.UTF8.GetString(_unlockedPrivateKey);
+            var source = KeyPair.FromSecretSeed(sourceSeed);
+            var sourceAccount = await _server.Accounts.Account(source.AccountId);
+            var destinationAccount = KeyPair.FromAccountId(destination);
+            var network = _config.UsePublicNetwork ? Network.Public() : Network.Test();
+
+            var tx = new TransactionBuilder(sourceAccount)
+                .SetFee(100)
+                .AddTimeBounds(new TimeBounds(TimeSpan.FromMinutes(5)))
+                .AddOperation(new PaymentOperation(
+                    destinationAccount,
+                    Asset.Create("native", null, null),
+                    amountXlm.ToString("0.######", CultureInfo.InvariantCulture),
+                    null!))
+                .Build();
+
+            tx.Sign(source, network);
+            var submitted = await _server.SubmitTransaction(tx);
+            if (submitted == null || !submitted.IsSuccess || string.IsNullOrWhiteSpace(submitted.Hash))
+            {
+                throw new NinePProtocolException("Stellar transfer failed.");
+            }
+
+            return submitted.Hash!;
+        }
+        catch (NinePProtocolException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new NinePProtocolException($"Stellar transfer failed: {ex.Message}");
+        }
     }
 
     public async Task<Rclunk> ClunkAsync(Tclunk tclunk) => new Rclunk(tclunk.Tag);
