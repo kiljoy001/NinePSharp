@@ -15,3 +15,4 @@ NinePSharp provides a modular 9P toolkit for .NET.
 ## Notes
 - Packages are intentionally split to keep dependency footprints minimal.
 - Runtime server wiring is provided by `NinePSharp.Server` in this repository.
+- See `THIRD_PARTY_NOTICES.md` for upstream attribution and license obligations.
