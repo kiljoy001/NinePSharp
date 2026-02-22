@@ -15,3 +15,14 @@ dotnet add package NinePSharp.Backends.Blockchain
 ```
 
 Use for filesystem-style interaction patterns over supported blockchain networks.
+
+## Cardano live mode
+Cardano can run in mock mode by default, or in live read mode through Blockfrost.
+
+Configuration keys:
+- `Network`: `Mainnet`, `Preprod`, `Preview`, or `Testnet`
+- `BlockfrostProjectId`: required for live mode
+- `BlockfrostApiUrl`: optional override (defaults from `Network`)
+
+When live mode is enabled, `/cardano/send` accepts signed transaction CBOR:
+- `cbor:<hex>` (or raw even-length hex)

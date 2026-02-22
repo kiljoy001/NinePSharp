@@ -92,7 +92,8 @@ public class BlockchainSecurityTests
         var response = await fs.ReadAsync(new Tread(1, 2, 0, 100));
 
         string content = Encoding.UTF8.GetString(response.Data.ToArray());
-        Assert.Contains("Offline", content);
+        Assert.Contains("BTC", content);
+        Assert.Contains("Mock", content);
     }
 
     #region Property Tests

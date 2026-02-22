@@ -12,6 +12,7 @@ using NinePSharp.Server.Backends.gRPC;
 using NinePSharp.Server.Backends.SOAP;
 using NinePSharp.Server.Backends.Websockets;
 using NinePSharp.Server.Configuration.Models;
+using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
 using NinePSharp.Messages;
 using Moq;
@@ -46,6 +47,10 @@ namespace NinePSharp.Fuzzer
             else if (args.Length > 0 && args[0] == "ws")
             {
                 FuzzWebsocket();
+            }
+            else if (args.Length > 0 && (args[0] == "blockchain" || args[0] == "chain"))
+            {
+                FuzzBlockchain();
             }
             else
             {
@@ -276,6 +281,54 @@ namespace NinePSharp.Fuzzer
                     }
                 }
                 catch (Exception) { }
+            });
+        }
+
+        private static void FuzzBlockchain()
+        {
+            var vault = new LuxVaultService();
+            var ethWeb3Mock = new Mock<Nethereum.Web3.IWeb3>();
+
+            INinePFileSystem NewBitcoin() => new BitcoinFileSystem(new BitcoinBackendConfig { Network = "Main" }, null, vault);
+            INinePFileSystem NewEthereum() => new EthereumFileSystem(new EthereumBackendConfig { RpcUrl = "http://localhost" }, ethWeb3Mock.Object, vault);
+            INinePFileSystem NewSolana() => new SolanaFileSystem(new SolanaBackendConfig(), null, vault);
+            INinePFileSystem NewStellar() => new StellarFileSystem(new StellarBackendConfig(), null, vault);
+            INinePFileSystem NewCardano() => new CardanoFileSystem(new CardanoBackendConfig(), vault);
+
+            var factories = new Func<INinePFileSystem>[]
+            {
+                NewBitcoin,
+                NewEthereum,
+                NewSolana,
+                NewStellar,
+                NewCardano
+            };
+
+            SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
+            {
+                try
+                {
+                    using var ms = new MemoryStream();
+                    stream.CopyTo(ms);
+                    var data = ms.ToArray();
+                    var text = System.Text.Encoding.UTF8.GetString(data);
+
+                    var fs = factories[(data.Length == 0 ? 0 : data[0]) % factories.Length]();
+                    var pathParts = text.Split(new[] { '/', '\n', '\r', '\t', ' ', ':' }, StringSplitOptions.RemoveEmptyEntries);
+
+                    fs.WalkAsync(new Twalk(1, 0, 1, pathParts)).Wait();
+                    fs.OpenAsync(new Topen(1, 1, 0)).Wait();
+                    fs.WriteAsync(new Twrite(1, 1, 0, data)).Wait();
+                    fs.ReadAsync(new Tread(1, 1, 0, 8192)).Wait();
+                    fs.StatAsync(new Tstat(1, 1)).Wait();
+
+                    var clone = fs.Clone();
+                    clone.StatAsync(new Tstat(1, 1)).Wait();
+                }
+                catch (Exception)
+                {
+                    // Fuzzing expects protocol/parser exceptions; crash-only signal is handled by SharpFuzz.
+                }
             });
         }
     }

@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using Solnet.Rpc;
@@ -26,6 +28,9 @@ public class SolanaFileSystem : INinePFileSystem
     
     private byte[]? _unlockedPrivateKey;
     private string? _unlockedAddress;
+    private decimal _mockBalanceSol = 25.000000m;
+    private List<string> _mockTransactions = new();
+    private long _mockTxCounter;
 
     public bool DotU { get; set; }
 
@@ -60,7 +65,7 @@ public class SolanaFileSystem : INinePFileSystem
 
         foreach (var name in twalk.Wname)
         {
-            if (!IsDirectory(tempPath))
+            if (!IsDirectory(tempPath) && name != "..")
             {
                 if (qids.Count == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>());
                 break;
@@ -100,6 +105,9 @@ public class SolanaFileSystem : INinePFileSystem
             {
                 files.Add(("wallets", QidType.QTDIR));
                 files.Add(("balance", QidType.QTFILE));
+                files.Add(("address", QidType.QTFILE));
+                files.Add(("send", QidType.QTFILE));
+                files.Add(("transactions", QidType.QTFILE));
                 files.Add(("status", QidType.QTFILE));
             }
             else if (_currentPath[0] == "wallets")
@@ -134,11 +142,21 @@ public class SolanaFileSystem : INinePFileSystem
             }
             else if (last == "balance")
             {
-                result = "0.0 SOL (Mock)\n";
+                result = $"{_mockBalanceSol.ToString("0.000000", CultureInfo.InvariantCulture)} SOL (Mock)\n";
+            }
+            else if (last == "address")
+            {
+                result = _unlockedAddress ?? "No wallet unlocked.\n";
+            }
+            else if (last == "transactions")
+            {
+                result = _mockTransactions.Count == 0
+                    ? "No recent transactions.\n"
+                    : string.Join('\n', _mockTransactions) + '\n';
             }
             else if (last == "status")
             {
-                result = $"RPC: {_config.RpcUrl}\nAddress: {_unlockedAddress ?? "None"}\n";
+                result = $"RPC: {_config.RpcUrl}\nAddress: {_unlockedAddress ?? "None"}\nTrackedTx: {_mockTransactions.Count}\n";
             }
             allData = Encoding.UTF8.GetBytes(result);
         }
@@ -254,10 +272,22 @@ public class SolanaFileSystem : INinePFileSystem
                             if (_unlockedPrivateKey != null) Array.Clear(_unlockedPrivateKey);
                             _unlockedPrivateKey = GC.AllocateArray<byte>(privKey.Length, pinned: true);
                             privKey.CopyTo(_unlockedPrivateKey, 0);
-                            
-                            var account = new Account(privKey, Array.Empty<byte>());
-                            _unlockedAddress = account.PublicKey;
+
+                            var privateKeyText = Encoding.UTF8.GetString(privKey);
+                            var account = new Account(privateKeyText, string.Empty);
+                            var address = account.PublicKey.ToString();
+                            if (string.IsNullOrWhiteSpace(address))
+                            {
+                                var digest = SHA256.HashData(privKey);
+                                address = $"sol_mock_{Convert.ToHexString(digest.AsSpan(0, 6)).ToLowerInvariant()}";
+                            }
+
+                            _unlockedAddress = address;
                             return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                        }
+                        catch (Exception)
+                        {
+                            throw new NinePProtocolException("Wallet not found or invalid password.");
                         }
                         finally {
                             Array.Clear(privKey);
@@ -267,8 +297,46 @@ public class SolanaFileSystem : INinePFileSystem
                 throw new NinePProtocolException("Wallet not found or invalid password.");
             }
         }
+
+        if (_currentPath.Count == 1 && _currentPath[0] == "send")
+        {
+            if (_unlockedPrivateKey == null)
+            {
+                throw new InvalidOperationException("Wallet not unlocked. Write password to /wallets/unlock first.");
+            }
+
+            var transfer = ParseTransferCommand(twrite.Data, "address:amount");
+            if (_mockBalanceSol < transfer.Amount)
+            {
+                throw new NinePProtocolException("Insufficient funds.");
+            }
+
+            _mockBalanceSol -= transfer.Amount;
+            _mockTxCounter++;
+            _mockTransactions.Insert(
+                0,
+                $"sol-mock-{_mockTxCounter:D6} to={transfer.To} amount={transfer.Amount.ToString("0.######", CultureInfo.InvariantCulture)} status=confirmed");
+            return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+        }
         
         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+    }
+
+    private static (string To, decimal Amount) ParseTransferCommand(ReadOnlyMemory<byte> payload, string expectedFormat)
+    {
+        var command = Encoding.UTF8.GetString(payload.Span).Trim();
+        var parts = command.Split(':', 2, StringSplitOptions.TrimEntries);
+        if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]))
+        {
+            throw new NinePProtocolException($"Invalid format. Use '{expectedFormat}'");
+        }
+
+        if (!decimal.TryParse(parts[1], NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) || amount <= 0)
+        {
+            throw new NinePProtocolException($"Invalid format. Use '{expectedFormat}'");
+        }
+
+        return (parts[0], amount);
     }
 
     public async Task<Rclunk> ClunkAsync(Tclunk tclunk) => new Rclunk(tclunk.Tag);
@@ -298,6 +366,9 @@ public class SolanaFileSystem : INinePFileSystem
             _unlockedPrivateKey.CopyTo(clone._unlockedPrivateKey, 0);
         }
         clone._unlockedAddress = _unlockedAddress;
+        clone._mockBalanceSol = _mockBalanceSol;
+        clone._mockTransactions = new List<string>(_mockTransactions);
+        clone._mockTxCounter = _mockTxCounter;
         return clone;
     }
 }

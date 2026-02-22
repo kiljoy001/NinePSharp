@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security;
@@ -25,6 +26,9 @@ public class BitcoinFileSystem : INinePFileSystem
     
     private byte[]? _unlockedPrivateKey;
     private string? _unlockedAddress;
+    private decimal _mockBalanceBtc = 1.00000000m;
+    private List<string> _mockTransactions = new();
+    private long _mockTxCounter;
 
     public bool DotU { get; set; }
 
@@ -39,7 +43,6 @@ public class BitcoinFileSystem : INinePFileSystem
     {
         if (path.Count == 0) return true;
         if (path[0] == "wallets" && path.Count == 1) return true;
-        if (path[0] == "transactions" && path.Count == 1) return true;
         return false;
     }
 
@@ -96,7 +99,7 @@ public class BitcoinFileSystem : INinePFileSystem
                 files.Add(("balance", QidType.QTFILE));
                 files.Add(("address", QidType.QTFILE));
                 files.Add(("send", QidType.QTFILE));
-                files.Add(("transactions", QidType.QTDIR));
+                files.Add(("transactions", QidType.QTFILE));
                 files.Add(("status", QidType.QTFILE));
             }
             else if (_currentPath[0] == "wallets")
@@ -104,10 +107,6 @@ public class BitcoinFileSystem : INinePFileSystem
                 files.Add(("create", QidType.QTFILE));
                 files.Add(("import", QidType.QTFILE));
                 files.Add(("unlock", QidType.QTFILE));
-            }
-            else if (_currentPath[0] == "transactions")
-            {
-                // List dynamic transactions if available
             }
 
             foreach (var f in files)
@@ -140,16 +139,18 @@ public class BitcoinFileSystem : INinePFileSystem
                             result = bal.ToString() + " BTC\n";
                         } catch (Exception ex) { result = $"Error: {ex.Message}\n"; }
                     }
-                    else result = "0.00000000 BTC (Offline)\n";
+                    else result = $"{_mockBalanceBtc.ToString("0.00000000", CultureInfo.InvariantCulture)} BTC (Mock)\n";
                     break;
                 case "address":
                     result = _unlockedAddress ?? "No wallet unlocked.\n";
                     break;
                 case "status":
-                    result = $"Network: {GetNetwork()}\nRPC: {_config.RpcUrl ?? "N/A"}\n";
+                    result = $"Network: {GetNetwork()}\nRPC: {_config.RpcUrl ?? "N/A"}\nTrackedTx: {_mockTransactions.Count}\n";
                     break;
                 case "transactions":
-                    result = "No recent transactions.\n";
+                    result = _mockTransactions.Count == 0
+                        ? "No recent transactions.\n"
+                        : string.Join('\n', _mockTransactions) + '\n';
                     break;
             }
             allData = Encoding.UTF8.GetBytes(result);
@@ -281,10 +282,44 @@ public class BitcoinFileSystem : INinePFileSystem
 
         if (_currentPath.Count == 1 && _currentPath[0] == "send")
         {
+            if (_unlockedPrivateKey == null || string.IsNullOrEmpty(_unlockedAddress))
+            {
+                throw new InvalidOperationException("Wallet not unlocked. Write password to /wallets/unlock first.");
+            }
+
+            var transfer = ParseTransferCommand(twrite.Data, "address:amount");
+
+            if (_mockBalanceBtc < transfer.Amount)
+            {
+                throw new NinePProtocolException("Insufficient funds.");
+            }
+
+            _mockBalanceBtc -= transfer.Amount;
+            _mockTxCounter++;
+            _mockTransactions.Insert(
+                0,
+                $"btc-mock-{_mockTxCounter:D6} to={transfer.To} amount={transfer.Amount.ToString("0.########", CultureInfo.InvariantCulture)} status=confirmed");
             return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
         }
         
         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+    }
+
+    private static (string To, decimal Amount) ParseTransferCommand(ReadOnlyMemory<byte> payload, string expectedFormat)
+    {
+        var command = Encoding.UTF8.GetString(payload.Span).Trim();
+        var parts = command.Split(':', 2, StringSplitOptions.TrimEntries);
+        if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]))
+        {
+            throw new NinePProtocolException($"Invalid format. Use '{expectedFormat}'");
+        }
+
+        if (!decimal.TryParse(parts[1], NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) || amount <= 0)
+        {
+            throw new NinePProtocolException($"Invalid format. Use '{expectedFormat}'");
+        }
+
+        return (parts[0], amount);
     }
 
     private Network GetNetwork() => _config.Network.ToLower() switch
@@ -321,6 +356,9 @@ public class BitcoinFileSystem : INinePFileSystem
             _unlockedPrivateKey.CopyTo(clone._unlockedPrivateKey, 0);
         }
         clone._unlockedAddress = _unlockedAddress;
+        clone._mockBalanceBtc = _mockBalanceBtc;
+        clone._mockTransactions = new List<string>(_mockTransactions);
+        clone._mockTxCounter = _mockTxCounter;
         return clone;
     }
 }

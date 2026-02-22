@@ -1,7 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 using NinePSharp.Server.Backends;
@@ -110,6 +114,332 @@ public class BlockchainBackendTests
         Assert.Contains("status", content);
     }
 
+    [Fact]
+    public async Task BitcoinFileSystem_Mock_Send_Updates_Balance_And_Transactions()
+    {
+        var password = $"btc-test-{Guid.NewGuid():N}";
+        var fs = new BitcoinFileSystem(new BitcoinBackendConfig { MountPath = "/btc", Network = "Main" }, null, _vault);
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "wallets", "create" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "unlock" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "..", "balance" }));
+        var beforeBalance = ParseLeadingDecimal(Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray()));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "send" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes("mock-btc-address:0.25000000")));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "transactions" }));
+        var txLog = Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray());
+        Assert.Contains("btc-mock-", txLog);
+        Assert.Contains("amount=0.25", txLog);
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "balance" }));
+        var afterBalance = ParseLeadingDecimal(Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray()));
+        Assert.True(afterBalance < beforeBalance);
+    }
+
+    [Fact]
+    public async Task SolanaFileSystem_Mock_Send_Updates_Balance_And_Transactions()
+    {
+        var password = $"sol-test-{Guid.NewGuid():N}";
+        var fs = new SolanaFileSystem(new SolanaBackendConfig { MountPath = "/sol" }, null, _vault);
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "wallets", "create" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "unlock" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "..", "balance" }));
+        var beforeBalance = ParseLeadingDecimal(Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray()));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "send" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes("mock-sol-address:1.5")));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "transactions" }));
+        var txLog = Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray());
+        Assert.Contains("sol-mock-", txLog);
+        Assert.Contains("amount=1.5", txLog);
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "balance" }));
+        var afterBalance = ParseLeadingDecimal(Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray()));
+        Assert.True(afterBalance < beforeBalance);
+    }
+
+    [Fact]
+    public async Task StellarFileSystem_Mock_Send_Updates_Balance_And_Transactions()
+    {
+        var password = $"xlm-test-{Guid.NewGuid():N}";
+        var fs = new StellarFileSystem(new StellarBackendConfig { MountPath = "/stellar", HorizonUrl = "https://horizon.stellar.org" }, null, _vault);
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "wallets", "create" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "unlock" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "..", "balance" }));
+        var beforeBalance = ParseLeadingDecimal(Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray()));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "send" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes("mock-xlm-address:3.75")));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "transactions" }));
+        var txLog = Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray());
+        Assert.Contains("xlm-mock-", txLog);
+        Assert.Contains("amount=3.75", txLog);
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "balance" }));
+        var afterBalance = ParseLeadingDecimal(Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray()));
+        Assert.True(afterBalance < beforeBalance);
+    }
+
+    [Fact]
+    public async Task CardanoFileSystem_Mock_Send_Updates_Balance_And_Transactions()
+    {
+        var password = $"ada-test-{Guid.NewGuid():N}";
+        var fs = new CardanoFileSystem(new CardanoBackendConfig { MountPath = "/cardano" }, _vault);
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "wallets", "create" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "unlock" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "..", "balance" }));
+        var beforeBalance = ParseLeadingDecimal(Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray()));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "send" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes("mock-ada-address:5.0")));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "transactions" }));
+        var txLog = Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray());
+        Assert.Contains("ada-mock-", txLog);
+        Assert.Contains("amount=5", txLog);
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "balance" }));
+        var afterBalance = ParseLeadingDecimal(Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray()));
+        Assert.True(afterBalance < beforeBalance);
+    }
+
+    [Fact]
+    public async Task CardanoFileSystem_Unlock_Derives_Real_Address_Format()
+    {
+        var password = $"ada-derive-{Guid.NewGuid():N}";
+        var fs = new CardanoFileSystem(
+            new CardanoBackendConfig { MountPath = "/cardano", Network = "Preprod" },
+            _vault);
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "wallets", "create" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "unlock" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "..", "address" }));
+        var address = Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray()).Trim();
+
+        Assert.StartsWith("addr_test1", address, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CardanoFileSystem_Status_Uses_Blockfrost_When_Configured()
+    {
+        var handler = new TestHttpMessageHandler((request, _) =>
+        {
+            Assert.True(request.Headers.TryGetValues("project_id", out var values));
+            Assert.Contains("test-project", values);
+            Assert.EndsWith("/blocks/latest", request.RequestUri!.AbsolutePath, StringComparison.Ordinal);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"hash":"abc123"}""", Encoding.UTF8, "application/json")
+            });
+        });
+
+        using var httpClient = new HttpClient(handler);
+        var fs = new CardanoFileSystem(
+            new CardanoBackendConfig
+            {
+                MountPath = "/cardano",
+                Network = "Preprod",
+                BlockfrostProjectId = "test-project",
+                BlockfrostApiUrl = "https://cardano-preprod.blockfrost.io/api/v0"
+            },
+            _vault,
+            httpClient);
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "status" }));
+        var content = Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray());
+
+        Assert.Contains("Mode: Live (Blockfrost)", content);
+        Assert.Contains("LatestBlock: abc123", content);
+        Assert.Contains("API: https://cardano-preprod.blockfrost.io/api/v0", content);
+    }
+
+    [Fact]
+    public async Task CardanoFileSystem_Balance_Uses_Blockfrost_When_Unlocked()
+    {
+        var handler = new TestHttpMessageHandler((request, _) =>
+        {
+            Assert.True(request.Headers.TryGetValues("project_id", out var values));
+            Assert.Contains("test-project", values);
+            Assert.Contains("/addresses/", request.RequestUri!.AbsolutePath, StringComparison.Ordinal);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"amount":[{"unit":"lovelace","quantity":"123456789"},{"unit":"policy.asset","quantity":"2"}]}""",
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        });
+
+        using var httpClient = new HttpClient(handler);
+        var fs = new CardanoFileSystem(
+            new CardanoBackendConfig
+            {
+                MountPath = "/cardano",
+                Network = "Preprod",
+                BlockfrostProjectId = "test-project",
+                BlockfrostApiUrl = "https://cardano-preprod.blockfrost.io/api/v0"
+            },
+            _vault,
+            httpClient);
+
+        var password = $"ada-live-test-{Guid.NewGuid():N}";
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "wallets", "create" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "unlock" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "..", "balance" }));
+        var content = Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray());
+
+        Assert.Contains("123.456789 ADA (Live)", content);
+    }
+
+    [Fact]
+    public async Task CardanoFileSystem_Balance_Falls_Back_To_Mock_When_Blockfrost_Fails()
+    {
+        var handler = new TestHttpMessageHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadGateway)));
+
+        using var httpClient = new HttpClient(handler);
+        var fs = new CardanoFileSystem(
+            new CardanoBackendConfig
+            {
+                MountPath = "/cardano",
+                Network = "Preprod",
+                BlockfrostProjectId = "test-project",
+                BlockfrostApiUrl = "https://cardano-preprod.blockfrost.io/api/v0"
+            },
+            _vault,
+            httpClient);
+
+        var password = $"ada-live-fallback-{Guid.NewGuid():N}";
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "wallets", "create" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "unlock" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "..", "balance" }));
+        var content = Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray());
+
+        Assert.Contains("ADA (Mock)", content);
+    }
+
+    [Fact]
+    public async Task CardanoFileSystem_Send_LiveMode_Submits_Signed_Cbor()
+    {
+        var seenSubmit = false;
+        var handler = new TestHttpMessageHandler(async (request, _) =>
+        {
+            if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("/tx/submit", StringComparison.Ordinal))
+            {
+                seenSubmit = true;
+                Assert.True(request.Headers.TryGetValues("project_id", out var values));
+                Assert.Contains("test-project", values);
+                Assert.Equal("application/cbor", request.Content?.Headers.ContentType?.MediaType);
+
+                var bytes = await request.Content!.ReadAsByteArrayAsync();
+                Assert.Equal(new byte[] { 0xA1, 0x00 }, bytes);
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("\"live_tx_hash_123\"")
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+
+        using var httpClient = new HttpClient(handler);
+        var fs = new CardanoFileSystem(
+            new CardanoBackendConfig
+            {
+                MountPath = "/cardano",
+                Network = "Preprod",
+                BlockfrostProjectId = "test-project",
+                BlockfrostApiUrl = "https://cardano-preprod.blockfrost.io/api/v0"
+            },
+            _vault,
+            httpClient);
+
+        var password = $"ada-live-send-{Guid.NewGuid():N}";
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "wallets", "create" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "unlock" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "..", "send" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes("cbor:a100")));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "transactions" }));
+        var txLog = Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray());
+
+        Assert.True(seenSubmit);
+        Assert.Contains("live_tx_hash_123", txLog);
+        Assert.Contains("status=submitted", txLog);
+    }
+
+    [Fact]
+    public async Task CardanoFileSystem_Send_LiveMode_Rejects_AddressAmount_Format()
+    {
+        var fs = new CardanoFileSystem(
+            new CardanoBackendConfig
+            {
+                MountPath = "/cardano",
+                Network = "Preprod",
+                BlockfrostProjectId = "test-project",
+                BlockfrostApiUrl = "https://cardano-preprod.blockfrost.io/api/v0"
+            },
+            _vault,
+            new HttpClient(new TestHttpMessageHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)))));
+
+        var password = $"ada-live-invalid-{Guid.NewGuid():N}";
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "wallets", "create" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "unlock" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "..", "send" }));
+
+        var ex = await Assert.ThrowsAsync<NinePProtocolException>(
+            async () => await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes("addr_test1xxx:1.0"))));
+
+        Assert.Contains("cbor:<hex>", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static decimal ParseLeadingDecimal(string content)
+    {
+        var token = content.Split(' ', StringSplitOptions.RemoveEmptyEntries).First();
+        return decimal.Parse(token, NumberStyles.Number, CultureInfo.InvariantCulture);
+    }
+
     #region Property Tests
 
     [Property]
@@ -167,5 +497,78 @@ public class BlockchainBackendTests
         return true;
     }
 
+    [Property(MaxTest = 20)]
+    public bool TransferChains_SendPayload_Robustness_Property(int chainType, byte[] payload)
+    {
+        if (payload == null || payload.Length == 0 || payload.Length > 4096)
+        {
+            return true;
+        }
+
+        var normalized = Math.Abs(chainType % 4);
+        INinePFileSystem fs = normalized switch
+        {
+            0 => new BitcoinFileSystem(new BitcoinBackendConfig(), null, _vault),
+            1 => new SolanaFileSystem(new SolanaBackendConfig(), null, _vault),
+            2 => new StellarFileSystem(new StellarBackendConfig(), null, _vault),
+            _ => new CardanoFileSystem(new CardanoBackendConfig(), _vault)
+        };
+
+        var password = $"prop-transfer-{normalized}-{Guid.NewGuid():N}";
+
+        try
+        {
+            fs.WalkAsync(new Twalk(1, 1, 2, new[] { "wallets", "create" })).GetAwaiter().GetResult();
+            fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password))).GetAwaiter().GetResult();
+            fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "unlock" })).GetAwaiter().GetResult();
+            fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password))).GetAwaiter().GetResult();
+            fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "..", "send" })).GetAwaiter().GetResult();
+
+            try
+            {
+                fs.WriteAsync(new Twrite(1, 2, 0, payload)).GetAwaiter().GetResult();
+            }
+            catch (Exception ex) when (IsExpectedTransferException(ex))
+            {
+                // Expected parser/validation failures are acceptable outcomes.
+            }
+
+            fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "status" })).GetAwaiter().GetResult();
+            fs.ReadAsync(new Tread(1, 2, 0, 2048)).GetAwaiter().GetResult();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     #endregion
+
+    private static bool IsExpectedTransferException(Exception ex)
+    {
+        var candidate = ex is AggregateException agg && agg.InnerException != null
+            ? agg.InnerException
+            : ex;
+
+        return candidate is NinePProtocolException
+               || candidate is InvalidOperationException
+               || candidate is ArgumentException
+               || candidate is FormatException;
+    }
+
+    private sealed class TestHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> _handler;
+
+        public TestHttpMessageHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> handler)
+        {
+            _handler = handler;
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            return _handler(request, cancellationToken);
+        }
+    }
 }

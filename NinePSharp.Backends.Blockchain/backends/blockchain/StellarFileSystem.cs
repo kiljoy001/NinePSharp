@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security;
@@ -26,6 +27,9 @@ public class StellarFileSystem : INinePFileSystem
     
     private byte[]? _unlockedPrivateKey;
     private string? _unlockedAddress;
+    private decimal _mockBalanceXlm = 50.000000m;
+    private List<string> _mockTransactions = new();
+    private long _mockTxCounter;
 
     public bool DotU { get; set; }
 
@@ -94,6 +98,9 @@ public class StellarFileSystem : INinePFileSystem
             {
                 files.Add(("wallets", QidType.QTDIR));
                 files.Add(("balance", QidType.QTFILE));
+                files.Add(("address", QidType.QTFILE));
+                files.Add(("send", QidType.QTFILE));
+                files.Add(("transactions", QidType.QTFILE));
                 files.Add(("status", QidType.QTFILE));
                 files.Add(("network", QidType.QTFILE));
             }
@@ -129,10 +136,18 @@ public class StellarFileSystem : INinePFileSystem
                     result = _unlockedAddress != null ? $"Unlocked: {_unlockedAddress}\n" : "Locked\n";
                     break;
                 case "balance":
-                    result = "0.0 XLM (Mock)\n";
+                    result = $"{_mockBalanceXlm.ToString("0.000000", CultureInfo.InvariantCulture)} XLM (Mock)\n";
+                    break;
+                case "address":
+                    result = _unlockedAddress ?? "No wallet unlocked.\n";
+                    break;
+                case "transactions":
+                    result = _mockTransactions.Count == 0
+                        ? "No recent transactions.\n"
+                        : string.Join('\n', _mockTransactions) + '\n';
                     break;
                 case "status":
-                    result = $"Horizon: {_config.HorizonUrl}\nAddress: {_unlockedAddress ?? "None"}\n";
+                    result = $"Horizon: {_config.HorizonUrl}\nAddress: {_unlockedAddress ?? "None"}\nTrackedTx: {_mockTransactions.Count}\n";
                     break;
                 case "network":
                     result = _config.UsePublicNetwork ? "Public\n" : "TestNet\n";
@@ -264,8 +279,46 @@ public class StellarFileSystem : INinePFileSystem
                 throw new NinePProtocolException("Wallet not found or invalid password.");
             }
         }
+
+        if (_currentPath.Count == 1 && _currentPath[0] == "send")
+        {
+            if (_unlockedPrivateKey == null || string.IsNullOrEmpty(_unlockedAddress))
+            {
+                throw new InvalidOperationException("Wallet not unlocked. Write password to /wallets/unlock first.");
+            }
+
+            var transfer = ParseTransferCommand(twrite.Data, "address:amount");
+            if (_mockBalanceXlm < transfer.Amount)
+            {
+                throw new NinePProtocolException("Insufficient funds.");
+            }
+
+            _mockBalanceXlm -= transfer.Amount;
+            _mockTxCounter++;
+            _mockTransactions.Insert(
+                0,
+                $"xlm-mock-{_mockTxCounter:D6} to={transfer.To} amount={transfer.Amount.ToString("0.######", CultureInfo.InvariantCulture)} status=confirmed");
+            return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+        }
         
         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+    }
+
+    private static (string To, decimal Amount) ParseTransferCommand(ReadOnlyMemory<byte> payload, string expectedFormat)
+    {
+        var command = Encoding.UTF8.GetString(payload.Span).Trim();
+        var parts = command.Split(':', 2, StringSplitOptions.TrimEntries);
+        if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]))
+        {
+            throw new NinePProtocolException($"Invalid format. Use '{expectedFormat}'");
+        }
+
+        if (!decimal.TryParse(parts[1], NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) || amount <= 0)
+        {
+            throw new NinePProtocolException($"Invalid format. Use '{expectedFormat}'");
+        }
+
+        return (parts[0], amount);
     }
 
     public async Task<Rclunk> ClunkAsync(Tclunk tclunk) => new Rclunk(tclunk.Tag);
@@ -295,6 +348,9 @@ public class StellarFileSystem : INinePFileSystem
             _unlockedPrivateKey.CopyTo(clone._unlockedPrivateKey, 0);
         }
         clone._unlockedAddress = _unlockedAddress;
+        clone._mockBalanceXlm = _mockBalanceXlm;
+        clone._mockTransactions = new List<string>(_mockTransactions);
+        clone._mockTxCounter = _mockTxCounter;
         return clone;
     }
 }
