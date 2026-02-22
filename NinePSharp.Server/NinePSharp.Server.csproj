@@ -6,6 +6,7 @@
     <ProjectReference Include="..\NinePSharp.Server.Abstractions\NinePSharp.Server.Abstractions.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.Database\NinePSharp.Backends.Database.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.Cloud\NinePSharp.Backends.Cloud.csproj" />
+    <ProjectReference Include="..\NinePSharp.Backends.JsonRpc\NinePSharp.Backends.JsonRpc.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -33,7 +34,6 @@
     <PackageReference Include="Akka.Cluster" Version="1.5.60" />
     <PackageReference Include="Akka.Remote" Version="1.5.60" />
     <PackageReference Include="CardanoSharp.Wallet" Version="5.1.0" />
-    <PackageReference Include="EdjCase.JsonRpc.Client" Version="6.1.0" />
     <PackageReference Include="Google.Protobuf" Version="3.33.5" />
     <PackageReference Include="Grpc.Net.Client" Version="2.76.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.3" />
