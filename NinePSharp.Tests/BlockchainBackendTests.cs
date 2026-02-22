@@ -639,6 +639,107 @@ public class BlockchainBackendTests
     }
 
     [Fact]
+    public async Task StellarFileSystem_Send_LiveMode_Uses_Horizon_HttpClient()
+    {
+        var source = StellarDotnetSdk.Accounts.KeyPair.Random();
+        var destination = StellarDotnetSdk.Accounts.KeyPair.Random();
+        Assert.False(string.IsNullOrWhiteSpace(source.SecretSeed));
+
+        var sawSubmit = false;
+        var accountLookups = 0;
+
+        var handler = new TestHttpMessageHandler(async (request, cancellationToken) =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (request.Method == HttpMethod.Get && path.StartsWith("/accounts/", StringComparison.Ordinal))
+            {
+                accountLookups++;
+                var accountId = path.Substring("/accounts/".Length);
+                var payload =
+                    $$"""
+                    {
+                      "account_id": "{{accountId}}",
+                      "sequence": "123456",
+                      "subentry_count": 0,
+                      "balances": [
+                        { "balance": "50.0000000", "asset_type": "native" }
+                      ],
+                      "thresholds": { "low_threshold": 1, "med_threshold": 1, "high_threshold": 1 },
+                      "flags": { "auth_required": false, "auth_revocable": false, "auth_immutable": false, "auth_clawback_enabled": false },
+                      "signers": [
+                        { "weight": 1, "key": "{{accountId}}", "type": "ed25519_public_key" }
+                      ],
+                      "data": {},
+                      "_links": {
+                        "self": { "href": "https://horizon-testnet.stellar.org/accounts/{{accountId}}" }
+                      }
+                    }
+                    """;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(payload, Encoding.UTF8, "application/json")
+                };
+            }
+
+            if (request.Method == HttpMethod.Post && path == "/transactions")
+            {
+                sawSubmit = true;
+                var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+                Assert.Contains("tx=", body, StringComparison.Ordinal);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """
+                        {
+                          "hash": "stellar_live_hash_abc",
+                          "ledger": 123,
+                          "result_xdr": "AAAAAgAAAAAAAAA",
+                          "result_meta_xdr": "AAAAAgAAAAAAAAA",
+                          "envelope_xdr": "AAAAAgAAAAAAAAA"
+                        }
+                        """,
+                        Encoding.UTF8,
+                        "application/json")
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+                Content = new StringContent("{}")
+            };
+        });
+
+        using var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://horizon-testnet.stellar.org") };
+        var server = new StellarDotnetSdk.Server("https://horizon-testnet.stellar.org", httpClient);
+        var fs = new StellarFileSystem(
+            new StellarBackendConfig
+            {
+                MountPath = "/stellar",
+                HorizonUrl = "https://horizon-testnet.stellar.org",
+                UsePublicNetwork = false
+            },
+            server,
+            _vault);
+
+        var password = $"xlm-live-send-{Guid.NewGuid():N}";
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "wallets", "import" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes($"{password}:{source.SecretSeed}")));
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "unlock" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes(password)));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "..", "send" }));
+        await fs.WriteAsync(new Twrite(1, 2, 0, Encoding.UTF8.GetBytes($"{destination.AccountId}:1.25")));
+
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "..", "transactions" }));
+        var txLog = Encoding.UTF8.GetString((await fs.ReadAsync(new Tread(1, 2, 0, 4096))).Data.ToArray());
+
+        Assert.True(sawSubmit);
+        Assert.True(accountLookups >= 2);
+        Assert.Contains("stellar_live_hash_abc", txLog);
+        Assert.Contains("status=submitted", txLog);
+    }
+
+    [Fact]
     public async Task SolanaFileSystem_Import_PrivateKeyOnly_Derives_PublicAddress()
     {
         var wallet = new Solnet.Wallet.Wallet(new Solnet.Wallet.Bip39.Mnemonic(Solnet.Wallet.Bip39.WordList.English, Solnet.Wallet.Bip39.WordCount.Twelve));
