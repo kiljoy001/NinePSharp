@@ -11,6 +11,7 @@
     <ProjectReference Include="..\NinePSharp.Backends.Mqtt\NinePSharp.Backends.Mqtt.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.Rest\NinePSharp.Backends.Rest.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.Soap\NinePSharp.Backends.Soap.csproj" />
+    <ProjectReference Include="..\NinePSharp.Backends.Grpc\NinePSharp.Backends.Grpc.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -38,8 +39,6 @@
     <PackageReference Include="Akka.Cluster" Version="1.5.60" />
     <PackageReference Include="Akka.Remote" Version="1.5.60" />
     <PackageReference Include="CardanoSharp.Wallet" Version="5.1.0" />
-    <PackageReference Include="Google.Protobuf" Version="3.33.5" />
-    <PackageReference Include="Grpc.Net.Client" Version="2.76.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.3" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.3" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.3" />
