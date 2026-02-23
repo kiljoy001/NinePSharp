@@ -92,7 +92,7 @@ public class CardanoFileSystem : INinePFileSystem
         bool isDir = IsDirectory(path);
         var type = isDir ? QidType.QTDIR : QidType.QTFILE;
         var pathStr = string.Join("/", path);
-        return new Qid(type, 0, (ulong)pathStr.GetHashCode());
+        return new Qid(type, 0, DeterministicHash.GetStableHash64(pathStr));
     }
 
     public async Task<Rwalk> WalkAsync(Twalk twalk)
@@ -112,7 +112,7 @@ public class CardanoFileSystem : INinePFileSystem
             {
                 tempPath.Add(name);
             }
-            qids.Add(new Qid(IsDirectory(tempPath) ? QidType.QTDIR : QidType.QTFILE, 0, (ulong)name.GetHashCode()));
+            qids.Add(new Qid(IsDirectory(tempPath) ? QidType.QTDIR : QidType.QTFILE, 0, DeterministicHash.GetStableHash64(string.Join("/", tempPath))));
         }
 
         if (qids.Count == twalk.Wname.Length)
@@ -295,27 +295,28 @@ public class CardanoFileSystem : INinePFileSystem
                 if (File.Exists(vaultFile))
                 {
                     var encrypted = File.ReadAllBytes(vaultFile);
-                    var wordsBytes = _vault.DecryptToBytes(encrypted, password);
+                    using var wordsBytes = _vault.DecryptToBytes(encrypted, password);
                     if (wordsBytes != null)
                     {
-                        try {
-                            if (_unlockedMnemonic != null) Array.Clear(_unlockedMnemonic);
-                            _unlockedMnemonic = GC.AllocateArray<byte>(wordsBytes.Length, pinned: true);
-                            wordsBytes.CopyTo(_unlockedMnemonic, 0);
+                        if (_unlockedMnemonic != null) Array.Clear(_unlockedMnemonic);
+                        _unlockedMnemonic = GC.AllocateArray<byte>(wordsBytes.Length, pinned: true);
+                        wordsBytes.Span.CopyTo(_unlockedMnemonic);
 
-                            var derivedAddress = TryDeriveAddressFromMnemonic(wordsBytes);
+                        byte[] wordsTemp = wordsBytes.Span.ToArray();
+                        try {
+                            var derivedAddress = TryDeriveAddressFromMnemonic(wordsTemp);
                             if (string.IsNullOrWhiteSpace(derivedAddress))
                             {
-                                var digest = SHA256.HashData(wordsBytes);
+                                var digest = SHA256.HashData(wordsTemp);
                                 derivedAddress = $"addr1_mock_{Convert.ToHexString(digest.AsSpan(0, 8)).ToLowerInvariant()}";
                             }
 
                             _unlockedAddress = derivedAddress;
-                            return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                         }
                         finally {
-                            Array.Clear(wordsBytes);
+                            Array.Clear(wordsTemp);
                         }
+                        return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                     }
                 }
                 throw new NinePProtocolException("Wallet not found or invalid password.");
@@ -751,6 +752,21 @@ public class CardanoFileSystem : INinePFileSystem
 
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+
+    public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
+    {
+        var name = _currentPath.LastOrDefault() ?? "cardano";
+        bool isDir = IsDirectory(_currentPath);
+        uint mode = isDir ? (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu : 0644;
+        if (name == "import" || name == "create" || name == "unlock") mode = 0666;
+
+        var qid = GetQid(_currentPath);
+        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        return new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode);
+    }
+
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
 
     private async Task<string?> TryGetLiveBalanceAsync()
     {

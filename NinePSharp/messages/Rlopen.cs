@@ -6,7 +6,7 @@ using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
-public readonly struct Rlopen : IMessage
+public readonly struct Rlopen : ISerializable
 {
     public uint Size { get; }
     public MessageTypes Type => MessageTypes.RLopen;

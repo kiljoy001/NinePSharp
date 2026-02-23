@@ -81,9 +81,9 @@ namespace NinePSharp.Tests
             if (data == null || password == null) return true;
 
             byte[] encrypted = LuxVault.Encrypt(data, password);
-            byte[]? decrypted = LuxVault.DecryptToBytes(encrypted, password);
+            using var decrypted = LuxVault.DecryptToBytes(encrypted, password);
 
-            return data.SequenceEqual(decrypted!);
+            return decrypted != null && data.SequenceEqual(decrypted.Span.ToArray());
         }
 
         [Property]
@@ -109,10 +109,10 @@ namespace NinePSharp.Tests
 
             byte[] data = { 1, 2, 3, 4 };
             byte[] encrypted = LuxVault.Encrypt(data, ss);
-            byte[]? decrypted = LuxVault.DecryptToBytes(encrypted, ss);
+            using var decrypted = LuxVault.DecryptToBytes(encrypted, ss);
 
             Assert.NotNull(decrypted);
-            Assert.Equal(data, decrypted);
+            Assert.Equal(data, decrypted.Span.ToArray());
         }
         
         [Fact]

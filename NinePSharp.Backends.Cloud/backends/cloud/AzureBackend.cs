@@ -77,12 +77,12 @@ public class AzureBackend : IProtocolBackend
                 var rawBytes = _vault.DecryptToBytes(encrypted, _config.VaultKey);
                 if (rawBytes != null)
                 {
-                    try {
-                        string credsStr = Encoding.UTF8.GetString(rawBytes);
+                    using (rawBytes)
+                    {
+                        string credsStr = Encoding.UTF8.GetString(rawBytes.Span);
                         var parts = credsStr.Split(':', 3);
                         if (parts.Length == 3) cred = new ClientSecretCredential(parts[0], parts[1], parts[2]);
                     }
-                    finally { Array.Clear(rawBytes); }
                 }
             }
         }

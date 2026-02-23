@@ -15,6 +15,7 @@ internal interface IDatabaseQueryExecutor
 {
     string Engine { get; }
     Task<string> ExecuteAsync(string query);
+    Task<IEnumerable<string>> GetTablesAsync();
 }
 
 internal sealed class AdoNetQueryExecutor : IDatabaseQueryExecutor
@@ -80,6 +81,32 @@ internal sealed class AdoNetQueryExecutor : IDatabaseQueryExecutor
         }
 
         return JsonSerializer.Serialize(rows);
+    }
+
+    public async Task<IEnumerable<string>> GetTablesAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_config.ProviderName)) return Enumerable.Empty<string>();
+        
+        var factory = DbProviderFactories.GetFactory(_config.ProviderName);
+        await using var connection = factory.CreateConnection();
+        if (connection == null) return Enumerable.Empty<string>();
+        
+        connection.ConnectionString = BuildConnectionString();
+        if (connection is DbConnection dbConnection) await dbConnection.OpenAsync();
+        else connection.Open();
+
+        var tables = new List<string>();
+        try {
+            var schema = (connection as DbConnection)?.GetSchema("Tables");
+            if (schema != null) {
+                foreach (System.Data.DataRow row in schema.Rows) {
+                    var tableName = row["TABLE_NAME"]?.ToString();
+                    if (!string.IsNullOrEmpty(tableName)) tables.Add(tableName);
+                }
+            }
+        } catch { /* Fallback or ignore */ }
+        
+        return tables;
     }
 
     private string BuildConnectionString()
@@ -161,5 +188,11 @@ internal sealed class NoSqlHttpQueryExecutor : IDatabaseQueryExecutor
         }
 
         return payload;
+    }
+
+    public Task<IEnumerable<string>> GetTablesAsync()
+    {
+        // NoSQL HTTP backends might not support a generic table listing
+        return Task.FromResult(Enumerable.Empty<string>());
     }
 }

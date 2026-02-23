@@ -59,6 +59,15 @@ public readonly struct Rgetattr : ISerializable
         Size = NinePConstants.HeaderSize + 8 + 13 + 4 + 4 + 4 + 8 + 8 + 8 + 8 + 8 + 16 + 16 + 16 + 16 + 8 + 8;
     }
 
+    public Rgetattr(ushort tag, ulong valid, Qid qid, uint mode) 
+        : this(tag, valid, qid, mode, 0, 0, 1, 0, 0, 4096, 0, 
+               (ulong)System.DateTimeOffset.UtcNow.ToUnixTimeSeconds(), 0, 
+               (ulong)System.DateTimeOffset.UtcNow.ToUnixTimeSeconds(), 0, 
+               (ulong)System.DateTimeOffset.UtcNow.ToUnixTimeSeconds(), 0, 
+               0, 0, 0, 0)
+    {
+    }
+
     public Rgetattr(ReadOnlySpan<byte> data)
     {
         Size = BinaryPrimitives.ReadUInt32LittleEndian(data[..4]);

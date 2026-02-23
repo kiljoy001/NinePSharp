@@ -6,7 +6,7 @@ using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
-public readonly struct Rxattrcreate : IMessage
+public readonly struct Rxattrcreate : ISerializable
 {
     public uint Size { get; }
     public MessageTypes Type => MessageTypes.Rxattrcreate;

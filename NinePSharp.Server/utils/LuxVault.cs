@@ -319,7 +319,7 @@ namespace NinePSharp.Server.Utils
             return finalPayload;
         }
 
-        public static byte[]? DecryptToBytes(byte[] payload, string password)
+        public static SecureSecret? DecryptToBytes(byte[] payload, string password)
         {
             if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
             using (var key = new SecureBuffer(KeySize))
@@ -332,7 +332,7 @@ namespace NinePSharp.Server.Utils
             }
         }
 
-        public static byte[]? DecryptToBytes(byte[] payload, SecureString password)
+        public static SecureSecret? DecryptToBytes(byte[] payload, SecureString password)
         {
             if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
             using (var key = new SecureBuffer(KeySize))
@@ -345,7 +345,7 @@ namespace NinePSharp.Server.Utils
             }
         }
 
-        public static byte[]? DecryptToBytes(byte[] payload, ReadOnlySpan<byte> keyMaterial)
+        public static SecureSecret? DecryptToBytes(byte[] payload, ReadOnlySpan<byte> keyMaterial)
         {
             if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
             using (var key = new SecureBuffer(KeySize))
@@ -358,7 +358,7 @@ namespace NinePSharp.Server.Utils
             }
         }
 
-        public static byte[]? DecryptToBytesWithPasswordBytes(byte[] payload, ReadOnlySpan<byte> passwordBytes)
+        public static SecureSecret? DecryptToBytesWithPasswordBytes(byte[] payload, ReadOnlySpan<byte> passwordBytes)
         {
             if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
             using (var key = new SecureBuffer(KeySize))
@@ -381,7 +381,7 @@ namespace NinePSharp.Server.Utils
             Array.Clear(seed);
         }
 
-        public static byte[]? LoadSecret(string name, SecureString password)
+        public static SecureSecret? LoadSecret(string name, SecureString password)
         {
             var seed = DeriveSeed(password, Encoding.UTF8.GetBytes(name));
             try
@@ -399,7 +399,7 @@ namespace NinePSharp.Server.Utils
             }
         }
 
-        public static byte[]? LoadSecret(string name, ReadOnlySpan<byte> passwordBytes)
+        public static SecureSecret? LoadSecret(string name, ReadOnlySpan<byte> passwordBytes)
         {
             byte[] nameBytes = Encoding.UTF8.GetBytes(name);
             var seed = DeriveSeed(passwordBytes, nameBytes);
@@ -419,7 +419,7 @@ namespace NinePSharp.Server.Utils
             }
         }
 
-        private static byte[]? DecryptInternal(byte[] payload, ReadOnlySpan<byte> key)
+        private static SecureSecret? DecryptInternal(byte[] payload, ReadOnlySpan<byte> key)
         {
             try
             {
@@ -447,47 +447,45 @@ namespace NinePSharp.Server.Utils
 
                     if (result == 0)
                     {
-                                            // Return a pinned/locked array cloned from the arena
-                                            byte[] resultBytes = GC.AllocateArray<byte>(plaintextBuffer.Length, pinned: true);
-                                            plaintextBuffer.Span.CopyTo(resultBytes);
-                                            
-                                            unsafe {
-                                                fixed (byte* pResult = resultBytes) {
-                                                    MemoryLock.Lock((IntPtr)pResult, (nuint)resultBytes.Length);
-                                                }
-                                            }
-                                            return resultBytes;                    }
+                        // Allocate pinned + locked result, wrapped in SecureSecret for guaranteed cleanup
+                        byte[] resultBytes = GC.AllocateArray<byte>(plaintextBuffer.Length, pinned: true);
+                        plaintextBuffer.Span.CopyTo(resultBytes);
+                        
+                        unsafe {
+                            fixed (byte* pResult = resultBytes) {
+                                MemoryLock.Lock((IntPtr)pResult, (nuint)resultBytes.Length);
+                            }
+                        }
+                        return new SecureSecret(resultBytes);
+                    }
                 }
                 return null;
             }
-            catch { return null; }
+            catch (Exception ex) { throw new Exception("DECRYPT TO BYTES FAILED", ex); }
         }
 
         [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
         public static string? Decrypt(byte[] payload, string password)
         {
-            var bytes = DecryptToBytes(payload, password);
-            if (bytes == null) return null;
-            try { return Encoding.UTF8.GetString(bytes); }
-            finally { Array.Clear(bytes); }
+            using var secret = DecryptToBytes(payload, password);
+            if (secret == null) return null;
+            return Encoding.UTF8.GetString(secret.Span);
         }
 
         [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
         public static string? Decrypt(byte[] payload, SecureString password)
         {
-            var bytes = DecryptToBytes(payload, password);
-            if (bytes == null) return null;
-            try { return Encoding.UTF8.GetString(bytes); }
-            finally { Array.Clear(bytes); }
+            using var secret = DecryptToBytes(payload, password);
+            if (secret == null) return null;
+            return Encoding.UTF8.GetString(secret.Span);
         }
 
         [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
         public static string? Decrypt(byte[] payload, ReadOnlySpan<byte> keyMaterial)
         {
-            var bytes = DecryptToBytes(payload, keyMaterial);
-            if (bytes == null) return null;
-            try { return Encoding.UTF8.GetString(bytes); }
-            finally { Array.Clear(bytes); }
+            using var secret = DecryptToBytes(payload, keyMaterial);
+            if (secret == null) return null;
+            return Encoding.UTF8.GetString(secret.Span);
         }
 
         public static string ProtectConfig(string plainText, ReadOnlySpan<byte> masterKey)

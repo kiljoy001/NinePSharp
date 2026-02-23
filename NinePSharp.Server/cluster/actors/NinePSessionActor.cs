@@ -67,6 +67,14 @@ public class NinePSessionActor : ReceiveActor
                 Sender.Tell(new RStatDto(res));
             } catch (Exception ex) { Sender.Tell(new RErrorDto { Tag = msg.Tag, Ename = ex.Message }); }
         });
+
+        ReceiveAsync<TGetAttrDto>(async msg => {
+            var tgetattr = new Tgetattr(msg.Tag, msg.Fid, msg.RequestMask);
+            try {
+                var res = await _fs.GetAttrAsync(tgetattr);
+                Sender.Tell(new RGetAttrDto(res));
+            } catch (Exception ex) { Sender.Tell(new RErrorDto { Tag = msg.Tag, Ename = ex.Message }); }
+        });
         
         Receive<SpawnClone>(msg => {
             // Create a new actor for the clone

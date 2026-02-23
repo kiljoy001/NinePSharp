@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Nethereum.Web3;
 using Nethereum.Web3.Accounts;
 using NinePSharp.Messages;
+using NinePSharp.Protocol;
 using NinePSharp.Constants;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
@@ -28,8 +29,9 @@ public class EthereumFileSystem : INinePFileSystem
     public bool DotU { get; set; }
     
     private Dictionary<string, string> _trackedTxs = new(); // txHash -> status
+    private Dictionary<string, string> _contractAbis = new(); // address -> abi
 
-    private const string ERC20_ABI = @"[{'constant':false,'inputs':[{'name':'_to','type':'address'},{'name':'_value','type':'uint256'}],'name':'transfer','outputs':[{'name':'success','type':'bool'}],'payable':false,'stateMutability':'nonpayable','type':'function'}]";
+    private const string DEFAULT_ERC20_ABI = @"[{'constant':false,'inputs':[{'name':'_to','type':'address'},{'name':'_value','type':'uint256'}],'name':'transfer','outputs':[{'name':'success','type':'bool'}],'payable':false,'stateMutability':'nonpayable','type':'function'}]";
 
     public EthereumFileSystem(EthereumBackendConfig config, IWeb3 web3, ILuxVaultService vault)
     {
@@ -53,6 +55,14 @@ public class EthereumFileSystem : INinePFileSystem
             }
             else
             {
+                if (tempPath.Count == 1 && tempPath[0] == "contracts") {
+                    // Allow any name as a contract address
+                } else if (tempPath.Count == 2 && tempPath[0] == "contracts") {
+                    if (name != "abi" && name != "call") {
+                         if (qids.Count == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>());
+                         break;
+                    }
+                }
                 tempPath.Add(name);
             }
             qids.Add(new Qid(IsDirectory(tempPath) ? QidType.QTDIR : QidType.QTFILE, 0, (ulong)name.GetHashCode()));
@@ -70,7 +80,10 @@ public class EthereumFileSystem : INinePFileSystem
     {
         if (path.Count == 0) return true;
         if (path[0] == "wallets" && path.Count == 1) return true;
-        if (path[0] == "contracts" && (path.Count == 1 || path.Count == 2)) return true;
+        if (path[0] == "contracts") {
+             if (path.Count == 1) return true; // /contracts
+             if (path.Count == 2) return true; // /contracts/<address>
+        }
         return false;
     }
 
@@ -100,14 +113,19 @@ public class EthereumFileSystem : INinePFileSystem
             }
             else if (_currentPath[0] == "contracts")
             {
-                // List dynamic contracts or specific nodes if at Count == 1 or 2
+                if (_currentPath.Count == 1) {
+                    foreach (var addr in _contractAbis.Keys) files.Add((addr, QidType.QTDIR));
+                } else if (_currentPath.Count == 2) {
+                    files.Add(("abi", QidType.QTFILE));
+                    files.Add(("call", QidType.QTFILE));
+                }
             }
 
             foreach (var f in files)
             {
                 var qid = new Qid(f.Type, 0, (ulong)f.Name.GetHashCode());
                 var mode = f.Type == QidType.QTDIR ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0644;
-                if (f.Name == "create" || f.Name == "import" || f.Name == "unlock") mode = 0666;
+                if (f.Name == "create" || f.Name == "import" || f.Name == "unlock" || f.Name == "abi" || f.Name == "call") mode = 0666;
                 
                 var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott");
                 
@@ -122,8 +140,11 @@ public class EthereumFileSystem : INinePFileSystem
         {
             string result = "";
             var last = _currentPath.Last().ToLowerInvariant();
-            if (last == "unlock")
-            {
+            if (last == "abi" && _currentPath.Count == 3) {
+                var addr = _currentPath[1];
+                result = (_contractAbis.TryGetValue(addr, out var abi) ? abi : DEFAULT_ERC20_ABI) + "\n";
+            }
+            else if (last == "unlock")            {
                 result = _unlockedAccount != null ? $"Unlocked: {_unlockedAccount}\n" : "Locked\n";
             }
             else if (last == "status")
@@ -265,54 +286,62 @@ public class EthereumFileSystem : INinePFileSystem
                 if (File.Exists(vaultFile))
                 {
                     var encrypted = File.ReadAllBytes(vaultFile);
-                    var pk = _vault.DecryptToBytes(encrypted, password);
+                    using var pk = _vault.DecryptToBytes(encrypted, password);
                     if (pk != null)
                     {
+                        if (_unlockedPrivateKey != null) Array.Clear(_unlockedPrivateKey);
+                        _unlockedPrivateKey = GC.AllocateArray<byte>(pk.Length, pinned: true);
+                        pk.Span.CopyTo(_unlockedPrivateKey);
+                        
+                        byte[] pkTemp = pk.Span.ToArray();
                         try {
-                            if (_unlockedPrivateKey != null) Array.Clear(_unlockedPrivateKey);
-                            _unlockedPrivateKey = GC.AllocateArray<byte>(pk.Length, pinned: true);
-                            pk.CopyTo(_unlockedPrivateKey, 0);
-                            
-                            var account = new Account(Convert.ToHexString(pk));
+                            var account = new Account(Convert.ToHexString(pkTemp));
                             _unlockedAccount = account.Address;
-                            return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                         }
                         finally {
-                            Array.Clear(pk);
+                            Array.Clear(pkTemp);
                         }
+                        return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                     }
                 }
                 throw new NinePProtocolException("Wallet not found or invalid password.");
             }
         }
 
-        if (_currentPath.Count >= 4 && _currentPath[0] == "contracts")
+        if (_currentPath.Count == 3 && _currentPath[0] == "contracts")
         {
-            if (_unlockedPrivateKey == null)
-            {
-                throw new InvalidOperationException("Wallet not unlocked. Write password to /wallets/unlock first.");
-            }
-
-            var contractAddr = _currentPath[1];
-            var callInfo = AbiParser.ParseCall(_currentPath[3]);
-            if (callInfo != null)
-            {
-                string pkHex = Convert.ToHexString(_unlockedPrivateKey);
-                var account = new Account(pkHex);
-                var web3WithAccount = new Web3(account, _config.RpcUrl);
-                
-                if (callInfo.Value.Name == "transfer" && callInfo.Value.Arguments.Length == 2)
-                {
-                    var to = callInfo.Value.Arguments[0];
-                    var amount = System.Numerics.BigInteger.Parse(callInfo.Value.Arguments[1]);
-                    
-                    var contract = web3WithAccount.Eth.GetContract(ERC20_ABI.Replace('\'', '\"'), contractAddr);
-                    var function = contract.GetFunction("transfer");
-                    
-                    var txHash = await function.SendTransactionAsync(account.Address, to, amount);
-                    _trackedTxs[txHash] = "Pending";
-                }
+            var addr = _currentPath[1];
+            if (_currentPath[2] == "abi") {
+                _contractAbis[addr] = Encoding.UTF8.GetString(twrite.Data.Span).Trim();
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+            }
+            
+            if (_currentPath[2] == "call") {
+                if (_unlockedPrivateKey == null)
+                {
+                    throw new InvalidOperationException("Wallet not unlocked. Write password to /wallets/unlock first.");
+                }
+
+                var contractAddr = _currentPath[1];
+                var abi = _contractAbis.TryGetValue(contractAddr, out var customAbi) ? customAbi : DEFAULT_ERC20_ABI;
+                var command = Encoding.UTF8.GetString(twrite.Data.Span).Trim();
+                var callInfo = AbiParser.ParseCall(command);
+                
+                if (callInfo != null)
+                {
+                    string pkHex = Convert.ToHexString(_unlockedPrivateKey);
+                    var account = new Account(pkHex);
+                    var web3WithAccount = new Web3(account, _config.RpcUrl);
+                    
+                    var contract = web3WithAccount.Eth.GetContract(abi.Replace('\'', '\"'), contractAddr);
+                    var function = contract.GetFunction(callInfo.Value.Name);
+                    
+                    // Simple argument mapping - this is a bit of a hack but works for low-hanging fruit
+                    var args = callInfo.Value.Arguments.Cast<object>().ToArray();
+                    var txHash = await function.SendTransactionAsync(account.Address, args);
+                    _trackedTxs[txHash] = "Pending";
+                    return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                }
             }
         }
 
@@ -331,6 +360,21 @@ public class EthereumFileSystem : INinePFileSystem
 
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+
+    public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
+    {
+        var name = _currentPath.LastOrDefault() ?? "eth";
+        bool isDir = IsDirectory(_currentPath);
+        uint mode = isDir ? (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu : 0644;
+        if (name == "create" || name == "import" || name == "unlock" || name == "abi" || name == "call") mode = 0666;
+
+        var qid = new Qid(isDir ? QidType.QTDIR : QidType.QTFILE, 0, DeterministicHash.GetStableHash64(string.Join("/", _currentPath)));
+        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        return new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode);
+    }
+
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
 
     public INinePFileSystem Clone()
     {

@@ -74,13 +74,10 @@ public class ZeroExposureTests
         new Random().NextBytes(key);
 
         byte[] ciphertext = LuxVault.Encrypt((ReadOnlySpan<byte>)plain, (ReadOnlySpan<byte>)key);
-        byte[]? decrypted = LuxVault.DecryptToBytes(ciphertext, (ReadOnlySpan<byte>)key);
+        using var decrypted = LuxVault.DecryptToBytes(ciphertext, (ReadOnlySpan<byte>)key);
 
         Assert.NotNull(decrypted);
-        Assert.True(plain.SequenceEqual(decrypted));
-        
-        // Ensure decrypted buffer is different from encrypted input
-        Assert.False(ReferenceEquals(plain, decrypted));
+        Assert.True(plain.SequenceEqual(decrypted.Span.ToArray()));
     }
 
     [Fact]

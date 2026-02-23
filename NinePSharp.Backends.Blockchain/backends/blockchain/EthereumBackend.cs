@@ -78,11 +78,9 @@ public class EthereumBackend : IProtocolBackend
                 var decrypted = _vault.DecryptToBytes(raw, _config.VaultKey);
                 if (decrypted != null)
                 {
-                    try {
-                        rpcUrl = System.Text.Encoding.UTF8.GetString(decrypted);
-                    }
-                    finally {
-                        Array.Clear(decrypted);
+                    using (decrypted)
+                    {
+                        rpcUrl = System.Text.Encoding.UTF8.GetString(decrypted.Span);
                     }
                 }
             }

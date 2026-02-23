@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <Compile Include="ParserTests.fs" />
+    <Compile Include="ParserPropertyTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -21,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
     <ProjectReference Include="..\NinePSharp.Parser\NinePSharp.Parser.fsproj" />
+    <ProjectReference Include="..\NinePSharp.Generators\NinePSharp.Generators.fsproj" />
   </ItemGroup>
 
 </Project>

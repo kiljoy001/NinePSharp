@@ -125,27 +125,10 @@ public sealed class ProtectedSecret : IDisposable
     {
         if (_encryptedData == null || _sessionKey == null) return;
 
-        byte[]? decrypted = null;
-        try
+        using var secret = LuxVault.DecryptToBytes(_encryptedData, _sessionKey);
+        if (secret != null)
         {
-            // LuxVault.DecryptToBytes returns a pinned and locked buffer
-            decrypted = LuxVault.DecryptToBytes(_encryptedData, _sessionKey);
-            if (decrypted != null)
-            {
-                action(decrypted);
-            }
-        }
-        finally
-        {
-            if (decrypted != null)
-            {
-                unsafe {
-                    fixed (byte* pDec = decrypted) {
-                        MemoryLock.Unlock((IntPtr)pDec, (nuint)decrypted.Length);
-                    }
-                }
-                Array.Clear(decrypted);
-            }
+            action(secret.Span);
         }
     }
 
@@ -157,26 +140,22 @@ public sealed class ProtectedSecret : IDisposable
     {
         if (_encryptedData == null || _sessionKey == null) return;
 
-        byte[]? decrypted = null;
-        try
+        // Note: SecureSecret must be fully consumed before disposal.
+        // We copy to a pinned temporary for the async boundary, then dispose both.
+        using var secret = LuxVault.DecryptToBytes(_encryptedData, _sessionKey);
+        if (secret != null)
         {
-            // LuxVault.DecryptToBytes returns a pinned and locked buffer
-            decrypted = LuxVault.DecryptToBytes(_encryptedData, _sessionKey);
-            if (decrypted != null)
+            // Copy into a temporary pinned array for the async boundary
+            // (ReadOnlySpan cannot cross await)
+            byte[] temp = GC.AllocateArray<byte>(secret.Length, pinned: true);
+            try
             {
-                await action(decrypted.AsMemory());
+                secret.Span.CopyTo(temp);
+                await action(temp.AsMemory());
             }
-        }
-        finally
-        {
-            if (decrypted != null)
+            finally
             {
-                unsafe {
-                    fixed (byte* pDec = decrypted) {
-                        MemoryLock.Unlock((IntPtr)pDec, (nuint)decrypted.Length);
-                    }
-                }
-                Array.Clear(decrypted);
+                Array.Clear(temp);
             }
         }
     }

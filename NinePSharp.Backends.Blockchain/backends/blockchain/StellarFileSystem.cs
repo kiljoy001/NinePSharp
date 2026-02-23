@@ -55,7 +55,7 @@ public class StellarFileSystem : INinePFileSystem
         bool isDir = IsDirectory(path);
         var type = isDir ? QidType.QTDIR : QidType.QTFILE;
         var pathStr = string.Join("/", path);
-        return new Qid(type, 0, (ulong)pathStr.GetHashCode());
+        return new Qid(type, 0, DeterministicHash.GetStableHash64(pathStr));
     }
 
     public async Task<Rwalk> WalkAsync(Twalk twalk)
@@ -75,7 +75,7 @@ public class StellarFileSystem : INinePFileSystem
             {
                 tempPath.Add(name);
             }
-            qids.Add(new Qid(IsDirectory(tempPath) ? QidType.QTDIR : QidType.QTFILE, 0, (ulong)name.GetHashCode()));
+            qids.Add(new Qid(IsDirectory(tempPath) ? QidType.QTDIR : QidType.QTFILE, 0, DeterministicHash.GetStableHash64(string.Join("/", tempPath))));
         }
 
         if (qids.Count == twalk.Wname.Length)
@@ -106,6 +106,7 @@ public class StellarFileSystem : INinePFileSystem
                 files.Add(("transactions", QidType.QTFILE));
                 files.Add(("status", QidType.QTFILE));
                 files.Add(("network", QidType.QTFILE));
+                files.Add(("ledger", QidType.QTFILE));
             }
             else if (_currentPath[0] == "wallets")
             {
@@ -155,6 +156,15 @@ public class StellarFileSystem : INinePFileSystem
                     break;
                 case "network":
                     result = _config.UsePublicNetwork ? "Public\n" : "TestNet\n";
+                    break;
+                case "ledger":
+                    if (_server != null) {
+                        try {
+                            var latest = await _server.Ledgers.Order(StellarDotnetSdk.Requests.OrderDirection.DESC).Limit(1).Execute();
+                            var l = latest.Records.FirstOrDefault();
+                            result = l != null ? $"Sequence: {l.Sequence}\nHash: {l.Hash}\nClosed At: {l.ClosedAt}\n" : "No ledger records found.\n";
+                        } catch (Exception ex) { result = $"Error: {ex.Message}\n"; }
+                    } else result = "Mock Ledger: 1\n";
                     break;
             }
             allData = Encoding.UTF8.GetBytes(result);
@@ -262,22 +272,17 @@ public class StellarFileSystem : INinePFileSystem
                 if (File.Exists(vaultFile))
                 {
                     var encrypted = File.ReadAllBytes(vaultFile);
-                    var seedBytes = _vault.DecryptToBytes(encrypted, password);
+                    using var seedBytes = _vault.DecryptToBytes(encrypted, password);
                     if (seedBytes != null)
                     {
-                        try {
-                            if (_unlockedPrivateKey != null) Array.Clear(_unlockedPrivateKey);
-                            _unlockedPrivateKey = GC.AllocateArray<byte>(seedBytes.Length, pinned: true);
-                            seedBytes.CopyTo(_unlockedPrivateKey, 0);
-                            
-                            var secretSeed = Encoding.UTF8.GetString(seedBytes);
-                            var kp = KeyPair.FromSecretSeed(secretSeed);
-                            _unlockedAddress = kp.AccountId;
-                            return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
-                        }
-                        finally {
-                            Array.Clear(seedBytes);
-                        }
+                        if (_unlockedPrivateKey != null) Array.Clear(_unlockedPrivateKey);
+                        _unlockedPrivateKey = GC.AllocateArray<byte>(seedBytes.Length, pinned: true);
+                        seedBytes.Span.CopyTo(_unlockedPrivateKey);
+                        
+                        var secretSeed = Encoding.UTF8.GetString(seedBytes.Span);
+                        var kp = KeyPair.FromSecretSeed(secretSeed);
+                        _unlockedAddress = kp.AccountId;
+                        return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                     }
                 }
                 throw new NinePProtocolException("Wallet not found or invalid password.");
@@ -424,6 +429,21 @@ public class StellarFileSystem : INinePFileSystem
 
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+
+    public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
+    {
+        var name = _currentPath.LastOrDefault() ?? "stellar";
+        bool isDir = IsDirectory(_currentPath);
+        uint mode = isDir ? (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu : 0644;
+        if (name == "import" || name == "create" || name == "unlock") mode = 0666;
+
+        var qid = GetQid(_currentPath);
+        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        return new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode);
+    }
+
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
 
     public INinePFileSystem Clone()
     {

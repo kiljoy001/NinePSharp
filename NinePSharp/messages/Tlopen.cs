@@ -6,7 +6,7 @@ using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
-public readonly struct Tlopen : IMessage
+public readonly struct Tlopen : ISerializable
 {
     public uint Size { get; }
     public MessageTypes Type => MessageTypes.Tlopen;

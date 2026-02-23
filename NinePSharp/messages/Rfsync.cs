@@ -6,7 +6,7 @@ using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
-public readonly struct Rfsync : IMessage
+public readonly struct Rfsync : ISerializable
 {
     public uint Size { get; }
     public MessageTypes Type => MessageTypes.Rfsync;

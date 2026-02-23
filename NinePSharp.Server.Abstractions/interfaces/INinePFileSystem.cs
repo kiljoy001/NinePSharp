@@ -14,5 +14,7 @@ public interface INinePFileSystem
     Task<Rstat> StatAsync(Tstat tstat);
     Task<Rwstat> WstatAsync(Twstat twstat);
     Task<Rremove> RemoveAsync(Tremove tremove);
+    Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr);
+    Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr);
     INinePFileSystem Clone();
 }

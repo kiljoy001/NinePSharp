@@ -6,7 +6,7 @@ using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
-public readonly struct Tmkdir : IMessage
+public readonly struct Tmkdir : ISerializable
 {
     public uint Size { get; }
     public MessageTypes Type => MessageTypes.Tmkdir;

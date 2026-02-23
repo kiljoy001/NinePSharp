@@ -91,7 +91,7 @@ module NinePParser =
                     let msgData = data.Slice(0, int size)
                     
                     match msgType with
-                    | t when t = byte MessageTypes.Tversion -> Ok (MsgTversion(new Tversion(span)))
+                    | t when t = byte MessageTypes.Tversion -> Ok (MsgTversion(new Tversion(msgData.Span)))
                     | t when t = byte MessageTypes.Rversion -> Ok (MsgRversion(new Rversion(span)))
                     | t when t = byte MessageTypes.Tauth -> Ok (MsgTauth(new Tauth(span, is9u)))
                     | t when t = byte MessageTypes.Rauth -> Ok (MsgRauth(new Rauth(span)))

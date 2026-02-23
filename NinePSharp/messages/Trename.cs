@@ -6,7 +6,7 @@ using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
-public readonly struct Trename : IMessage
+public readonly struct Trename : ISerializable
 {
     public uint Size { get; }
     public MessageTypes Type => MessageTypes.Trename;

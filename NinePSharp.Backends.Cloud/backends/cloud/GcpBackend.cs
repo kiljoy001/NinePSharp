@@ -69,8 +69,10 @@ public class GcpBackend : IProtocolBackend
                 var raw = _vault.DecryptToBytes(encrypted, _config.VaultKey);
                 if (raw != null)
                 {
-                    try { json = Encoding.UTF8.GetString(raw); }
-                    finally { Array.Clear(raw); }
+                    using (raw)
+                    {
+                        json = Encoding.UTF8.GetString(raw.Span);
+                    }
                 }
             }
         }

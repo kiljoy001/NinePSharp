@@ -6,7 +6,7 @@ using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
-public readonly struct Rsymlink : IMessage
+public readonly struct Rsymlink : ISerializable
 {
     public uint Size { get; }
     public MessageTypes Type => MessageTypes.Rsymlink;

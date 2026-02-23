@@ -119,13 +119,12 @@ namespace NinePSharp.Tests
             // Encrypt with string, Decrypt with SecureString
             byte[] ciphertext = LuxVault.Encrypt(plainBytes, password);
             #pragma warning disable CS0618
-            byte[]? decrypted = LuxVault.DecryptToBytes(ciphertext, ss);
+            using var decrypted = LuxVault.DecryptToBytes(ciphertext, ss);
             #pragma warning restore CS0618
 
-            bool match = decrypted != null && plainBytes.SequenceEqual(decrypted);
+            bool match = decrypted != null && plainBytes.SequenceEqual(decrypted.Span.ToArray());
             
             Array.Clear(plainBytes);
-            if (decrypted != null) Array.Clear(decrypted);
             return match;
         }
 

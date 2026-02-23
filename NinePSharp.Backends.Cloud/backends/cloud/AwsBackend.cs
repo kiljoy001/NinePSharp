@@ -90,12 +90,12 @@ public class AwsBackend : IProtocolBackend
                 var rawBytes = _vault.DecryptToBytes(encrypted, _config.VaultKey);
                 if (rawBytes != null)
                 {
-                    try {
-                        string credsStr = Encoding.UTF8.GetString(rawBytes);
+                    using (rawBytes)
+                    {
+                        string credsStr = Encoding.UTF8.GetString(rawBytes.Span);
                         var parts = credsStr.Split(':', 2);
                         if (parts.Length == 2) awsCreds = new BasicAWSCredentials(parts[0], parts[1]);
                     }
-                    finally { Array.Clear(rawBytes); }
                 }
             }
         }

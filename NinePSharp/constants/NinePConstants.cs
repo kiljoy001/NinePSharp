@@ -18,6 +18,27 @@ public static class NinePConstants
     public const string VersionString_9pu = "9P2000.u";
     public const int HeaderSize = 7;
 
+    // 9P2000.L GetAttr Mask Constants
+    public enum GetAttrMask : ulong
+    {
+        P9_GETATTR_MODE = 0x00000001,
+        P9_GETATTR_NLINK = 0x00000002,
+        P9_GETATTR_UID = 0x00000004,
+        P9_GETATTR_GID = 0x00000008,
+        P9_GETATTR_RDEV = 0x00000010,
+        P9_GETATTR_ATIME = 0x00000020,
+        P9_GETATTR_MTIME = 0x00000040,
+        P9_GETATTR_CTIME = 0x00000080,
+        P9_GETATTR_INO = 0x00000100,
+        P9_GETATTR_SIZE = 0x00000200,
+        P9_GETATTR_BLOCKS = 0x00000400,
+        P9_GETATTR_BTIME = 0x00000800,
+        P9_GETATTR_GEN = 0x00001000,
+        P9_GETATTR_DATA_VERSION = 0x00002000,
+        P9_GETATTR_BASIC = 0x000007ff,
+        P9_GETATTR_ALL = 0x00003fff
+    }
+
     // File Modes
     public enum FileMode9P : uint
     {

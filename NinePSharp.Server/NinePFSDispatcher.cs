@@ -169,6 +169,20 @@ public class NinePFSDispatcher : INinePFSDispatcher
                 return await fs.StatAsync(t);
             }
 
+            if (message.IsMsgTgetattr)
+            {
+                var t = ((NinePMessage.MsgTgetattr)message).Item;
+                if (!_fids.TryGetValue(t.Fid, out var fs)) throw new NinePProtocolException("Unknown FID");
+                return await fs.GetAttrAsync(t);
+            }
+
+            if (message.IsMsgTsetattr)
+            {
+                var t = ((NinePMessage.MsgTsetattr)message).Item;
+                if (!_fids.TryGetValue(t.Fid, out var fs)) throw new NinePProtocolException("Unknown FID");
+                return await fs.SetAttrAsync(t);
+            }
+
             if (message.IsMsgTflush)
             {
                 var t = ((NinePMessage.MsgTflush)message).Item;
@@ -199,6 +213,8 @@ public class NinePFSDispatcher : INinePFSDispatcher
         if (message.IsMsgTwrite) return ((NinePMessage.MsgTwrite)message).Item.Tag;
         if (message.IsMsgTclunk) return ((NinePMessage.MsgTclunk)message).Item.Tag;
         if (message.IsMsgTstat) return ((NinePMessage.MsgTstat)message).Item.Tag;
+        if (message.IsMsgTgetattr) return ((NinePMessage.MsgTgetattr)message).Item.Tag;
+        if (message.IsMsgTsetattr) return ((NinePMessage.MsgTsetattr)message).Item.Tag;
         if (message.IsMsgTflush) return ((NinePMessage.MsgTflush)message).Item.Tag;
         return 0;
     }

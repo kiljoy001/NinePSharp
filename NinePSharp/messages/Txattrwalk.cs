@@ -6,7 +6,7 @@ using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
-public readonly struct Txattrwalk : IMessage
+public readonly struct Txattrwalk : ISerializable
 {
     public uint Size { get; }
     public MessageTypes Type => MessageTypes.Txattrwalk;

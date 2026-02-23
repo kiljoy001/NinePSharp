@@ -6,7 +6,7 @@ using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
-public readonly struct Tunlinkat : IMessage
+public readonly struct Tunlinkat : ISerializable
 {
     public uint Size { get; }
     public MessageTypes Type => MessageTypes.Tunlinkat;

@@ -119,7 +119,11 @@ public class SecretFileSystem : INinePFileSystem
             if (_sessionPasswords.TryGetValue(secretName, out var protectedPassword))
             {
                 protectedPassword.Use(passwordBytes => {
-                    secretBytes = LuxVault.LoadSecret(secretName, passwordBytes);
+                    using var secret = LuxVault.LoadSecret(secretName, passwordBytes);
+                    if (secret != null)
+                    {
+                        secretBytes = secret.Span.ToArray();
+                    }
                 });
             }
 
@@ -185,10 +189,9 @@ public class SecretFileSystem : INinePFileSystem
                         foreach (char c in parts[0]) password.AppendChar(c);
                         password.MakeReadOnly();
 
-                        var decrypted = LuxVault.LoadSecret(name, password);
+                        using var decrypted = LuxVault.LoadSecret(name, password);
                         if (decrypted != null)
                         {
-                            Array.Clear(decrypted);
                             var next = new ProtectedSecret(password);
                             _sessionPasswords.AddOrUpdate(
                                 name,
@@ -227,6 +230,15 @@ public class SecretFileSystem : INinePFileSystem
 
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+
+    public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
+    {
+        var qid = new Qid(QidType.QTFILE, 0, (ulong)"secrets".GetHashCode());
+        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, 0600, 0, 0, 1, 0, 0, 4096, 0, now, 0, now, 0, now, 0, 0, 0, 0, 0));
+    }
+
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
 
     public INinePFileSystem Clone()
     {

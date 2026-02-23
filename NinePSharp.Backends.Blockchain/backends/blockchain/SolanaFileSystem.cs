@@ -57,7 +57,7 @@ public class SolanaFileSystem : INinePFileSystem
         bool isDir = IsDirectory(path);
         var type = isDir ? QidType.QTDIR : QidType.QTFILE;
         var pathStr = string.Join("/", path);
-        return new Qid(type, 0, (ulong)pathStr.GetHashCode());
+        return new Qid(type, 0, DeterministicHash.GetStableHash64(pathStr));
     }
 
     public async Task<Rwalk> WalkAsync(Twalk twalk)
@@ -83,7 +83,7 @@ public class SolanaFileSystem : INinePFileSystem
             {
                 tempPath.Add(name);
             }
-            qids.Add(new Qid(IsDirectory(tempPath) ? QidType.QTDIR : QidType.QTFILE, 0, (ulong)name.GetHashCode()));
+            qids.Add(new Qid(IsDirectory(tempPath) ? QidType.QTDIR : QidType.QTFILE, 0, DeterministicHash.GetStableHash64(string.Join("/", tempPath))));
         }
 
         if (qids.Count == twalk.Wname.Length)
@@ -113,6 +113,8 @@ public class SolanaFileSystem : INinePFileSystem
                 files.Add(("send", QidType.QTFILE));
                 files.Add(("transactions", QidType.QTFILE));
                 files.Add(("status", QidType.QTFILE));
+                files.Add(("network", QidType.QTFILE));
+                files.Add(("mempool", QidType.QTFILE));
             }
             else if (_currentPath[0] == "wallets")
             {
@@ -162,6 +164,19 @@ public class SolanaFileSystem : INinePFileSystem
             else if (last == "status")
             {
                 result = $"RPC: {_config.RpcUrl}\nAddress: {_unlockedAddress ?? "None"}\nTrackedTx: {_mockTransactions.Count}\nMode: {(_rpcClient != null ? "Live" : "Mock")}\n";
+            }
+            else if (last == "network")
+            {
+                result = _config.RpcUrl?.Contains("mainnet") == true ? "Mainnet\n" : "Devnet/Testnet\n";
+            }
+            else if (last == "mempool")
+            {
+                if (_rpcClient != null) {
+                    try {
+                        // var count = await _rpcClient.GetMaxRetransmitLinesAsync(); // Or similar
+                        result = $"Pending transactions info not directly available via basic RPC.\n";
+                    } catch { result = "Unavailable\n"; }
+                } else result = "Mock Mempool: 0 pending\n";
             }
             allData = Encoding.UTF8.GetBytes(result);
         }
@@ -287,11 +302,11 @@ public class SolanaFileSystem : INinePFileSystem
                 if (File.Exists(vaultFile))
                 {
                     var encrypted = File.ReadAllBytes(vaultFile);
-                    var privKey = _vault.DecryptToBytes(encrypted, password);
+                    using var privKey = _vault.DecryptToBytes(encrypted, password);
                     if (privKey != null)
                     {
                         try {
-                            var keyMaterialText = Encoding.UTF8.GetString(privKey);
+                            var keyMaterialText = Encoding.UTF8.GetString(privKey.Span);
                             var (privateKeyText, storedPublicKeyText) = ParseKeyMaterial(keyMaterialText);
                             if (string.IsNullOrWhiteSpace(storedPublicKeyText))
                             {
@@ -325,9 +340,6 @@ public class SolanaFileSystem : INinePFileSystem
                         catch (Exception)
                         {
                             throw new NinePProtocolException("Wallet not found or invalid password.");
-                        }
-                        finally {
-                            Array.Clear(privKey);
                         }
                     }
                 }
@@ -544,6 +556,21 @@ public class SolanaFileSystem : INinePFileSystem
 
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+
+    public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
+    {
+        var name = _currentPath.LastOrDefault() ?? "solana";
+        bool isDir = IsDirectory(_currentPath);
+        uint mode = isDir ? (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu : 0644;
+        if (name == "import" || name == "create" || name == "unlock") mode = 0666;
+
+        var qid = GetQid(_currentPath);
+        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        return new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode);
+    }
+
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
 
     public INinePFileSystem Clone()
     {

@@ -1,4 +1,4 @@
-module NinePSharp.Parser.Tests
+module NinePSharp.Parser.Tests.ParserTests
 
 open Xunit
 open FsCheck

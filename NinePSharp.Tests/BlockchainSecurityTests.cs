@@ -72,11 +72,11 @@ public class BlockchainSecurityTests
         var config = new EthereumBackendConfig { MountPath = "/eth", RpcUrl = "http://localhost" };
         var fs = new EthereumFileSystem(config, new Mock<Nethereum.Web3.IWeb3>().Object, _vault);
 
-        // Walk to a contract call node
-        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "contracts", "0x123", "call", "transfer(0xabc,100)" }));
+        // Walk to the contract call file (contracts/<addr>/call)
+        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "contracts", "0x123", "call" }));
 
-        // Attempt write (trigger call) without unlocking
-        var twrite = new Twrite(1, 2, 0, Encoding.UTF8.GetBytes("trigger"));
+        // Attempt write (trigger call) without unlocking. The write data is the function call.
+        var twrite = new Twrite(1, 2, 0, Encoding.UTF8.GetBytes("transfer(0xabc,100)"));
         
         await Assert.ThrowsAsync<InvalidOperationException>(async () => await fs.WriteAsync(twrite));
     }

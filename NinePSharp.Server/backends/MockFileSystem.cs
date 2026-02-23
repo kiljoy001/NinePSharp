@@ -70,6 +70,15 @@ public class MockFileSystem : INinePFileSystem
 
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
 
+    public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
+    {
+        var qid = new Qid(QidType.QTDIR, 0, 0);
+        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu, 0, 0, 1, 0, 0, 4096, 0, now, 0, now, 0, now, 0, 0, 0, 0, 0));
+    }
+
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
+
     public INinePFileSystem Clone()
     {
         var clone = new MockFileSystem(_vault);

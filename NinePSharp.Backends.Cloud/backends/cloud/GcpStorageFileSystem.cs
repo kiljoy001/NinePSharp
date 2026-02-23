@@ -154,6 +154,15 @@ public class GcpStorageFileSystem : INinePFileSystem
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
 
+    public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
+    {
+        var qid = new Qid(QidType.QTDIR, 0, 0);
+        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu));
+    }
+
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
+
     public INinePFileSystem Clone()
     {
         var clone = new GcpStorageFileSystem(_config, _storageClient, _vault);

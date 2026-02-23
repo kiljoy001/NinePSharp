@@ -6,7 +6,7 @@ using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
-public readonly struct Treaddir : IMessage
+public readonly struct Treaddir : ISerializable
 {
     public uint Size { get; }
     public MessageTypes Type => MessageTypes.Treaddir;

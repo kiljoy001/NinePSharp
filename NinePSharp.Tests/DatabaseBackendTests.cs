@@ -32,6 +32,11 @@ public class DatabaseBackendTests
             ExecutedQueries.Add(query);
             return Task.FromResult(_handler(query));
         }
+
+        public Task<IEnumerable<string>> GetTablesAsync()
+        {
+            return Task.FromResult<IEnumerable<string>>(Array.Empty<string>());
+        }
     }
 
     [Fact]

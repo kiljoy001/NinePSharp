@@ -81,6 +81,16 @@ public class TStatDto
 }
 
 [Serializable]
+public class TGetAttrDto
+{
+    public ushort Tag { get; set; }
+    public uint Fid { get; set; }
+    public ulong RequestMask { get; set; }
+    public TGetAttrDto() {}
+    public TGetAttrDto(Tgetattr t) { Tag = t.Tag; Fid = t.Fid; RequestMask = t.RequestMask; }
+}
+
+[Serializable]
 public class RWalkDto
 {
     public ushort Tag { get; set; }
@@ -139,6 +149,42 @@ public class RStatDto
         StatBytes = new byte[r.Stat.Size];
         int offset = 0;
         r.Stat.WriteTo(StatBytes, ref offset);
+    }
+}
+
+[Serializable]
+public class RGetAttrDto
+{
+    public ushort Tag { get; set; }
+    public ulong Valid { get; set; }
+    public Qid Qid { get; set; }
+    public uint Mode { get; set; }
+    public uint Uid { get; set; }
+    public uint Gid { get; set; }
+    public ulong Nlink { get; set; }
+    public ulong Rdev { get; set; }
+    public ulong DataSize { get; set; }
+    public ulong BlkSize { get; set; }
+    public ulong Blocks { get; set; }
+    public ulong AtimeSec { get; set; }
+    public ulong AtimeNsec { get; set; }
+    public ulong MtimeSec { get; set; }
+    public ulong MtimeNsec { get; set; }
+    public ulong CtimeSec { get; set; }
+    public ulong CtimeNsec { get; set; }
+    public ulong BtimeSec { get; set; }
+    public ulong BtimeNsec { get; set; }
+    public ulong Gen { get; set; }
+    public ulong DataVersion { get; set; }
+
+    public RGetAttrDto() {}
+    public RGetAttrDto(Rgetattr r)
+    {
+        Tag = r.Tag; Valid = r.Valid; Qid = r.Qid; Mode = r.Mode; Uid = r.Uid; Gid = r.Gid;
+        Nlink = r.Nlink; Rdev = r.Rdev; DataSize = r.DataSize; BlkSize = r.BlkSize; Blocks = r.Blocks;
+        AtimeSec = r.AtimeSec; AtimeNsec = r.AtimeNsec; MtimeSec = r.MtimeSec; MtimeNsec = r.MtimeNsec;
+        CtimeSec = r.CtimeSec; CtimeNsec = r.CtimeNsec; BtimeSec = r.BtimeSec; BtimeNsec = r.BtimeNsec;
+        Gen = r.Gen; DataVersion = r.DataVersion;
     }
 }
 

@@ -6,7 +6,7 @@ using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
-public readonly struct Rsetattr : IMessage
+public readonly struct Rsetattr : ISerializable
 {
     public uint Size { get; }
     public MessageTypes Type => MessageTypes.Rsetattr;
@@ -15,6 +15,12 @@ public readonly struct Rsetattr : IMessage
     public Rsetattr(uint size, ushort tag)
     {
         Size = size;
+        Tag = tag;
+    }
+
+    public Rsetattr(ushort tag)
+    {
+        Size = NinePConstants.HeaderSize;
         Tag = tag;
     }
 

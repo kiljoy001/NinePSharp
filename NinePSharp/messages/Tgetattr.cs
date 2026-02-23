@@ -6,7 +6,7 @@ using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
-public readonly struct Tgetattr : IMessage
+public readonly struct Tgetattr : ISerializable
 {
     public uint Size { get; }
     public MessageTypes Type => MessageTypes.Tgetattr;
@@ -17,6 +17,14 @@ public readonly struct Tgetattr : IMessage
     public Tgetattr(uint size, ushort tag, uint fid, ulong requestMask)
     {
         Size = size;
+        Tag = tag;
+        Fid = fid;
+        RequestMask = requestMask;
+    }
+
+    public Tgetattr(ushort tag, uint fid, ulong requestMask)
+    {
+        Size = NinePConstants.HeaderSize + 4 + 8;
         Tag = tag;
         Fid = fid;
         RequestMask = requestMask;

@@ -2,6 +2,8 @@ using System;
 using System.Threading.Tasks;
 using Akka.Actor;
 using NinePSharp.Messages;
+using NinePSharp.Constants;
+using NinePSharp.Interfaces;
 using NinePSharp.Server.Cluster.Messages;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Cluster.Actors;
@@ -93,6 +95,26 @@ public class RemoteFileSystem : INinePFileSystem
 
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+
+    public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
+    {
+        var dto = new TGetAttrDto(tgetattr);
+        var response = await _sessionActor.Ask(dto, _timeout);
+        
+        if (response is RGetAttrDto r)
+        {
+            return new NinePSharp.Messages.Rgetattr(
+                r.Tag, r.Valid, r.Qid, r.Mode, r.Uid, r.Gid, 
+                r.Nlink, r.Rdev, r.DataSize, r.BlkSize, r.Blocks, 
+                r.AtimeSec, r.AtimeNsec, r.MtimeSec, r.MtimeNsec, 
+                r.CtimeSec, r.CtimeNsec, r.BtimeSec, r.BtimeNsec, 
+                r.Gen, r.DataVersion);
+        }
+        if (response is RErrorDto e) throw new NinePProtocolException(e.Ename);
+        throw new Exception("Unexpected response from remote actor");
+    }
+
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
 
     public INinePFileSystem Clone()
     {

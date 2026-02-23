@@ -24,10 +24,10 @@ namespace NinePSharp.Server.Utils
         public byte[] Encrypt(byte[] plaintextBytes, ReadOnlySpan<byte> key) => LuxVault.Encrypt(plaintextBytes, key);
         public byte[] Encrypt(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> keyMaterial) => LuxVault.Encrypt(plaintext, keyMaterial);
 
-        public byte[]? DecryptToBytes(byte[] payload, string password) => LuxVault.DecryptToBytes(payload, password);
-        public byte[]? DecryptToBytes(byte[] payload, SecureString password) => LuxVault.DecryptToBytes(payload, password);
+        public SecureSecret? DecryptToBytes(byte[] payload, string password) => LuxVault.DecryptToBytes(payload, password);
+        public SecureSecret? DecryptToBytes(byte[] payload, SecureString password) => LuxVault.DecryptToBytes(payload, password);
         
-        public byte[]? DecryptToBytes(byte[] payload, ReadOnlySpan<byte> key) => LuxVault.DecryptToBytes(payload, key);
+        public SecureSecret? DecryptToBytes(byte[] payload, ReadOnlySpan<byte> key) => LuxVault.DecryptToBytes(payload, key);
 
         [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
         public string? Decrypt(byte[] payload, string password) => LuxVault.Decrypt(payload, password);

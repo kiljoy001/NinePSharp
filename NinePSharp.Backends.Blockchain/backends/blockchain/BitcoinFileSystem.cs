@@ -51,7 +51,7 @@ public class BitcoinFileSystem : INinePFileSystem
         bool isDir = IsDirectory(path);
         var type = isDir ? QidType.QTDIR : QidType.QTFILE;
         var pathStr = string.Join("/", path);
-        return new Qid(type, 0, (ulong)pathStr.GetHashCode());
+        return new Qid(type, 0, DeterministicHash.GetStableHash64(pathStr));
     }
 
     public async Task<Rwalk> WalkAsync(Twalk twalk)
@@ -71,7 +71,7 @@ public class BitcoinFileSystem : INinePFileSystem
             {
                 tempPath.Add(name);
             }
-            qids.Add(new Qid(IsDirectory(tempPath) ? QidType.QTDIR : QidType.QTFILE, 0, (ulong)name.GetHashCode()));
+            qids.Add(new Qid(IsDirectory(tempPath) ? QidType.QTDIR : QidType.QTFILE, 0, DeterministicHash.GetStableHash64(string.Join("/", tempPath))));
         }
 
         if (qids.Count == twalk.Wname.Length)
@@ -259,21 +259,22 @@ public class BitcoinFileSystem : INinePFileSystem
                 if (File.Exists(vaultFile))
                 {
                     var encrypted = File.ReadAllBytes(vaultFile);
-                    var pkBytes = _vault.DecryptToBytes(encrypted, password);
+                    using var pkBytes = _vault.DecryptToBytes(encrypted, password);
                     if (pkBytes != null)
                     {
+                        if (_unlockedPrivateKey != null) Array.Clear(_unlockedPrivateKey);
+                        _unlockedPrivateKey = GC.AllocateArray<byte>(pkBytes.Length, pinned: true);
+                        pkBytes.Span.CopyTo(_unlockedPrivateKey);
+                        
+                        byte[] pkTemp = pkBytes.Span.ToArray();
                         try {
-                            if (_unlockedPrivateKey != null) Array.Clear(_unlockedPrivateKey);
-                            _unlockedPrivateKey = GC.AllocateArray<byte>(pkBytes.Length, pinned: true);
-                            pkBytes.CopyTo(_unlockedPrivateKey, 0);
-                            
-                            var key = new Key(pkBytes);
+                            var key = new Key(pkTemp);
                             _unlockedAddress = key.PubKey.GetAddress(ScriptPubKeyType.Legacy, GetNetwork()).ToString();
-                            return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                         }
                         finally {
-                            Array.Clear(pkBytes);
+                            Array.Clear(pkTemp);
                         }
+                        return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                     }
                 }
                 throw new NinePProtocolException("Wallet not found or invalid password.");
@@ -374,6 +375,41 @@ public class BitcoinFileSystem : INinePFileSystem
 
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+
+    public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
+    {
+        var name = _currentPath.LastOrDefault() ?? "bitcoin";
+        bool isDir = IsDirectory(_currentPath);
+        uint mode = 0644;
+        if (isDir) mode = (uint)NinePConstants.FileMode9P.DMDIR | 0x1ED;
+        else if (name == "send" || name == "import" || name == "create" || name == "unlock") mode = 0666;
+
+        var qid = GetQid(_currentPath);
+        
+        // We simulate some basic times
+        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        return new NinePSharp.Messages.Rgetattr(
+            tgetattr.Tag,
+            (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC,
+            qid,
+            mode,
+            1000, // uid
+            1000, // gid
+            1,    // nlink
+            0,    // rdev
+            0,    // dataSize - we could calculate this for some files
+            4096, // blkSize
+            0,    // blocks
+            now, 0, // atime
+            now, 0, // mtime
+            now, 0, // ctime
+            0, 0,   // btime
+            0, 0    // gen, data_version
+        );
+    }
+
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
 
     public INinePFileSystem Clone()
     {

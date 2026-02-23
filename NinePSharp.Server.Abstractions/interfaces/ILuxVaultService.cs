@@ -1,5 +1,6 @@
 using System;
 using System.Security;
+using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Interfaces;
 
@@ -20,9 +21,9 @@ public interface ILuxVaultService
     byte[] Encrypt(byte[] plaintextBytes, ReadOnlySpan<byte> key);
     byte[] Encrypt(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> keyMaterial);
     
-    byte[]? DecryptToBytes(byte[] payload, string password);
-    byte[]? DecryptToBytes(byte[] payload, SecureString password);
-    byte[]? DecryptToBytes(byte[] payload, ReadOnlySpan<byte> key);
+    SecureSecret? DecryptToBytes(byte[] payload, string password);
+    SecureSecret? DecryptToBytes(byte[] payload, SecureString password);
+    SecureSecret? DecryptToBytes(byte[] payload, ReadOnlySpan<byte> key);
 
     [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
     string? Decrypt(byte[] payload, string password);

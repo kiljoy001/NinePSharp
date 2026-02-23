@@ -17,7 +17,7 @@
 
   <ItemGroup>
     <PackageReference Include="CardanoSharp.Wallet" Version="5.1.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.2" />
     <PackageReference Include="NBitcoin" Version="9.0.5" />
     <PackageReference Include="Nethereum.Web3" Version="4.27.1" />
     <PackageReference Include="Solnet.Programs" Version="6.1.0" />

@@ -339,8 +339,8 @@ public class LinuxTests : TestBase
     {
         ushort tag = 1;
         uint size = NinePConstants.HeaderSize + 8 + 13 + 4 + 4 + 4 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8;
-        RoundTripTest<Rgetattr>(size, tag,
-            buffer => new Rgetattr(buffer),
+        RoundTripTest<NinePSharp.Messages.Rgetattr>(size, tag,
+            buffer => new NinePSharp.Messages.Rgetattr(buffer),
             msg => { Assert.Equal(0x3FFFu, msg.Valid); Assert.Equal(1u, msg.Mode); },
             () => {
                 var buf = new byte[size];
@@ -366,7 +366,7 @@ public class LinuxTests : TestBase
                 System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(buf.AsSpan().Slice(offset, 8), 16); offset += 8;
                 System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(buf.AsSpan().Slice(offset, 8), 17); offset += 8;
                 System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(buf.AsSpan().Slice(offset, 8), 18);
-                return new Rgetattr(buf);
+                return new NinePSharp.Messages.Rgetattr(buf);
             },
             (msg, span) => msg.WriteTo(span));
     }

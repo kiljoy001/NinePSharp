@@ -83,12 +83,12 @@ public class DatabaseFileSystem : INinePFileSystem
 
     private static Qid GetQid(IReadOnlyList<string> path)
     {
-        bool isDir = path.Count == 0;
+        bool isDir = path.Count == 0 || (path.Count == 1 && path[0] == "tables");
         string key = path.Count == 0 ? "/" : string.Join("/", path);
-        return new Qid(isDir ? QidType.QTDIR : QidType.QTFILE, 0, (ulong)key.GetHashCode());
+        return new Qid(isDir ? QidType.QTDIR : QidType.QTFILE, 0, DeterministicHash.GetStableHash64(key));
     }
 
-    private bool IsDirectory(IReadOnlyList<string> path) => path.Count == 0;
+    private bool IsDirectory(IReadOnlyList<string> path) => path.Count == 0 || (path.Count == 1 && path[0] == "tables");
 
     private bool IsKnownFile(string name)
     {
@@ -135,10 +135,17 @@ public class DatabaseFileSystem : INinePFileSystem
                 break;
             }
 
-            if (!IsKnownFile(name))
-            {
-                if (qids.Count == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>());
-                break;
+            if (tempPath.Count == 0) {
+                if (!IsKnownFile(name) && name != "tables") {
+                    if (qids.Count == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>());
+                    break;
+                }
+            } else if (tempPath.Count == 1 && tempPath[0] == "tables") {
+                // We allow walking into any name under tables/, 
+                // but validation happens during Read if it doesn't exist.
+            } else {
+                 if (qids.Count == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>());
+                 break;
             }
 
             tempPath.Add(name);
@@ -163,13 +170,21 @@ public class DatabaseFileSystem : INinePFileSystem
     {
         if (IsDirectory(_currentPath))
         {
-            byte[] listing = BuildRootListing();
+            byte[] listing;
+            if (_currentPath.Count == 1 && _currentPath[0] == "tables") {
+                listing = await BuildTablesListingAsync();
+            } else {
+                listing = BuildRootListing();
+            }
             return SliceDirectoryRead(tread, listing);
         }
 
-        string fileName = _currentPath[0];
-        bool refresh = tread.Offset == 0 || !string.Equals(_cachedFileName, fileName, StringComparison.Ordinal) || _cachedContent == null;
-        byte[] payload = await GetFilePayloadAsync(fileName, refresh);
+        string fileName = _currentPath.Last();
+        bool isTable = _currentPath.Count == 2 && _currentPath[0] == "tables";
+        string cacheKey = isTable ? $"table:{fileName}" : fileName;
+        
+        bool refresh = tread.Offset == 0 || !string.Equals(_cachedFileName, cacheKey, StringComparison.Ordinal) || _cachedContent == null;
+        byte[] payload = await GetFilePayloadAsync(fileName, refresh, isTable);
 
         if (tread.Offset >= (ulong)payload.Length)
         {
@@ -181,15 +196,25 @@ public class DatabaseFileSystem : INinePFileSystem
         return new Rread(tread.Tag, chunk);
     }
 
-    private async Task<byte[]> GetFilePayloadAsync(string fileName, bool refresh)
+    private async Task<byte[]> GetFilePayloadAsync(string fileName, bool refresh, bool isTable = false)
     {
-        if (!refresh && _cachedContent != null && string.Equals(_cachedFileName, fileName, StringComparison.Ordinal))
+        string cacheKey = isTable ? $"table:{fileName}" : fileName;
+        if (!refresh && _cachedContent != null && string.Equals(_cachedFileName, cacheKey, StringComparison.Ordinal))
         {
             return _cachedContent;
         }
 
         string content;
-        if (fileName == "status")
+        if (isTable) {
+             var tables = await _queryExecutor.GetTablesAsync();
+             if (!tables.Contains(fileName, StringComparer.OrdinalIgnoreCase))
+             {
+                 throw new NinePProtocolException($"Table '{fileName}' not found.");
+             }
+             // Use brackets for SQL Server/SQLite, but even better to be safe
+             content = await ExecuteQueryAsync($"SELECT * FROM \"{fileName.Replace("\"", "\"\"")}\"");
+        }
+        else if (fileName == "status")
         {
             content = $"Database backend ({_queryExecutor.Engine})\nConfigured queries: {_configuredQueries.Count}\nAd-hoc query: {(_config.AllowAdHocQuery ? "enabled" : "disabled")}\n";
         }
@@ -246,30 +271,52 @@ public class DatabaseFileSystem : INinePFileSystem
         }
     }
 
+    private async Task<byte[]> BuildTablesListingAsync()
+    {
+        var tables = await _queryExecutor.GetTablesAsync();
+        var data = new List<byte>();
+        foreach (var table in tables.OrderBy(t => t))
+        {
+            var stat = new Stat(
+                0, 0, 0,
+                new Qid(QidType.QTFILE, 0, (ulong)($"tables/{table}").GetHashCode()),
+                0444, 0, 0, 0, table, "scott", "scott", "scott", dotu: DotU);
+
+            var buffer = new byte[stat.Size];
+            int offset = 0;
+            stat.WriteTo(buffer, ref offset);
+            data.AddRange(buffer);
+        }
+        return data.ToArray();
+    }
+
     private byte[] BuildRootListing()
     {
-        var entries = new List<(string Name, bool Writable)>();
+        var entries = new List<(string Name, bool Writable, bool IsDir)>();
         foreach (var query in _configuredQueries.Values.OrderBy(q => q.Name, StringComparer.Ordinal))
         {
-            entries.Add((query.Name, query.Writable));
+            entries.Add((query.Name, query.Writable, false));
         }
 
         if (_config.AllowAdHocQuery)
         {
-            entries.Add(("query", true));
+            entries.Add(("query", true, false));
         }
 
-        entries.Add(("status", false));
+        entries.Add(("tables", false, true));
+        entries.Add(("status", false, false));
 
         var data = new List<byte>();
         foreach (var entry in entries)
         {
             uint mode = entry.Writable ? 0x1B6u : 0x124u; // 0666 or 0444
+            if (entry.IsDir) mode = (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu;
+            
             var stat = new Stat(
                 0,
                 0,
                 0,
-                new Qid(QidType.QTFILE, 0, (ulong)entry.Name.GetHashCode()),
+                new Qid(entry.IsDir ? QidType.QTDIR : QidType.QTFILE, 0, (ulong)entry.Name.GetHashCode()),
                 mode,
                 0,
                 0,
@@ -377,8 +424,24 @@ public class DatabaseFileSystem : INinePFileSystem
         return Task.FromResult(new Rstat(tstat.Tag, stat));
     }
 
-    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
-    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException("Database backend is read-only.");
+    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException("Database backend is read-only.");
+
+    public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
+    {
+        bool isDir = IsDirectory(_currentPath);
+        string name = isDir ? "database" : _currentPath.Last();
+        uint mode = isDir
+            ? (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu
+            : (IsWritableFile(name) ? 0x1B6u : 0x124u);
+
+        var qid = GetQid(_currentPath);
+        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        return new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode);
+    }
+
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException("Database backend is read-only.");
 
     public INinePFileSystem Clone()
     {

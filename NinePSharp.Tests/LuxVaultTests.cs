@@ -61,9 +61,10 @@ namespace NinePSharp.Tests
             var password = "super_secret";
 
             var encrypted = LuxVault.Encrypt(secretData, password);
-            var decrypted = LuxVault.DecryptToBytes(encrypted, password);
+            using var decrypted = LuxVault.DecryptToBytes(encrypted, password);
 
-            Assert.Equal(secretData, decrypted);
+            Assert.NotNull(decrypted);
+            Assert.Equal(secretData, decrypted.Span.ToArray());
         }
 
         [Fact]

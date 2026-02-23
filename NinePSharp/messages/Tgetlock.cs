@@ -6,7 +6,7 @@ using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
-public readonly struct Tgetlock : IMessage
+public readonly struct Tgetlock : ISerializable
 {
     public uint Size { get; }
     public MessageTypes Type => MessageTypes.Tgetlock;

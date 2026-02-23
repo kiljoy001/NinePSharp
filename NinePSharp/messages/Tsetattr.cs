@@ -6,7 +6,7 @@ using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
-public readonly struct Tsetattr : IMessage
+public readonly struct Tsetattr : ISerializable
 {
     public uint Size { get; }
     public MessageTypes Type => MessageTypes.Tsetattr;

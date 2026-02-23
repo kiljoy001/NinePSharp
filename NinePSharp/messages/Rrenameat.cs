@@ -6,7 +6,7 @@ using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
-public readonly struct Rrenameat : IMessage
+public readonly struct Rrenameat : ISerializable
 {
     public uint Size { get; }
     public MessageTypes Type => MessageTypes.Rrenameat;

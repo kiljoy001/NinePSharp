@@ -66,14 +66,12 @@ public class JsonRpcBackend : IProtocolBackend
                 var raw = File.ReadAllBytes(vaultFile);
                 var storedBytes = _vault.DecryptToBytes(raw, _config.VaultKey);
                 if (storedBytes != null) {
-                    try {
-                        var stored = Encoding.UTF8.GetString(storedBytes);
+                    using (storedBytes)
+                    {
+                        var stored = System.Text.Encoding.UTF8.GetString(storedBytes.Span);
                         var parts = stored.Split(':', 2);
                         user = parts[0];
                         password = parts.Length == 2 ? parts[1] : string.Empty;
-                    }
-                    finally {
-                        Array.Clear(storedBytes);
                     }
                 }
             }

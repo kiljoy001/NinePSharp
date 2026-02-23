@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace NinePSharp.Server.Utils;
 
-internal static partial class NativeMethods
+public static partial class NativeMethods
 {
     private const string LibC = "libc";
     private const string Kernel32 = "kernel32.dll";
