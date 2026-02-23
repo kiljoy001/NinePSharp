@@ -1,3 +1,4 @@
+using System.Security.Cryptography.X509Certificates;
 using System;
 using System.Security;
 using System.Text;
@@ -46,9 +47,9 @@ public class AzureBackend : IProtocolBackend
         }
     }
 
-    public INinePFileSystem GetFileSystem() => new AzureCloudFileSystem(_config!, _blobClient!, _secretClient!, _vault);
+    public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null) => new AzureCloudFileSystem(_config!, _blobClient!, _secretClient!, _vault);
 
-    public INinePFileSystem GetFileSystem(SecureString? credentials)
+    public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null)
     {
         var (blobs, secrets) = CreateClients(credentials);
         return new AzureCloudFileSystem(_config!, blobs, secrets, _vault);

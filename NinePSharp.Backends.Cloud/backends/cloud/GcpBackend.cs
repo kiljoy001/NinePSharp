@@ -1,3 +1,4 @@
+using System.Security.Cryptography.X509Certificates;
 using System;
 using System.Security;
 using System.Text;
@@ -44,9 +45,9 @@ public class GcpBackend : IProtocolBackend
         }
     }
 
-    public INinePFileSystem GetFileSystem() => new GcpCloudFileSystem(_config!, _storageClient!, _secretsClient!, _vault);
+    public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null) => new GcpCloudFileSystem(_config!, _storageClient!, _secretsClient!, _vault);
 
-    public INinePFileSystem GetFileSystem(SecureString? credentials)
+    public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null)
     {
         var (storage, secrets) = CreateClients(credentials);
         return new GcpCloudFileSystem(_config!, storage, secrets, _vault);

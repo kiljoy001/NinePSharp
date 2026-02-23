@@ -1,4 +1,5 @@
 using System.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 
@@ -31,10 +32,10 @@ public interface IProtocolBackend
     /// Credentials are whatever the client wrote to the auth fid (e.g. "user:password", an API token, etc.)
     /// If null, fall back to credentials from config.
     /// </summary>
-    INinePFileSystem GetFileSystem(SecureString? credentials);
+    INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null);
 
     /// <summary>
     /// Returns the 9P file system implementation using config-based credentials.
     /// </summary>
-    INinePFileSystem GetFileSystem();
+    INinePFileSystem GetFileSystem(X509Certificate2? certificate = null);
 }

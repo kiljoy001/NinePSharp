@@ -1,5 +1,5 @@
-using System;
 using System.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using NinePSharp.Server.Interfaces;
@@ -25,6 +25,6 @@ public class MockBackend : IProtocolBackend
         return Task.CompletedTask;
     }
 
-    public INinePFileSystem GetFileSystem() => new MockFileSystem(_vault);
-    public INinePFileSystem GetFileSystem(SecureString? credentials) => GetFileSystem();
+    public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null) => new MockFileSystem(_vault);
+    public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null) => GetFileSystem(certificate);
 }

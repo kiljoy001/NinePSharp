@@ -11,12 +11,15 @@ using NinePSharp.Server.Backends.REST;
 using NinePSharp.Server.Backends.gRPC;
 using NinePSharp.Server.Backends.SOAP;
 using NinePSharp.Server.Backends.Websockets;
+using NinePSharp.Backends.Compute;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
 using NinePSharp.Messages;
 using Moq;
 using Moq.Protected;
+using System.Linq;
+using System.Net;
 
 namespace NinePSharp.Fuzzer
 {
@@ -48,6 +51,10 @@ namespace NinePSharp.Fuzzer
             {
                 FuzzWebsocket();
             }
+            else if (args.Length > 0 && args[0] == "compute")
+            {
+                FuzzCompute();
+            }
             else if (args.Length > 0 && (args[0] == "blockchain" || args[0] == "chain"))
             {
                 FuzzBlockchain();
@@ -69,6 +76,28 @@ namespace NinePSharp.Fuzzer
                         stream.CopyTo(ms);
                         var data = ms.ToArray();
                         NinePSharp.Parser.NinePParser.parse(true, data.AsMemory());
+                    }
+                }
+                catch (Exception) { }
+            });
+        }
+
+        private static void FuzzCompute()
+        {
+            var config = new ComputeBackendConfig { MountPath = "/compute" };
+            SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
+            {
+                var fs = new ComputeFileSystem(config);
+                try
+                {
+                    using (var ms = new MemoryStream())
+                    {
+                        stream.CopyTo(ms);
+                        var data = ms.ToArray();
+                        var text = System.Text.Encoding.UTF8.GetString(data);
+                        var parts = text.Split(new[] { '/', '\n', ' ', ':' }, StringSplitOptions.RemoveEmptyEntries);
+                        fs.WalkAsync(new Twalk(1, 0, 1, parts)).Wait();
+                        fs.WriteAsync(new Twrite(1, 1, 0, data)).Wait();
                     }
                 }
                 catch (Exception) { }
@@ -146,8 +175,6 @@ namespace NinePSharp.Fuzzer
             
             SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
             {
-                // Note: Full DB fuzzing would need to shim the factory, 
-                // here we fuzz the 9P logic layer.
                 var fs = new DatabaseFileSystem(config, vault);
                 try
                 {
@@ -287,10 +314,9 @@ namespace NinePSharp.Fuzzer
         private static void FuzzBlockchain()
         {
             var vault = new LuxVaultService();
-            var ethWeb3Mock = new Mock<Nethereum.Web3.IWeb3>();
 
             INinePFileSystem NewBitcoin() => new BitcoinFileSystem(new BitcoinBackendConfig { Network = "Main" }, null, vault);
-            INinePFileSystem NewEthereum() => new EthereumFileSystem(new EthereumBackendConfig { RpcUrl = "http://localhost" }, ethWeb3Mock.Object, vault);
+            INinePFileSystem NewEthereum() => new EthereumFileSystem(new EthereumBackendConfig { RpcUrl = "http://localhost" }, null!, vault);
             INinePFileSystem NewSolana() => new SolanaFileSystem(new SolanaBackendConfig(), null, vault);
             INinePFileSystem NewStellar() => new StellarFileSystem(new StellarBackendConfig(), null, vault);
             INinePFileSystem NewCardano() => new CardanoFileSystem(new CardanoBackendConfig(), vault);

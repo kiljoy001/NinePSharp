@@ -192,6 +192,102 @@ internal class RootFileSystem : INinePFileSystem
 
     public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => _delegatedFs?.SetAttrAsync(tsetattr) ?? throw new NotSupportedException();
 
+    public Task<Rstatfs> StatfsAsync(Tstatfs tstatfs)
+    {
+        if (_delegatedFs != null) return _delegatedFs.StatfsAsync(tstatfs);
+        
+        // Return dummy file system statistics for the root.
+        // Block size 4096, 1,000,000 blocks total, 500,000 free.
+        return Task.FromResult(new NinePSharp.Messages.Rstatfs(tstatfs.Tag, 0x01021997, 4096, 1000000, 500000, 500000, 1000, 500, 0, 256));
+    }
+
+    public async Task<Rreaddir> ReaddirAsync(Treaddir treaddir)
+    {
+        if (_delegatedFs != null) return await _delegatedFs.ReaddirAsync(treaddir);
+
+        var mountNames = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var backend in _backends)
+        {
+            var name = backend.MountPath.Trim('/');
+            if (string.IsNullOrEmpty(name)) continue;
+            mountNames.Add(name);
+        }
+
+        if (_clusterManager?.Registry != null)
+        {
+            try
+            {
+                var response = await _clusterManager.Registry.Ask<object>(new GetBackends(), _clusterTimeout);
+                if (response is BackendsSnapshot snapshot)
+                {
+                    foreach (var mountPath in snapshot.MountPaths)
+                    {
+                        var name = mountPath.Trim('/');
+                        if (string.IsNullOrEmpty(name)) continue;
+                        mountNames.Add(name);
+                    }
+                }
+            }
+            catch
+            {
+                // Best-effort federation listing; root should still serve local mounts.
+            }
+        }
+
+        var entries = new List<byte>();
+        ulong currentCountOffset = 0;
+
+        foreach (var name in mountNames.OrderBy(n => n, StringComparer.Ordinal))
+        {
+            currentCountOffset++;
+            // 9P2000.L Readdir returns [qid[13] offset[8] type[1] name[s]]
+            var qid = new Qid(QidType.QTDIR, 0, (ulong)name.GetHashCode());
+            
+            // Calculate size: qid(13) + offset(8) + type(1) + name string (2 + len)
+            int nameLen = System.Text.Encoding.UTF8.GetByteCount(name);
+            int entrySize = 13 + 8 + 1 + 2 + nameLen;
+            var entryBuffer = new byte[entrySize];
+            
+            int writeOffset = 0;
+            // Write Qid
+            entryBuffer[writeOffset++] = (byte)qid.Type;
+            BinaryPrimitives.WriteUInt32LittleEndian(entryBuffer.AsSpan(writeOffset, 4), qid.Version); writeOffset += 4;
+            BinaryPrimitives.WriteUInt64LittleEndian(entryBuffer.AsSpan(writeOffset, 8), qid.Path); writeOffset += 8;
+            
+            // Write Offset (the offset for the NEXT read to start at)
+            BinaryPrimitives.WriteUInt64LittleEndian(entryBuffer.AsSpan(writeOffset, 8), currentCountOffset); writeOffset += 8;
+            
+            // Write Type
+            entryBuffer[writeOffset++] = (byte)qid.Type;
+            
+            // Write Name
+            BinaryPrimitives.WriteUInt16LittleEndian(entryBuffer.AsSpan(writeOffset, 2), (ushort)nameLen); writeOffset += 2;
+            System.Text.Encoding.UTF8.GetBytes(name).CopyTo(entryBuffer.AsSpan(writeOffset, nameLen));
+            writeOffset += nameLen;
+            
+            entries.AddRange(entryBuffer);
+        }
+
+        var allData = entries.ToArray();
+        
+        // Note: 9P2000.L Readdir uses an abstract 'offset'. Our offset happens to be identical to the array index of the entries list.
+        // We will just return the block of entries starting from the requested offset index.
+        // For simplicity in this dummy root FS, if offset > 0, we'll try to slice chunks.
+        
+        if (treaddir.Offset == 0)
+        {
+             var chunk = allData.AsSpan(0, (int)Math.Min((long)treaddir.Count, (long)allData.Length)).ToArray();
+             return new Rreaddir((uint)(chunk.Length + NinePConstants.HeaderSize + 4), treaddir.Tag, (uint)chunk.Length, chunk);
+        }
+        else
+        {
+            // If offset > 0, we'd need to parse our generated list to find the element.
+            // Since Root FS is so small, we can re-generate it every time, but here we just return empty for subsequent reads for simplicity,
+            // assuming the first read (offset 0) fetched all mounts (they fit in a standard 8k buffer easily).
+            return new Rreaddir(NinePConstants.HeaderSize + 4, treaddir.Tag, 0, Array.Empty<byte>());
+        }
+    }
     public INinePFileSystem Clone()
     {
         var clone = new RootFileSystem(_backends, _clusterManager) { DotU = this.DotU };

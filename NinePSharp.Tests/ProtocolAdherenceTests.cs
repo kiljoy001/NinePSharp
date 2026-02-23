@@ -35,9 +35,9 @@ namespace NinePSharp.Tests
         public async Task Walk_Clone_Preserves_Path_State()
         {
             var config = new EthereumBackendConfig { MountPath = "/eth", RpcUrl = "http://localhost" };
-            var mockWeb3 = new Mock<Nethereum.Web3.IWeb3>();
+            var mockRpc = new Mock<JsonRpcClient>(new HttpClient(), config.RpcUrl, null, null);
             var mockVault = new Mock<ILuxVaultService>();
-            var fs = new EthereumFileSystem(config, mockWeb3.Object, mockVault.Object);
+            var fs = new EthereumFileSystem(config, mockRpc.Object, mockVault.Object);
 
             await fs.WalkAsync(new Twalk((ushort)1, 1u, 2u, new[] { "wallets" }));
             var clonedFs = fs.Clone();
@@ -46,8 +46,8 @@ namespace NinePSharp.Tests
             var rread = await clonedFs.ReadAsync(tread);
             
             var stats = ParseDir(rread.Data.ToArray());
-            Assert.Contains(stats, s => s.Name == "create");
-            Assert.Contains(stats, s => s.Name == "unlock");
+            Assert.Contains(stats, s => s.Name == "use");
+            Assert.Contains(stats, s => s.Name == "status");
         }
 
         [Fact]

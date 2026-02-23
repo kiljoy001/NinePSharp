@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using NinePSharp.Server.Configuration.Models;
+using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Configuration.Models;
 
@@ -27,6 +28,7 @@ public class ServerConfig
     public AwsBackendConfig? Aws { get; set; }
     public AzureBackendConfig? Azure { get; set; }
     public GcpBackendConfig? Gcp { get; set; }
+    public EmercoinConfig? Emercoin { get; set; }
 }
 
 public class AkkaConfig

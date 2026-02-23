@@ -4,10 +4,9 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
-using NBitcoin;
-using NBitcoin.RPC;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
 using NinePSharp.Constants;
@@ -20,29 +19,47 @@ namespace NinePSharp.Server.Backends;
 public class BitcoinFileSystem : INinePFileSystem
 {
     private readonly BitcoinBackendConfig _config;
-    private readonly RPCClient? _rpcClient;
+    private readonly JsonRpcClient? _rpcClient;
     private readonly ILuxVaultService _vault;
+    private readonly IEmercoinAuthService? _authService;
+    private readonly X509Certificate2? _certificate;
     private List<string> _currentPath = new();
     
-    private byte[]? _unlockedPrivateKey;
-    private string? _unlockedAddress;
+    private string? _proxyAccount; 
     private decimal _mockBalanceBtc = 1.00000000m;
     private List<string> _mockTransactions = new();
     private long _mockTxCounter;
 
     public bool DotU { get; set; }
 
-    public BitcoinFileSystem(BitcoinBackendConfig config, RPCClient? rpcClient, ILuxVaultService vault)
+    public BitcoinFileSystem(BitcoinBackendConfig config, JsonRpcClient? rpcClient, ILuxVaultService vault, IEmercoinAuthService? authService = null, X509Certificate2? certificate = null)
     {
         _config = config;
         _rpcClient = rpcClient;
         _vault = vault;
+        _authService = authService;
+        _certificate = certificate;
+    }
+
+    private async Task EnsureAuthorizedAsync()
+    {
+        if (_authService == null) return;
+        if (_certificate == null) throw new NinePProtocolException("Connection must be secured with a client certificate.");
+        if (!await _authService.IsCertificateAuthorizedAsync(_certificate))
+            throw new NinePProtocolException("Certificate is not authorized in Emercoin NVS.");
+    }
+
+    private void EnsureMethodAllowed(string method)
+    {
+        if (_config.AllowedMethods == null || _config.AllowedMethods.Count == 0) return;
+        if (!_config.AllowedMethods.Contains(method))
+            throw new NinePProtocolException($"RPC method '{method}' is not allowed.");
     }
 
     private bool IsDirectory(List<string> path)
     {
         if (path.Count == 0) return true;
-        if (path[0] == "wallets" && path.Count == 1) return true;
+        if (path[0] == "wallets") return path.Count == 1;
         return false;
     }
 
@@ -86,6 +103,7 @@ public class BitcoinFileSystem : INinePFileSystem
 
     public async Task<Rread> ReadAsync(Tread tread)
     {
+        await EnsureAuthorizedAsync();
         byte[] allData;
 
         if (IsDirectory(_currentPath))
@@ -104,16 +122,15 @@ public class BitcoinFileSystem : INinePFileSystem
             }
             else if (_currentPath[0] == "wallets")
             {
-                files.Add(("create", QidType.QTFILE));
-                files.Add(("import", QidType.QTFILE));
-                files.Add(("unlock", QidType.QTFILE));
+                files.Add(("use", QidType.QTFILE));
+                files.Add(("status", QidType.QTFILE));
             }
 
             foreach (var f in files)
             {
                 var qid = new Qid(f.Type, 0, (ulong)f.Name.GetHashCode());
                 var mode = f.Type == QidType.QTDIR ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0644;
-                if (f.Name == "create" || f.Name == "import" || f.Name == "unlock" || f.Name == "send") mode = 0666;
+                if (f.Name == "use" || f.Name == "send") mode = 0666;
                 
                 var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott");
                 
@@ -129,23 +146,24 @@ public class BitcoinFileSystem : INinePFileSystem
             string result = "";
             switch (_currentPath.Last().ToLowerInvariant())
             {
-                case "unlock":
-                    result = _unlockedAddress != null ? $"Unlocked: {_unlockedAddress}\n" : "Locked\n";
+                case "use":
+                    result = _proxyAccount != null ? $"Active: {_proxyAccount}\n" : "None\n";
                     break;
                 case "balance":
                     if (_rpcClient != null) {
                         try {
-                            var bal = await _rpcClient.GetBalanceAsync();
-                            result = bal.ToString() + " BTC (Live)\n";
+                            EnsureMethodAllowed("getbalance");
+                            var bal = await _rpcClient.CallAsync("getbalance");
+                            result = bal?.ToString() + " BTC (Live)\n";
                         } catch (Exception ex) { result = $"Error: {ex.Message}\n"; }
                     }
                     else result = $"{_mockBalanceBtc.ToString("0.00000000", CultureInfo.InvariantCulture)} BTC (Mock)\n";
                     break;
                 case "address":
-                    result = _unlockedAddress ?? "No wallet unlocked.\n";
+                    result = _proxyAccount ?? "No proxy account selected.\n";
                     break;
                 case "status":
-                    result = $"Network: {GetNetwork()}\nRPC: {_config.RpcUrl ?? "N/A"}\nAddress: {_unlockedAddress ?? "None"}\nTrackedTx: {_mockTransactions.Count}\nMode: {(_rpcClient != null ? "Live" : "Mock")}\n";
+                    result = $"Network: {_config.Network}\nRPC: {_config.RpcUrl ?? "N/A"}\nActiveAccount: {_proxyAccount ?? "None"}\nTrackedTx: {_mockTransactions.Count}\nMode: {(_rpcClient != null ? "Live" : "Mock")}\n";
                     break;
                 case "transactions":
                     result = _mockTransactions.Count == 0
@@ -163,139 +181,36 @@ public class BitcoinFileSystem : INinePFileSystem
 
     public async Task<Rwrite> WriteAsync(Twrite twrite)
     {
+        await EnsureAuthorizedAsync();
         if (_currentPath.Count == 2 && _currentPath[0] == "wallets")
         {
-            if (_currentPath[1] == "create")
+            if (_currentPath[1] == "use")
             {
                 var bytes = twrite.Data.Span;
-                if (bytes.Length == 0) throw new NinePProtocolException("Password is required for wallet creation.");
-
-                using var password = new SecureString();
-                char[] chars = GC.AllocateArray<char>(Encoding.UTF8.GetCharCount(bytes), pinned: true);
-                try {
-                    Encoding.UTF8.GetChars(bytes, chars);
-                    foreach (char c in chars) if (c != '\n' && c != '\r') password.AppendChar(c);
-                }
-                finally {
-                    Array.Clear(chars);
-                }
-                password.MakeReadOnly();
-
-                var key = new Key(); // Bitcoin Private Key
-                byte[] pkBytes = key.ToBytes();
-                
-                try {
-                    var ciphertext = _vault.Encrypt(pkBytes, password);
-                    byte[] idSalt = Encoding.UTF8.GetBytes("Bitcoin_Vault_ID_Salt_v1");
-                    var seed = _vault.DeriveSeed(password, idSalt);
-                    var hiddenId = _vault.GenerateHiddenId(seed);
-                    
-                    File.WriteAllBytes(_vault.GetVaultPath($"btc_vault_{hiddenId}.vlt"), ciphertext);
-                }
-                finally {
-                    Array.Clear(pkBytes);
-                }
+                if (bytes.Length == 0) throw new NinePProtocolException("Account name/address required.");
+                _proxyAccount = Encoding.UTF8.GetString(bytes).Trim();
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
-            }
-            else if (_currentPath[1] == "import")
-            {
-                // Format: password:wif
-                var bytes = twrite.Data.Span;
-                char[] chars = GC.AllocateArray<char>(Encoding.UTF8.GetCharCount(bytes), pinned: true);
-                try {
-                    Encoding.UTF8.GetChars(bytes, chars);
-                    string fullStr = new string(chars).Trim();
-                    var parts = fullStr.Split(':', 2);
-                    if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0])) 
-                        throw new NinePProtocolException("Invalid format or missing password. Use 'password:wif'");
-
-                    using var password = new SecureString();
-                    foreach (char c in parts[0]) password.AppendChar(c);
-                    password.MakeReadOnly();
-
-                    var wif = parts[1];
-                    try {
-                        var key = Key.Parse(wif, GetNetwork());
-                        byte[] pkBytes = key.ToBytes();
-                        try {
-                            var ciphertext = _vault.Encrypt(pkBytes, password);
-                            byte[] idSalt = Encoding.UTF8.GetBytes("Bitcoin_Vault_ID_Salt_v1");
-                            var seed = _vault.DeriveSeed(password, idSalt);
-                            var hiddenId = _vault.GenerateHiddenId(seed);
-                            
-                            File.WriteAllBytes(_vault.GetVaultPath($"btc_vault_{hiddenId}.vlt"), ciphertext);
-                        }
-                        finally {
-                            Array.Clear(pkBytes);
-                        }
-                    } catch { throw new NinePProtocolException("Invalid WIF."); }
-                }
-                finally {
-                    Array.Clear(chars);
-                }
-                return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
-            }
-            else if (_currentPath[1] == "unlock")
-            {
-                var bytes = twrite.Data.Span;
-                if (bytes.Length == 0) throw new NinePProtocolException("Password is required to unlock wallet.");
-
-                using var password = new SecureString();
-                char[] chars = GC.AllocateArray<char>(Encoding.UTF8.GetCharCount(bytes), pinned: true);
-                try {
-                    Encoding.UTF8.GetChars(bytes, chars);
-                    foreach (char c in chars) if (c != '\n' && c != '\r') password.AppendChar(c);
-                }
-                finally {
-                    Array.Clear(chars);
-                }
-                password.MakeReadOnly();
-
-                byte[] idSalt = Encoding.UTF8.GetBytes("Bitcoin_Vault_ID_Salt_v1");
-                var seed = _vault.DeriveSeed(password, idSalt);
-                var hiddenId = _vault.GenerateHiddenId(seed);
-                var vaultFile = _vault.GetVaultPath($"btc_vault_{hiddenId}.vlt");
-
-                if (File.Exists(vaultFile))
-                {
-                    var encrypted = File.ReadAllBytes(vaultFile);
-                    using var pkBytes = _vault.DecryptToBytes(encrypted, password);
-                    if (pkBytes != null)
-                    {
-                        if (_unlockedPrivateKey != null) Array.Clear(_unlockedPrivateKey);
-                        _unlockedPrivateKey = GC.AllocateArray<byte>(pkBytes.Length, pinned: true);
-                        pkBytes.Span.CopyTo(_unlockedPrivateKey);
-                        
-                        byte[] pkTemp = pkBytes.Span.ToArray();
-                        try {
-                            var key = new Key(pkTemp);
-                            _unlockedAddress = key.PubKey.GetAddress(ScriptPubKeyType.Legacy, GetNetwork()).ToString();
-                        }
-                        finally {
-                            Array.Clear(pkTemp);
-                        }
-                        return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
-                    }
-                }
-                throw new NinePProtocolException("Wallet not found or invalid password.");
             }
         }
 
         if (_currentPath.Count == 1 && _currentPath[0] == "send")
         {
-            if (_unlockedPrivateKey == null || string.IsNullOrEmpty(_unlockedAddress))
+            if (_proxyAccount == null && _rpcClient != null)
             {
-                throw new InvalidOperationException("Wallet not unlocked. Write password to /wallets/unlock first.");
+                throw new InvalidOperationException("No proxy account selected. Write name to /wallets/use first.");
             }
 
             var transfer = ParseTransferCommand(twrite.Data, "address:amount");
             if (_rpcClient != null)
             {
-                var txHash = await SendLiveTransferAsync(transfer.To, transfer.Amount);
+                EnsureMethodAllowed("sendtoaddress");
+                // Bitcoin RPC sendtoaddress usually takes [address, amount]
+                var txHashNode = await _rpcClient.CallAsync("sendtoaddress", new object[] { transfer.To, transfer.Amount });
+                var txHash = txHashNode?.ToString() ?? "unknown";
                 _mockTxCounter++;
                 _mockTransactions.Insert(
                     0,
-                    $"{txHash} to={transfer.To} amount={transfer.Amount.ToString("0.########", CultureInfo.InvariantCulture)} status=submitted");
+                    $"{txHash} to={transfer.To} amount={transfer.Amount.ToString("0.00000000", CultureInfo.InvariantCulture)} status=submitted");
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
 
@@ -308,7 +223,7 @@ public class BitcoinFileSystem : INinePFileSystem
             _mockTxCounter++;
             _mockTransactions.Insert(
                 0,
-                $"btc-mock-{_mockTxCounter:D6} to={transfer.To} amount={transfer.Amount.ToString("0.########", CultureInfo.InvariantCulture)} status=confirmed");
+                $"btc-mock-{_mockTxCounter:D6} to={transfer.To} amount={transfer.Amount.ToString("0.00000000", CultureInfo.InvariantCulture)} status=confirmed");
             return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
         }
         
@@ -332,33 +247,6 @@ public class BitcoinFileSystem : INinePFileSystem
         return (parts[0], amount);
     }
 
-    private async Task<string> SendLiveTransferAsync(string destination, decimal amountBtc)
-    {
-        if (_rpcClient == null)
-        {
-            throw new NinePProtocolException("Bitcoin RPC client is not configured.");
-        }
-
-        try
-        {
-            var address = BitcoinAddress.Create(destination, GetNetwork());
-            var money = Money.Coins(amountBtc);
-            var txId = await _rpcClient.SendToAddressAsync(address, money, System.Threading.CancellationToken.None);
-            return txId.ToString();
-        }
-        catch (Exception ex)
-        {
-            throw new NinePProtocolException($"Bitcoin transfer failed: {ex.Message}");
-        }
-    }
-
-    private Network GetNetwork() => _config.Network.ToLower() switch
-    {
-        "testnet" => Network.TestNet,
-        "regtest" => Network.RegTest,
-        _ => Network.Main
-    };
-
     public async Task<Rclunk> ClunkAsync(Tclunk tclunk) => new Rclunk(tclunk.Tag);
 
     public async Task<Rstat> StatAsync(Tstat tstat)
@@ -367,7 +255,7 @@ public class BitcoinFileSystem : INinePFileSystem
         bool isDir = IsDirectory(_currentPath);
         uint mode = 0644;
         if (isDir) mode = (uint)NinePConstants.FileMode9P.DMDIR | 0x1ED;
-        else if (name == "send" || name == "import" || name == "create" || name == "unlock") mode = 0666;
+        else if (name == "send" || name == "use") mode = 0666;
 
         var stat = new Stat(0, 0, 0, GetQid(_currentPath), mode, 0, 0, 0, name, "scott", "scott", "scott");
         return new Rstat(tstat.Tag, stat);
@@ -382,11 +270,9 @@ public class BitcoinFileSystem : INinePFileSystem
         bool isDir = IsDirectory(_currentPath);
         uint mode = 0644;
         if (isDir) mode = (uint)NinePConstants.FileMode9P.DMDIR | 0x1ED;
-        else if (name == "send" || name == "import" || name == "create" || name == "unlock") mode = 0666;
+        else if (name == "send" || name == "use") mode = 0666;
 
         var qid = GetQid(_currentPath);
-        
-        // We simulate some basic times
         ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
         return new NinePSharp.Messages.Rgetattr(
@@ -394,18 +280,7 @@ public class BitcoinFileSystem : INinePFileSystem
             (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC,
             qid,
             mode,
-            1000, // uid
-            1000, // gid
-            1,    // nlink
-            0,    // rdev
-            0,    // dataSize - we could calculate this for some files
-            4096, // blkSize
-            0,    // blocks
-            now, 0, // atime
-            now, 0, // mtime
-            now, 0, // ctime
-            0, 0,   // btime
-            0, 0    // gen, data_version
+            1000, 1000, 1, 0, 0, 4096, 0, now, 0, now, 0, now, 0, 0, 0, 0, 0
         );
     }
 
@@ -413,17 +288,13 @@ public class BitcoinFileSystem : INinePFileSystem
 
     public INinePFileSystem Clone()
     {
-        var clone = new BitcoinFileSystem(_config, _rpcClient, _vault);
+        var clone = new BitcoinFileSystem(_config, _rpcClient, _vault, _authService, _certificate);
         clone._currentPath = new List<string>(_currentPath);
-        if (_unlockedPrivateKey != null)
-        {
-            clone._unlockedPrivateKey = GC.AllocateArray<byte>(_unlockedPrivateKey.Length, pinned: true);
-            _unlockedPrivateKey.CopyTo(clone._unlockedPrivateKey, 0);
-        }
-        clone._unlockedAddress = _unlockedAddress;
+        clone._proxyAccount = _proxyAccount;
         clone._mockBalanceBtc = _mockBalanceBtc;
         clone._mockTransactions = new List<string>(_mockTransactions);
         clone._mockTxCounter = _mockTxCounter;
+        clone.DotU = DotU;
         return clone;
     }
 }

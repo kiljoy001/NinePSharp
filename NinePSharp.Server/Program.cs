@@ -118,11 +118,24 @@ public class Program
                 if (serverConfig.Azure != null) services.AddSingleton(serverConfig.Azure);
                 if (serverConfig.Gcp != null) services.AddSingleton(serverConfig.Gcp);
                 if (serverConfig.Websocket != null) services.AddSingleton(serverConfig.Websocket);
+                if (serverConfig.Emercoin != null) 
+                {
+                    services.AddSingleton(serverConfig.Emercoin);
+                    services.Configure<EmercoinConfig>(hostContext.Configuration.GetSection("Server:Emercoin"));
+                }
                 services.AddSingleton<SrvBackend>();
+
+                services.AddHttpClient();
+                services.AddSingleton<IEmercoinNvsClient, EmercoinNvsClient>();
+                services.AddSingleton<IEmercoinAuthService, EmercoinAuthService>();
 
                 services.AddSingleton<IClusterManager, ClusterManager>();
                 services.AddSingleton<ILuxVaultService, LuxVaultService>();
                 services.AddSingleton<IParser, ConfigParser>();
+                
+                services.AddHttpClient();
+                services.AddSingleton<IEmercoinNvsClient, EmercoinNvsClient>();
+                services.AddSingleton<IEmercoinAuthService, EmercoinAuthService>();
                 
                 if (serverConfig.Database != null) services.AddSingleton<IProtocolBackend, DatabaseBackend>();
                 if (serverConfig.Ethereum != null) services.AddSingleton<IProtocolBackend, EthereumBackend>();

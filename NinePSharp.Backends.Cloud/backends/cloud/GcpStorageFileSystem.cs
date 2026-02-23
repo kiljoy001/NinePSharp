@@ -152,13 +152,30 @@ public class GcpStorageFileSystem : INinePFileSystem
     }
 
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
-    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+    public async Task<Rremove> RemoveAsync(Tremove tremove)
+    {
+        if (_currentPath.Count == 0) throw new NinePProtocolException("Cannot remove root.");
+        
+        var bucketName = _currentPath[0];
+        if (_currentPath.Count == 1)
+        {
+            await _storageClient.DeleteBucketAsync(bucketName);
+        }
+        else
+        {
+            var objectName = string.Join("/", _currentPath.Skip(1));
+            await _storageClient.DeleteObjectAsync(bucketName, objectName);
+        }
+        
+        return new Rremove(tremove.Tag);
+    }
 
     public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
     {
-        var qid = new Qid(QidType.QTDIR, 0, 0);
-        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu));
+        bool isDir = IsDirectory(_currentPath);
+        var qid = GetQid(_currentPath);
+        uint mode = isDir ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0644;
+        return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode));
     }
 
     public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();

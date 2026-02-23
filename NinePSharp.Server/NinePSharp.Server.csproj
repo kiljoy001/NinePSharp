@@ -13,6 +13,8 @@
     <ProjectReference Include="..\NinePSharp.Backends.Soap\NinePSharp.Backends.Soap.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.Grpc\NinePSharp.Backends.Grpc.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.Blockchain\NinePSharp.Backends.Blockchain.csproj" />
+    <ProjectReference Include="..\NinePSharp.Backends.Compute\NinePSharp.Backends.Compute.csproj" />
+    <ProjectReference Include="..\NinePSharp.Backends.PowerShell\NinePSharp.Backends.PowerShell.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -42,6 +44,7 @@
     <PackageReference Include="Akka.Remote" Version="1.5.60" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.2" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="9.0.2" />
   </ItemGroup>
 </Project>

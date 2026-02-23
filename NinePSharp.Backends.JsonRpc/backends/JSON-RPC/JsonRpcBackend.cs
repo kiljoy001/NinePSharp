@@ -1,3 +1,4 @@
+using System.Security.Cryptography.X509Certificates;
 using System;
 using System.IO;
 using System.Net;
@@ -31,9 +32,9 @@ public class JsonRpcBackend : IProtocolBackend
         return Task.CompletedTask;
     }
 
-    public INinePFileSystem GetFileSystem() => GetFileSystem(null);
+    public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null) => GetFileSystem(null);
 
-    public INinePFileSystem GetFileSystem(SecureString? credentials)
+    public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null)
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
 

@@ -1,3 +1,4 @@
+using System.Security.Cryptography.X509Certificates;
 using System;
 using System.Security;
 using System.Text;
@@ -47,9 +48,9 @@ public class AwsBackend : IProtocolBackend
         }
     }
 
-    public INinePFileSystem GetFileSystem() => new AwsCloudFileSystem(_config!, _s3Client!, _secretsClient!, _vault);
+    public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null) => new AwsCloudFileSystem(_config!, _s3Client!, _secretsClient!, _vault);
 
-    public INinePFileSystem GetFileSystem(SecureString? credentials)
+    public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null)
     {
         var s3 = CreateS3Client(credentials);
         var secrets = CreateSecretsClient(credentials);

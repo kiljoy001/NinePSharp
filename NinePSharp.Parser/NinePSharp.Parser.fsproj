@@ -6,6 +6,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="ParseError.fs" />
+    <Compile Include="Primitives.fs" />
+    <Compile Include="Dialect.fs" />
+    <Compile Include="NinePMessage.fs" />
+    <Compile Include="Validation.fs" />
+    <Compile Include="Messages.Classic.fs" />
+    <Compile Include="Messages.Linux.fs" />
     <Compile Include="NinePParser.fs" />
   </ItemGroup>
 

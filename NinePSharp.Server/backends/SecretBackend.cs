@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
@@ -229,16 +230,140 @@ public class SecretFileSystem : INinePFileSystem
     }
 
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
-    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+    public async Task<Rremove> RemoveAsync(Tremove tremove)
+    {
+        if (_currentPath.Count == 2 && _currentPath[0] == "vault")
+        {
+            var secretName = _currentPath[1];
+            if (_sessionPasswords.TryRemove(secretName, out var protectedSecret))
+            {
+                protectedSecret.Dispose();
+                return new Rremove(tremove.Tag);
+            }
+        }
+        throw new NotSupportedException("Only session passwords in vault/ can be removed.");
+    }
 
     public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
     {
-        var qid = new Qid(QidType.QTFILE, 0, (ulong)"secrets".GetHashCode());
+        var isDir = IsDirectory(_currentPath);
+        var qid = GetQid(_currentPath);
+        uint mode = isDir ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0600;
         ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, 0600, 0, 0, 1, 0, 0, 4096, 0, now, 0, now, 0, now, 0, 0, 0, 0, 0));
+        return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode, 0, 0, 1, 0, 0, 4096, 0, now, 0, now, 0, now, 0, 0, 0, 0, 0));
     }
 
     public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
+
+    public Task<Rstatfs> StatfsAsync(Tstatfs tstatfs)
+    {
+        // Calculate number of files in the virtual filesystem
+        ulong fileCount = 3; // root has: provision, unlock, vault
+
+        if (_currentPath.Count >= 1 && _currentPath[0] == "vault")
+        {
+            fileCount = (ulong)_sessionPasswords.Count;
+        }
+
+        var totalFiles = fileCount + 1; // +1 for the directory itself
+        var statfs = new Rstatfs(
+            tag: tstatfs.Tag,
+            fsType: 0x01021997, // 9P magic number
+            bSize: 4096,
+            blocks: 100000,
+            bFree: 95000,
+            bAvail: 95000,
+            files: totalFiles,
+            fFree: 1000000,
+            fsId: (ulong)"secrets".GetHashCode(),
+            nameLen: 255
+        );
+        return Task.FromResult(statfs);
+    }
+
+    public Task<Rreaddir> ReaddirAsync(Treaddir treaddir)
+    {
+        if (!IsDirectory(_currentPath))
+        {
+            throw new NinePProtocolException("Not a directory");
+        }
+
+        var entries = new List<byte>();
+        var files = new List<(string Name, QidType Type)>();
+
+        // Build file list based on current path
+        if (_currentPath.Count == 0)
+        {
+            files.Add(("provision", QidType.QTFILE));
+            files.Add(("unlock", QidType.QTFILE));
+            files.Add(("vault", QidType.QTDIR));
+        }
+        else if (_currentPath[0] == "vault")
+        {
+            foreach (var s in _sessionPasswords.Keys)
+            {
+                files.Add((s, QidType.QTFILE));
+            }
+        }
+
+        // Serialize each directory entry
+        ulong offset = 0;
+        foreach (var (index, f) in files.Select((f, i) => (i, f)))
+        {
+            ulong entrySize;
+            if (offset < treaddir.Offset)
+            {
+                // Skip entries before the requested offset
+                var qidTemp = new Qid(f.Type, 0, (ulong)f.Name.GetHashCode());
+                entrySize = 13 + 8 + 1 + 2 + (ulong)Encoding.UTF8.GetByteCount(f.Name);
+                offset += entrySize;
+                continue;
+            }
+
+            var qid = new Qid(f.Type, 0, (ulong)f.Name.GetHashCode());
+            var type = f.Type == QidType.QTDIR ? (byte)0x80 : (byte)0;
+
+            // Calculate entry size
+            var nameBytes = Encoding.UTF8.GetBytes(f.Name);
+            entrySize = (ulong)(13 + 8 + 1 + 2 + nameBytes.Length);
+
+            // Check if this entry would exceed the count limit
+            if ((ulong)entries.Count + entrySize > (ulong)treaddir.Count)
+            {
+                break;
+            }
+
+            // Write qid (13 bytes)
+            var qidBytes = new byte[13];
+            qidBytes[0] = (byte)qid.Type;
+            BitConverter.TryWriteBytes(qidBytes.AsSpan(1, 4), qid.Version);
+            BitConverter.TryWriteBytes(qidBytes.AsSpan(5, 8), qid.Path);
+            entries.AddRange(qidBytes);
+
+            // Write offset (8 bytes) - next entry's offset
+            offset += (ulong)entrySize;
+            var offsetBytes = new byte[8];
+            BitConverter.TryWriteBytes(offsetBytes, offset);
+            entries.AddRange(offsetBytes);
+
+            // Write type (1 byte)
+            entries.Add(type);
+
+            // Write name (2 byte length + string)
+            var nameLenBytes = new byte[2];
+            BitConverter.TryWriteBytes(nameLenBytes, (ushort)nameBytes.Length);
+            entries.AddRange(nameLenBytes);
+            entries.AddRange(nameBytes);
+        }
+
+        var data = entries.ToArray();
+        return Task.FromResult(new Rreaddir(
+            size: (uint)(NinePConstants.HeaderSize + 4 + data.Length),
+            tag: treaddir.Tag,
+            count: (uint)data.Length,
+            data: data
+        ));
+    }
 
     public INinePFileSystem Clone()
     {
@@ -282,6 +407,6 @@ public class SecretBackend : IProtocolBackend
         }
     }
 
-    public INinePFileSystem GetFileSystem() => (_prototypeFs ?? throw new InvalidOperationException("Secret backend not initialized.")).Clone();
-    public INinePFileSystem GetFileSystem(SecureString? credentials) => GetFileSystem();
+    public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null) => (_prototypeFs ?? throw new InvalidOperationException("Secret backend not initialized.")).Clone();
+    public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null) => GetFileSystem(certificate);
 }

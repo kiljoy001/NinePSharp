@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
@@ -20,6 +21,8 @@ using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Cluster.Messages;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using Akka.Actor;
 
 namespace NinePSharp.Server;
@@ -32,6 +35,7 @@ public class NinePServer : BackgroundService
     private readonly INinePFSDispatcher _dispatcher;
     private readonly IClusterManager _clusterManager;
     private readonly IConfiguration _configuration;
+    private readonly IEmercoinAuthService _authService;
     private TcpListener? _listener;
 
     private const uint DefaultMSize = 8192;
@@ -42,7 +46,8 @@ public class NinePServer : BackgroundService
         IEnumerable<IProtocolBackend> backends,
         INinePFSDispatcher dispatcher,
         IClusterManager clusterManager,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IEmercoinAuthService authService)
     {
         _logger = logger;
         _config = config.Value;
@@ -50,6 +55,7 @@ public class NinePServer : BackgroundService
         _dispatcher = dispatcher;
         _clusterManager = clusterManager;
         _configuration = configuration;
+        _authService = authService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -115,7 +121,7 @@ public class NinePServer : BackgroundService
                 try
                 {
                     var client = await _listener.AcceptTcpClientAsync(stoppingToken);
-                    _ = HandleClientAsync(client, stoppingToken);
+                    _ = HandleClientAsync(client, endpoint, stoppingToken);
                 }
                 catch (OperationCanceledException)
                 {
@@ -142,10 +148,11 @@ public class NinePServer : BackgroundService
     {
         public uint MSize { get; set; } = DefaultMSize;
         public bool DotU { get; set; } = false;
+        public X509Certificate2? ClientCertificate { get; set; }
         public SemaphoreSlim WriteLock { get; } = new(1, 1);
     }
 
-    private async Task HandleClientAsync(TcpClient client, CancellationToken ct)
+    private async Task HandleClientAsync(TcpClient client, EndpointConfig endpoint, CancellationToken ct)
     {
         var endPoint = client.Client.RemoteEndPoint;
         _logger.LogInformation("Client connected from {EndPoint}", endPoint);
@@ -154,7 +161,32 @@ public class NinePServer : BackgroundService
 
         try
         {
-            await using var stream = client.GetStream();
+            Stream finalStream = client.GetStream();
+            if (endpoint.Protocol.Equals("tls", StringComparison.OrdinalIgnoreCase))
+            {
+                var sslStream = new SslStream(finalStream, false);
+                // In a real scenario, you'd load a proper server certificate here.
+                // For now, we'll use a placeholder or assume it's handled by the OS/container.
+                await sslStream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+                {
+                    ClientCertificateRequired = true,
+                    // RemoteCertificateValidationCallback = (sender, cert, chain, sslPolicyErrors) => true // For testing
+                }, ct);
+                
+                finalStream = sslStream;
+                if (sslStream.RemoteCertificate is X509Certificate2 cert)
+                {
+                    session.ClientCertificate = cert;
+                    bool authorized = await _authService.IsCertificateAuthorizedAsync(cert);
+                    if (!authorized)
+                    {
+                        _logger.LogWarning("Client {EndPoint} failed Emercoin authorization.", endPoint);
+                        // We could close the connection here, or let the backends decide based on the session state.
+                    }
+                }
+            }
+
+            await using var stream = finalStream;
             var headerBuffer = new byte[NinePConstants.HeaderSize];
 
             while (!ct.IsCancellationRequested)
@@ -237,10 +269,10 @@ public class NinePServer : BackgroundService
             return new Rerror(tag, result.ErrorValue);
         }
 
-        return await _dispatcher.DispatchAsync(result.ResultValue, session.DotU);
+        return await _dispatcher.DispatchAsync(result.ResultValue, session.DotU, session.ClientCertificate);
     }
 
-    private async Task SendResponseAsync(NetworkStream stream, object response, SemaphoreSlim writeLock)
+    private async Task SendResponseAsync(Stream stream, object response, SemaphoreSlim writeLock)
     {
         if (response is not ISerializable serializable) return;
 

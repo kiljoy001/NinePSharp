@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
@@ -169,9 +170,10 @@ public class SrvFileSystem : INinePFileSystem
 
     public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
     {
-        var qid = new Qid(QidType.QTDIR, 0, 0);
-        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu));
+        bool isDir = _currentPath.Count == 0;
+        var qid = new Qid(isDir ? QidType.QTDIR : QidType.QTFILE, 0, DeterministicHash.GetStableHash64(string.Join("/", _currentPath)));
+        uint mode = isDir ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0666;
+        return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode));
     }
 
     public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
@@ -191,6 +193,6 @@ public class SrvBackend : IProtocolBackend
     public string MountPath => "/srv";
 
     public Task InitializeAsync(IConfiguration configuration) => Task.CompletedTask;
-    public INinePFileSystem GetFileSystem() => new SrvFileSystem();
-    public INinePFileSystem GetFileSystem(SecureString? credentials) => GetFileSystem();
+    public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null) => new SrvFileSystem();
+    public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null) => GetFileSystem(certificate);
 }

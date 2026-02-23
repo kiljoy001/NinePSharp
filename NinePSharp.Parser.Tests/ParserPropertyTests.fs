@@ -90,16 +90,13 @@ module ParserPropertyTests =
     [<Property(Arbitrary = [| typeof<Generators.NinePArb> |], MaxTest = 1000)>]
     let ``Parser round-trip consistency`` (msg: NinePMessage) =
         let data = Serializer.serialize msg
-        // Try parsing as 9u and 9L
+        // Try parsing as 9L
         let result = NinePParser.parse true (ReadOnlyMemory<byte>(data))
         
         match result with
         | Ok parsedMsg -> 
-            let original = Serializer.getSerializable msg
-            let parsed = Serializer.getSerializable parsedMsg
-            
-            Assert.Equal(original.Type, parsed.Type)
-            Assert.Equal(original.Tag, parsed.Tag)
-            Assert.Equal(original.Size, parsed.Size)
+            let originalBytes = Serializer.serialize msg
+            let parsedBytes = Serializer.serialize parsedMsg
+            Assert.Equal<byte>(originalBytes, parsedBytes)
         | Error err -> 
             Assert.Fail(sprintf "Parse failed for message %A: %s" msg err)

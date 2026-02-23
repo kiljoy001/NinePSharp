@@ -1,3 +1,4 @@
+using System.Security.Cryptography.X509Certificates;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -44,14 +45,14 @@ internal class SpyBackend : IProtocolBackend
 
     public Task InitializeAsync(Microsoft.Extensions.Configuration.IConfiguration c) => Task.CompletedTask;
 
-    public INinePFileSystem GetFileSystem()
+    public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null)
     {
         GetFileSystemCallCount++;
         LastCredentials = null;
         return new MockFileSystem(_vault);
     }
 
-    public INinePFileSystem GetFileSystem(System.Security.SecureString? credentials)
+    public INinePFileSystem GetFileSystem(System.Security.SecureString? credentials, X509Certificate2? certificate = null)
     {
         GetFileSystemCallCount++;
         if (credentials != null)
