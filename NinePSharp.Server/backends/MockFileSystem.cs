@@ -232,7 +232,7 @@ public class MockFileSystem : INinePFileSystem
         return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, fallbackQid, 0644));
     }
 
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
 
     public Task<Rstatfs> StatfsAsync(Tstatfs tstatfs)
     {

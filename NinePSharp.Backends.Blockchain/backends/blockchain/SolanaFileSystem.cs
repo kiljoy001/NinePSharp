@@ -284,8 +284,8 @@ public class SolanaFileSystem : INinePFileSystem
         return new Rstat(tstat.Tag, stat);
     }
 
-    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
-    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePPermissionDeniedException();
+    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePPermissionDeniedException();
 
     public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
     {
@@ -298,7 +298,7 @@ public class SolanaFileSystem : INinePFileSystem
         return new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode);
     }
 
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePPermissionDeniedException();
 
     public INinePFileSystem Clone()
     {

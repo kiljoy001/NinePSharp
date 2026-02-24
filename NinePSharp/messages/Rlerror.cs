@@ -12,6 +12,13 @@ public readonly struct Rlerror: ISerializable
     public ushort Tag { get; }
     public uint Ecode { get; }
 
+    public Rlerror(ushort tag, uint ecode)
+    {
+        Size = NinePConstants.HeaderSize + 4;
+        Tag = tag;
+        Ecode = ecode;
+    }
+
     public Rlerror(ReadOnlySpan<byte> data)
     {
         Size = BinaryPrimitives.ReadUInt32LittleEndian(data[..4]);

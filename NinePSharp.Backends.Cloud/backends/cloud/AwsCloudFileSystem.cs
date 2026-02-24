@@ -64,12 +64,12 @@ public class AwsCloudFileSystem : INinePFileSystem
 
     public async Task<Ropen> OpenAsync(Topen topen) => await (_activeSubFs?.OpenAsync(topen) ?? Task.FromResult(new Ropen(topen.Tag, new Qid(QidType.QTDIR, 0, 0), 0)));
     public async Task<Rread> ReadAsync(Tread tread) => await (_activeSubFs?.ReadAsync(tread) ?? Task.FromResult(new Rread(tread.Tag, System.Text.Encoding.UTF8.GetBytes("s3/\nsecrets/\n"))));
-    public async Task<Rwrite> WriteAsync(Twrite twrite) => await (_activeSubFs?.WriteAsync(twrite) ?? throw new NotSupportedException());
+    public async Task<Rwrite> WriteAsync(Twrite twrite) => await (_activeSubFs?.WriteAsync(twrite) ?? throw new NinePNotSupportedException());
     public async Task<Rclunk> ClunkAsync(Tclunk tclunk) => await (_activeSubFs?.ClunkAsync(tclunk) ?? Task.FromResult(new Rclunk(tclunk.Tag)));
     public async Task<Rstat> StatAsync(Tstat tstat) => await (_activeSubFs?.StatAsync(tstat) ?? Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTDIR, 0, 0), 0755 | (uint)NinePConstants.FileMode9P.DMDIR, 0,0,0, "aws", "scott", "scott", "scott"))));
     
-    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
-    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePNotSupportedException();
+    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePNotSupportedException();
 
     public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
     {
@@ -78,7 +78,7 @@ public class AwsCloudFileSystem : INinePFileSystem
         return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu));
     }
 
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
 
     public INinePFileSystem Clone()
     {

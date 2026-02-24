@@ -16,6 +16,10 @@ using System.Linq;
 
 namespace NinePSharp.Server.Backends;
 
+/// <summary>
+/// Provides a 9P filesystem interface to the Ethereum blockchain.
+/// Allows querying balances, reading contract ABIs, and executing contract calls via virtual files.
+/// </summary>
 public class EthereumFileSystem : INinePFileSystem
 {
     private readonly EthereumBackendConfig _config;
@@ -283,8 +287,8 @@ public class EthereumFileSystem : INinePFileSystem
         return new Rstat(tstat.Tag, stat);
     }
 
-    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
-    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePPermissionDeniedException();
+    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePPermissionDeniedException();
 
     public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
     {
@@ -297,7 +301,7 @@ public class EthereumFileSystem : INinePFileSystem
         return new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode);
     }
 
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePPermissionDeniedException();
 
     public INinePFileSystem Clone()
     {

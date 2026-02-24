@@ -261,8 +261,8 @@ public class BitcoinFileSystem : INinePFileSystem
         return new Rstat(tstat.Tag, stat);
     }
 
-    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
-    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePPermissionDeniedException();
+    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePPermissionDeniedException();
 
     public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
     {
@@ -284,7 +284,7 @@ public class BitcoinFileSystem : INinePFileSystem
         );
     }
 
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePPermissionDeniedException();
 
     public INinePFileSystem Clone()
     {

@@ -214,8 +214,8 @@ public class SoapFileSystem : INinePFileSystem
         return new Rstat(tstat.Tag, stat);
     }
 
-    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
-    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePNotSupportedException();
+    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePNotSupportedException();
 
     public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
     {
@@ -224,7 +224,7 @@ public class SoapFileSystem : INinePFileSystem
         return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu));
     }
 
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
 
     public INinePFileSystem Clone()
     {

@@ -75,6 +75,32 @@ public class NinePSessionActor : ReceiveActor
                 Sender.Tell(new RGetAttrDto(res));
             } catch (Exception ex) { Sender.Tell(new RErrorDto { Tag = msg.Tag, Ename = ex.Message }); }
         });
+
+        ReceiveAsync<TRemoveDto>(async msg => {
+            var tremove = new Tremove(msg.Tag, msg.Fid);
+            try {
+                var res = await _fs.RemoveAsync(tremove);
+                Sender.Tell(new RRemoveDto(res));
+            } catch (Exception ex) { Sender.Tell(new RErrorDto { Tag = msg.Tag, Ename = ex.Message }); }
+        });
+
+        ReceiveAsync<TWstatDto>(async msg => {
+            int offset = 0;
+            var stat = new Stat(msg.StatBytes, ref offset, msg.DotU);
+            var twstat = new Twstat(msg.Tag, msg.Fid, stat);
+            try {
+                var res = await _fs.WstatAsync(twstat);
+                Sender.Tell(new RWstatDto(res));
+            } catch (Exception ex) { Sender.Tell(new RErrorDto { Tag = msg.Tag, Ename = ex.Message }); }
+        });
+
+        ReceiveAsync<TSetAttrDto>(async msg => {
+            var tsetattr = new Tsetattr(0, msg.Tag, msg.Fid, msg.Valid, msg.Mode, msg.Uid, msg.Gid, msg.FileSize, msg.AtimeSec, msg.AtimeNsec, msg.MtimeSec, msg.MtimeNsec);
+            try {
+                var res = await _fs.SetAttrAsync(tsetattr);
+                Sender.Tell(new RSetAttrDto(res));
+            } catch (Exception ex) { Sender.Tell(new RErrorDto { Tag = msg.Tag, Ename = ex.Message }); }
+        });
         
         Receive<SpawnClone>(msg => {
             // Create a new actor for the clone

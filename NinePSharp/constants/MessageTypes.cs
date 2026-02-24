@@ -3,6 +3,9 @@ namespace NinePSharp.Constants;
 //Copied from https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/net/9p/9p.h,
 //updated with explict R type numbers
 
+/// <summary>
+/// Defines the various 9P message types for both 9P2000 and 9P2000.L.
+/// </summary>
 public enum MessageTypes : byte
 {
 	Tlerror = 6, /* illegal */
@@ -75,6 +78,9 @@ public enum MessageTypes : byte
 	Rwstat = 127
 }
 
+/// <summary>
+/// Numerical error codes used by 9P2000.L.
+/// </summary>
 public enum LinuxErrorCode : uint
 {
 	ESUCCESS = 0,
@@ -98,21 +104,37 @@ public enum LinuxErrorCode : uint
 	ENOSYS = 38
 }
 
+/// <summary>
+/// Bitmask for QID types in 9P.
+/// </summary>
 public enum QidType : byte
 {
-	QTDIR = 0x80, // Directories
-	QTAPPEND = 0x40, // append only files
-	QTEXCL = 0x20, // exclusive use files
-	QTMOUNT = 0x10, // mounted channel
-	QTAUTH = 0x08, // Auth file
-	QTTMP = 0x40, // non-backed-up file
-	QTFILE = 0X00 // plain file
+	/// <summary>Directory</summary>
+	QTDIR = 0x80,
+	/// <summary>Append-only file</summary>
+	QTAPPEND = 0x40,
+	/// <summary>Exclusive-use file</summary>
+	QTEXCL = 0x20,
+	/// <summary>Mounted channel</summary>
+	QTMOUNT = 0x10,
+	/// <summary>Authentication file</summary>
+	QTAUTH = 0x08,
+	/// <summary>Temporary file</summary>
+	QTTMP = 0x40,
+	/// <summary>Plain file</summary>
+	QTFILE = 0X00
 }
 
+/// <summary>
+/// Represents a unique identifier for a file or directory in 9P.
+/// </summary>
 public readonly struct Qid
 {
+	/// <summary>The type of the file (directory, append-only, etc.).</summary>
 	public readonly QidType Type;
+	/// <summary>The version of the file, incremented every time it is modified.</summary>
 	public readonly uint Version;
+	/// <summary>A unique path identifier for the file.</summary>
 	public readonly ulong Path;
 	
 	public Qid(QidType type, uint version, ulong path)

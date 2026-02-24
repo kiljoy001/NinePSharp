@@ -27,6 +27,10 @@ using Akka.Actor;
 
 namespace NinePSharp.Server;
 
+/// <summary>
+/// The main NinePSharp server implementation, running as a hosted background service.
+/// It handles TCP/TLS connections, protocol negotiation, and dispatches messages to backends.
+/// </summary>
 public class NinePServer : BackgroundService
 {
     private readonly ILogger<NinePServer> _logger;

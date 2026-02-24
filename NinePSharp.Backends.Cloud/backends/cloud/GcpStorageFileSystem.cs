@@ -151,7 +151,7 @@ public class GcpStorageFileSystem : INinePFileSystem
         return new Rstat(tstat.Tag, stat);
     }
 
-    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
+    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePNotSupportedException();
     public async Task<Rremove> RemoveAsync(Tremove tremove)
     {
         if (_currentPath.Count == 0) throw new NinePProtocolException("Cannot remove root.");
@@ -178,7 +178,7 @@ public class GcpStorageFileSystem : INinePFileSystem
         return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode));
     }
 
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
 
     public INinePFileSystem Clone()
     {

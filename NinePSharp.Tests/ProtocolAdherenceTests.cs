@@ -2,6 +2,8 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using NinePSharp.Messages;
@@ -87,7 +89,8 @@ namespace NinePSharp.Tests
             var mockCluster = new Mock<IClusterManager>();
             
             mockBackend.Setup(b => b.MountPath).Returns("/test");
-            mockBackend.Setup(b => b.GetFileSystem(null)).Returns(mockFs.Object);
+            mockBackend.Setup(b => b.GetFileSystem(It.IsAny<SecureString>(), It.IsAny<X509Certificate2>())).Returns(mockFs.Object);
+            mockBackend.Setup(b => b.GetFileSystem(It.IsAny<X509Certificate2>())).Returns(mockFs.Object);
             
             var dispatcher = new NinePFSDispatcher(logger.Object, new[] { mockBackend.Object }, mockCluster.Object);
 
@@ -115,7 +118,8 @@ namespace NinePSharp.Tests
             var mockCluster = new Mock<IClusterManager>();
             
             mockBackend.Setup(b => b.MountPath).Returns("/test");
-            mockBackend.Setup(b => b.GetFileSystem(null)).Returns(mockFs.Object);
+            mockBackend.Setup(b => b.GetFileSystem(It.IsAny<SecureString>(), It.IsAny<X509Certificate2>())).Returns(mockFs.Object);
+            mockBackend.Setup(b => b.GetFileSystem(It.IsAny<X509Certificate2>())).Returns(mockFs.Object);
             
             var dispatcher = new NinePFSDispatcher(logger.Object, new[] { mockBackend.Object }, mockCluster.Object);
 

@@ -19,6 +19,9 @@ using System.Threading.Tasks;
 
 namespace NinePSharp.Server;
 
+/// <summary>
+/// Implements the logic for dispatching 9P messages to various backends based on session state and FID mapping.
+/// </summary>
 public class NinePFSDispatcher : INinePFSDispatcher
 {
     private readonly ILogger<NinePFSDispatcher> _logger;
@@ -28,6 +31,12 @@ public class NinePFSDispatcher : INinePFSDispatcher
     private readonly ConcurrentDictionary<uint, INinePFileSystem> _fids = new();
     private readonly ConcurrentDictionary<uint, SecureString> _authFids = new();
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="NinePFSDispatcher"/> class.
+    /// </summary>
+    /// <param name="logger">The logger for dispatcher events.</param>
+    /// <param name="backends">The collection of local backends available.</param>
+    /// <param name="clusterManager">The cluster manager for remote backend discovery.</param>
     public NinePFSDispatcher(ILogger<NinePFSDispatcher> logger, IEnumerable<IProtocolBackend> backends, IClusterManager clusterManager)
     {
         _logger = logger;
@@ -35,6 +44,7 @@ public class NinePFSDispatcher : INinePFSDispatcher
         _clusterManager = clusterManager;
     }
 
+    /// <inheritdoc />
     public async Task<object> DispatchAsync(NinePMessage message, bool dotu, X509Certificate2? certificate = null)
     {
         var dialect = dotu ? NinePDialect.NineP2000U : NinePDialect.NineP2000;
@@ -336,11 +346,20 @@ public class NinePFSDispatcher : INinePFSDispatcher
         }
         catch (NinePProtocolException ex)
         {
+            if (dotu)
+            {
+                // In 9P2000.L, we return Rlerror with numerical errno
+                return new Messages.Rlerror(tag, (uint)ex.ErrorCode);
+            }
             return new Messages.Rerror(tag, ex.ErrorMessage);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error during dispatch");
+            if (dotu)
+            {
+                return new Messages.Rlerror(tag, 5); // EIO
+            }
             return new Messages.Rerror(tag, "Internal Server Error");
         }
     }

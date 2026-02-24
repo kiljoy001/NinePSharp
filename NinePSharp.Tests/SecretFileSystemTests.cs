@@ -17,6 +17,11 @@ namespace NinePSharp.Tests;
 
 public class SecretFileSystemTests
 {
+    public SecretFileSystemTests()
+    {
+        SecretFileSystem.ClearSessionPasswords();
+    }
+
     private static readonly ILuxVaultService _vault = new LuxVaultService();
     private static readonly SecretBackendConfig _config = new SecretBackendConfig();
 
@@ -85,7 +90,7 @@ public class SecretFileSystemTests
         // Assert
         result.Should().BeOfType<Rreaddir>();
         // Vault directory should be empty initially (no unlocked secrets)
-        result.Count.Should().Be(0);
+        result.Data.Length.Should().Be(0);
     }
 
     [Fact]
@@ -160,7 +165,7 @@ public class SecretFileSystemTests
         var result = await fs.ReaddirAsync(new Treaddir(100, 1, 1, 10000, 8192));
 
         // Assert - Should return empty
-        result.Count.Should().Be(0);
+        result.Data.Length.Should().Be(0);
     }
 
     [Fact]

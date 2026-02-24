@@ -91,6 +91,79 @@ public class TGetAttrDto
 }
 
 [Serializable]
+public class TSetAttrDto
+{
+    public ushort Tag { get; set; }
+    public uint Fid { get; set; }
+    public uint Valid { get; set; }
+    public uint Mode { get; set; }
+    public uint Uid { get; set; }
+    public uint Gid { get; set; }
+    public ulong FileSize { get; set; }
+    public ulong AtimeSec { get; set; }
+    public ulong AtimeNsec { get; set; }
+    public ulong MtimeSec { get; set; }
+    public ulong MtimeNsec { get; set; }
+    public TSetAttrDto() {}
+    public TSetAttrDto(Tsetattr t) 
+    { 
+        Tag = t.Tag; Fid = t.Fid; Valid = t.Valid; Mode = t.Mode; Uid = t.Uid; Gid = t.Gid; 
+        FileSize = t.FileSize; AtimeSec = t.AtimeSec; AtimeNsec = t.AtimeNsec; 
+        MtimeSec = t.MtimeSec; MtimeNsec = t.MtimeNsec;
+    }
+}
+
+[Serializable]
+public class TRemoveDto
+{
+    public ushort Tag { get; set; }
+    public uint Fid { get; set; }
+    public TRemoveDto() {}
+    public TRemoveDto(Tremove t) { Tag = t.Tag; Fid = t.Fid; }
+}
+
+[Serializable]
+public class TWstatDto
+{
+    public ushort Tag { get; set; }
+    public uint Fid { get; set; }
+    public byte[] StatBytes { get; set; } = Array.Empty<byte>();
+    public bool DotU { get; set; }
+    public TWstatDto() {}
+    public TWstatDto(Twstat t) 
+    { 
+        Tag = t.Tag; Fid = t.Fid; DotU = t.Stat.DotU;
+        StatBytes = new byte[t.Stat.Size];
+        int offset = 0;
+        t.Stat.WriteTo(StatBytes, ref offset);
+    }
+}
+
+[Serializable]
+public class RSetAttrDto
+{
+    public ushort Tag { get; set; }
+    public RSetAttrDto() {}
+    public RSetAttrDto(Rsetattr r) { Tag = r.Tag; }
+}
+
+[Serializable]
+public class RRemoveDto
+{
+    public ushort Tag { get; set; }
+    public RRemoveDto() {}
+    public RRemoveDto(Rremove r) { Tag = r.Tag; }
+}
+
+[Serializable]
+public class RWstatDto
+{
+    public ushort Tag { get; set; }
+    public RWstatDto() {}
+    public RWstatDto(Rwstat r) { Tag = r.Tag; }
+}
+
+[Serializable]
 public class RWalkDto
 {
     public ushort Tag { get; set; }

@@ -14,13 +14,18 @@ public sealed class SecureSecret : IDisposable
     private byte[]? _data;
     private int _disposed; // 0 = alive, 1 = disposed (interlocked for thread safety)
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SecureSecret"/> class with pinned, locked data.
+    /// </summary>
+    /// <param name="pinnedLockedData">The pinned and mlock'd byte array containing the secret.</param>
     public SecureSecret(byte[] pinnedLockedData)
     {
         _data = pinnedLockedData ?? throw new ArgumentNullException(nameof(pinnedLockedData));
     }
 
     /// <summary>
-    /// Access the secret bytes. Returns default (empty) span if already disposed.
+    /// Gets the secret bytes as a <see cref="ReadOnlySpan{Byte}"/>. 
+    /// Returns default (empty) span if already disposed.
     /// </summary>
     public ReadOnlySpan<byte> Span =>
         Volatile.Read(ref _disposed) == 0 && _data != null
@@ -28,18 +33,20 @@ public sealed class SecureSecret : IDisposable
             : ReadOnlySpan<byte>.Empty;
 
     /// <summary>
-    /// Length of the secret data, or 0 if disposed.
+    /// Gets the length of the secret data, or 0 if disposed.
     /// </summary>
     public int Length => Volatile.Read(ref _disposed) == 0 ? (_data?.Length ?? 0) : 0;
 
     /// <summary>
-    /// Whether this secret has been disposed (data wiped).
+    /// Gets a value indicating whether this secret has been disposed (data wiped).
     /// </summary>
     public bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
     /// <summary>
     /// Copy secret bytes to a destination span. Throws if disposed.
     /// </summary>
+    /// <param name="destination">The destination span.</param>
+    /// <exception cref="ObjectDisposedException">Thrown if the secret is already disposed.</exception>
     public void CopyTo(Span<byte> destination)
     {
         if (IsDisposed) throw new ObjectDisposedException(nameof(SecureSecret));
@@ -49,6 +56,10 @@ public sealed class SecureSecret : IDisposable
     /// <summary>
     /// Execute an action with the secret bytes, ensuring the data is available for the duration.
     /// </summary>
+    /// <typeparam name="T">The return type of the action.</typeparam>
+    /// <param name="action">The action to perform with the secret bytes.</param>
+    /// <returns>The result of the action.</returns>
+    /// <exception cref="ObjectDisposedException">Thrown if the secret is already disposed.</exception>
     public T Use<T>(Func<ReadOnlySpan<byte>, T> action)
     {
         if (IsDisposed) throw new ObjectDisposedException(nameof(SecureSecret));
@@ -58,12 +69,17 @@ public sealed class SecureSecret : IDisposable
     /// <summary>
     /// Execute an action with the secret bytes.
     /// </summary>
+    /// <param name="action">The action to perform with the secret bytes.</param>
+    /// <exception cref="ObjectDisposedException">Thrown if the secret is already disposed.</exception>
     public void Use(Action<ReadOnlySpan<byte>> action)
     {
         if (IsDisposed) throw new ObjectDisposedException(nameof(SecureSecret));
         action(Span);
     }
 
+    /// <summary>
+    /// Wipes the secret material from memory, unlocks the memory page, and marks the instance as disposed.
+    /// </summary>
     public void Dispose()
     {
         if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0) return;

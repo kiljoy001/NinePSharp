@@ -93,8 +93,25 @@ public class RemoteFileSystem : INinePFileSystem
         throw new Exception("Unexpected response from remote actor");
     }
 
-    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
-    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+    public async Task<Rwstat> WstatAsync(Twstat twstat)
+    {
+        var dto = new TWstatDto(twstat);
+        var response = await _sessionActor.Ask(dto, _timeout);
+
+        if (response is RWstatDto r) return new Rwstat(r.Tag);
+        if (response is RErrorDto e) throw new NinePProtocolException(e.Ename);
+        throw new Exception("Unexpected response from remote actor");
+    }
+
+    public async Task<Rremove> RemoveAsync(Tremove tremove)
+    {
+        var dto = new TRemoveDto(tremove);
+        var response = await _sessionActor.Ask(dto, _timeout);
+
+        if (response is RRemoveDto r) return new Rremove(r.Tag);
+        if (response is RErrorDto e) throw new NinePProtocolException(e.Ename);
+        throw new Exception("Unexpected response from remote actor");
+    }
 
     public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
     {
@@ -114,7 +131,15 @@ public class RemoteFileSystem : INinePFileSystem
         throw new Exception("Unexpected response from remote actor");
     }
 
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
+    public async Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr)
+    {
+        var dto = new TSetAttrDto(tsetattr);
+        var response = await _sessionActor.Ask(dto, _timeout);
+
+        if (response is RSetAttrDto r) return new Rsetattr(r.Tag);
+        if (response is RErrorDto e) throw new NinePProtocolException(e.Ename);
+        throw new Exception("Unexpected response from remote actor");
+    }
 
     public INinePFileSystem Clone()
     {

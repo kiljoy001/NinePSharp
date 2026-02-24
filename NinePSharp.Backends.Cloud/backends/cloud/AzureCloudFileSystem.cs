@@ -117,7 +117,7 @@ public class AzureCloudFileSystem : INinePFileSystem
     public async Task<Rwrite> WriteAsync(Twrite twrite)
     {
         if (_activeSubFs != null) return await _activeSubFs.WriteAsync(twrite);
-        throw new NotSupportedException();
+        throw new NinePNotSupportedException();
     }
 
     public async Task<Rclunk> ClunkAsync(Tclunk tclunk)
@@ -135,8 +135,8 @@ public class AzureCloudFileSystem : INinePFileSystem
         return new Rstat(tstat.Tag, stat);
     }
     
-    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
-    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePNotSupportedException();
+    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePNotSupportedException();
 
     public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
     {
@@ -145,7 +145,7 @@ public class AzureCloudFileSystem : INinePFileSystem
         return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu));
     }
 
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
 
     public INinePFileSystem Clone()
     {

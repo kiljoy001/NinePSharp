@@ -30,6 +30,15 @@ public class SecretFileSystem : INinePFileSystem
     // Session passwords are shared across CLI-style short-lived connections.
     private static readonly ConcurrentDictionary<string, ProtectedSecret> _sessionPasswords = new();
 
+    /// <summary>
+    /// Clears all session passwords. Used for unit testing.
+    /// </summary>
+    public static void ClearSessionPasswords()
+    {
+        foreach (var secret in _sessionPasswords.Values) secret.Dispose();
+        _sessionPasswords.Clear();
+    }
+
     public bool DotU { get; set; }
 
     public SecretFileSystem(ILogger logger, SecretBackendConfig config, ILuxVaultService vault)
@@ -229,7 +238,7 @@ public class SecretFileSystem : INinePFileSystem
         return new Rstat(tstat.Tag, stat);
     }
 
-    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
+    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePNotSupportedException();
     public async Task<Rremove> RemoveAsync(Tremove tremove)
     {
         if (_currentPath.Count == 2 && _currentPath[0] == "vault")
@@ -241,7 +250,7 @@ public class SecretFileSystem : INinePFileSystem
                 return new Rremove(tremove.Tag);
             }
         }
-        throw new NotSupportedException("Only session passwords in vault/ can be removed.");
+        throw new NinePNotSupportedException("Only session passwords in vault/ can be removed.");
     }
 
     public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
@@ -253,7 +262,7 @@ public class SecretFileSystem : INinePFileSystem
         return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode, 0, 0, 1, 0, 0, 4096, 0, now, 0, now, 0, now, 0, 0, 0, 0, 0));
     }
 
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
 
     public Task<Rstatfs> StatfsAsync(Tstatfs tstatfs)
     {

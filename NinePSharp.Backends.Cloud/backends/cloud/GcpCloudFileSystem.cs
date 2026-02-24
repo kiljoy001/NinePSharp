@@ -94,7 +94,7 @@ public class GcpCloudFileSystem : INinePFileSystem
         return new Rread(tread.Tag, Array.Empty<byte>());
     }
 
-    public Task<Rwrite> WriteAsync(Twrite twrite) => _activeSubFs?.WriteAsync(twrite) ?? throw new NotSupportedException();
+    public Task<Rwrite> WriteAsync(Twrite twrite) => _activeSubFs?.WriteAsync(twrite) ?? throw new NinePNotSupportedException();
     public Task<Rclunk> ClunkAsync(Tclunk tclunk) => _activeSubFs?.ClunkAsync(tclunk) ?? Task.FromResult(new Rclunk(tclunk.Tag));
     
     public async Task<Rstat> StatAsync(Tstat tstat)
@@ -106,8 +106,8 @@ public class GcpCloudFileSystem : INinePFileSystem
         return new Rstat(tstat.Tag, stat);
     }
     
-    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
-    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException();
+    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePNotSupportedException();
+    public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePNotSupportedException();
 
     public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
     {
@@ -116,7 +116,7 @@ public class GcpCloudFileSystem : INinePFileSystem
         return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu));
     }
 
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
 
     public INinePFileSystem Clone()
     {

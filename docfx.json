@@ -1,0 +1,70 @@
+{
+  "metadata": [
+    {
+      "src": [
+        {
+          "files": [
+            "NinePSharp/NinePSharp.csproj",
+            "NinePSharp.Parser/NinePSharp.Parser.fsproj",
+            "NinePSharp.Server/NinePSharp.Server.csproj",
+            "NinePSharp.Server.Abstractions/NinePSharp.Server.Abstractions.csproj",
+            "NinePSharp.Backends.Blockchain/NinePSharp.Backends.Blockchain.csproj",
+            "NinePSharp.Backends.Cloud/NinePSharp.Backends.Cloud.csproj",
+            "NinePSharp.Backends.Compute/NinePSharp.Backends.Compute.csproj",
+            "NinePSharp.Backends.Database/NinePSharp.Backends.Database.csproj",
+            "NinePSharp.Backends.Grpc/NinePSharp.Backends.Grpc.csproj",
+            "NinePSharp.Backends.JsonRpc/NinePSharp.Backends.JsonRpc.csproj",
+            "NinePSharp.Backends.Mqtt/NinePSharp.Backends.Mqtt.csproj",
+            "NinePSharp.Backends.PowerShell/NinePSharp.Backends.PowerShell.csproj",
+            "NinePSharp.Backends.Rest/NinePSharp.Backends.Rest.csproj",
+            "NinePSharp.Backends.Soap/NinePSharp.Backends.Soap.csproj",
+            "NinePSharp.Backends.Websocket/NinePSharp.Backends.Websocket.csproj"
+          ],
+          "exclude": [
+            "**/bin/**",
+            "**/obj/**"
+          ]
+        }
+      ],
+      "dest": "api",
+      "disableGitFeatures": false,
+      "disableDefaultFilter": false
+    }
+  ],
+  "build": {
+    "content": [
+      {
+        "files": [
+          "api/**.yml",
+          "api/index.md"
+        ]
+      },
+      {
+        "files": [
+          "docs/conceptual/**.md",
+          "docs/conceptual/toc.yml",
+          "toc.yml",
+          "index.md"
+        ]
+      }
+    ],
+    "resource": [
+      {
+        "files": [
+          "docs/images/**"
+        ]
+      }
+    ],
+    "output": "_site",
+    "template": [
+      "default",
+      "modern"
+    ],
+    "postProcessors": [],
+    "markdownEngineName": "markdig",
+    "noLangKeyword": false,
+    "keepFileLink": false,
+    "cleanupCacheHistory": false,
+    "disableGitFeatures": false
+  }
+}

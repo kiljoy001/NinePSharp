@@ -1,3 +1,4 @@
+using NinePSharp.Server.Utils;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -11,6 +12,9 @@ using NinePSharp.Protocol;
 
 namespace NinePSharp.Backends.PowerShell;
 
+/// <summary>
+/// Implements a 9P grid compute node that allows remote execution of object-oriented PowerShell scripts.
+/// </summary>
 public class PowerShellFileSystem : INinePFileSystem
 {
     private List<string> _currentPath = new();
@@ -167,7 +171,7 @@ public class PowerShellFileSystem : INinePFileSystem
         return Task.FromResult(new Rstat(tstat.Tag, stat));
     }
 
-    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException();
+    public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePNotSupportedException();
     public Task<Rremove> RemoveAsync(Tremove tremove)
     {
         if (_currentPath.Count == 2 && _currentPath[0] == "jobs")
@@ -175,14 +179,14 @@ public class PowerShellFileSystem : INinePFileSystem
             _globalJobs.TryRemove(_currentPath[1], out _);
             return Task.FromResult(new Rremove(tremove.Tag));
         }
-        throw new NotSupportedException();
+        throw new NinePNotSupportedException();
     }
 
     public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
     {
         return Task.FromResult(new Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, GetQidForPath(_currentPath), 0644));
     }
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException();
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
 
     public Task<Rmkdir> MkdirAsync(Tmkdir tmkdir)
     {

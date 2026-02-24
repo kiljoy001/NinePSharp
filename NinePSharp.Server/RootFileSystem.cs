@@ -1,3 +1,4 @@
+using NinePSharp.Server.Utils;
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
@@ -177,9 +178,9 @@ internal class RootFileSystem : INinePFileSystem
         return new Ropen(topen.Tag, new Qid(QidType.QTDIR, 0, 0), 0);
     }
 
-    public Task<Rwrite> WriteAsync(Twrite twrite) => _delegatedFs?.WriteAsync(twrite) ?? throw new NotSupportedException();
-    public Task<Rwstat> WstatAsync(Twstat twstat) => _delegatedFs?.WstatAsync(twstat) ?? throw new NotSupportedException();
-    public Task<Rremove> RemoveAsync(Tremove tremove) => _delegatedFs?.RemoveAsync(tremove) ?? throw new NotSupportedException();
+    public Task<Rwrite> WriteAsync(Twrite twrite) => _delegatedFs?.WriteAsync(twrite) ?? throw new NinePNotSupportedException();
+    public Task<Rwstat> WstatAsync(Twstat twstat) => _delegatedFs?.WstatAsync(twstat) ?? throw new NinePNotSupportedException();
+    public Task<Rremove> RemoveAsync(Tremove tremove) => _delegatedFs?.RemoveAsync(tremove) ?? throw new NinePNotSupportedException();
 
     public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
     {
@@ -190,7 +191,7 @@ internal class RootFileSystem : INinePFileSystem
         return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu, 0, 0, 1, 0, 0, 4096, 0, now, 0, now, 0, now, 0, 0, 0, 0, 0));
     }
 
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => _delegatedFs?.SetAttrAsync(tsetattr) ?? throw new NotSupportedException();
+    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => _delegatedFs?.SetAttrAsync(tsetattr) ?? throw new NinePNotSupportedException();
 
     public Task<Rstatfs> StatfsAsync(Tstatfs tstatfs)
     {
