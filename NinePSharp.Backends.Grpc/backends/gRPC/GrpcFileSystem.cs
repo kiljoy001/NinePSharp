@@ -12,6 +12,10 @@ using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends.gRPC;
 
+/// <summary>
+/// Provides a 9P filesystem interface to gRPC services.
+/// Allows invoking gRPC methods by interacting with virtual files and directories.
+/// </summary>
 public class GrpcFileSystem : INinePFileSystem
 {
     private readonly GrpcBackendConfig _config;

@@ -11,6 +11,12 @@ public class JsonRpcEndpointConfig
     /// <summary>The filename exposed under the backend's mount path, e.g. "balance"</summary>
     public string Name { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Optional hierarchical path, e.g. "accounts/eth". If empty, endpoint is in root.
+    /// This allows mapping "balance" under "/rpc/accounts/eth/balance".
+    /// </summary>
+    public string Path { get; set; } = string.Empty;
+
     /// <summary>The exact JSON-RPC method to call, e.g. "getbalance"</summary>
     public string Method { get; set; } = string.Empty;
 

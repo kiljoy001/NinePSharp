@@ -13,6 +13,10 @@ using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends.Cloud;
 
+/// <summary>
+/// Provides a 9P filesystem interface to Azure Blob Storage.
+/// Maps containers to top-level directories and blobs to files.
+/// </summary>
 public class AzureBlobsFileSystem : INinePFileSystem
 {
     private readonly AzureBackendConfig _config;

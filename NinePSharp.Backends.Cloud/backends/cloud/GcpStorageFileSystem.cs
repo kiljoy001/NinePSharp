@@ -13,6 +13,10 @@ using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends.Cloud;
 
+/// <summary>
+/// Provides a 9P filesystem interface to Google Cloud Storage.
+/// Maps buckets to top-level directories and GCS objects to files.
+/// </summary>
 public class GcpStorageFileSystem : INinePFileSystem
 {
     private readonly GcpBackendConfig _config;

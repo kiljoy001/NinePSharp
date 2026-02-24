@@ -15,6 +15,10 @@ using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends;
 
+/// <summary>
+/// Provides a 9P filesystem interface to relational and NoSQL databases.
+/// Exposes tables as files and allows executing ad-hoc queries by writing to a virtual query file.
+/// </summary>
 public class DatabaseFileSystem : INinePFileSystem
 {
     private readonly DatabaseBackendConfig _config;

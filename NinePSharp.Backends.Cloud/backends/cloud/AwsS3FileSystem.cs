@@ -14,6 +14,10 @@ using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends.Cloud;
 
+/// <summary>
+/// Provides a 9P filesystem interface to AWS S3 storage.
+/// Maps buckets to top-level directories and S3 objects to files.
+/// </summary>
 public class AwsS3FileSystem : INinePFileSystem
 {
     private readonly AwsBackendConfig _config;

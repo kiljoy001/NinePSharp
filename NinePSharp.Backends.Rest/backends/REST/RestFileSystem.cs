@@ -14,6 +14,10 @@ using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends.REST;
 
+/// <summary>
+/// Provides a 9P filesystem interface to RESTful APIs.
+/// Translates directory walks and file operations into HTTP requests and responses.
+/// </summary>
 public class RestFileSystem : INinePFileSystem
 {
     private readonly RestBackendConfig _config;

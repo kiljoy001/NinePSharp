@@ -12,6 +12,10 @@ using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends.MQTT;
 
+/// <summary>
+/// Provides a 9P filesystem interface to MQTT brokers.
+/// Maps MQTT topics to virtual directories and allows publishing/subscribing via file operations.
+/// </summary>
 public class MqttFileSystem : INinePFileSystem
 {
     private readonly MqttBackendConfig _config;

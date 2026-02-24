@@ -12,6 +12,10 @@ using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends.SOAP;
 
+/// <summary>
+/// Provides a 9P filesystem interface to SOAP web services.
+/// Translates 9P file operations into SOAP actions and returns response payloads.
+/// </summary>
 public class SoapFileSystem : INinePFileSystem
 {
     private readonly SoapBackendConfig _config;

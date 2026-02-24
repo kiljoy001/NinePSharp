@@ -12,6 +12,10 @@ using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends.Websockets;
 
+/// <summary>
+/// Provides a 9P filesystem interface to WebSocket streams.
+/// Allows streaming data to and from a WebSocket endpoint via 9P file operations.
+/// </summary>
 public class WebsocketFileSystem : INinePFileSystem
 {
     private readonly WebsocketBackendConfig _config;
