@@ -123,7 +123,8 @@ public sealed class ProtectedSecret : IDisposable
     /// </summary>
     public void Use(Action<ReadOnlySpan<byte>> action)
     {
-        if (_encryptedData == null || _sessionKey == null) return;
+        ObjectDisposedException.ThrowIf(_encryptedData == null, this);
+        if (_sessionKey == null) throw new InvalidOperationException("Session key not initialized.");
 
         using var secret = LuxVault.DecryptToBytes(_encryptedData, _sessionKey);
         if (secret != null)
@@ -138,7 +139,8 @@ public sealed class ProtectedSecret : IDisposable
     /// </summary>
     public async Task UseAsync(Func<ReadOnlyMemory<byte>, Task> action)
     {
-        if (_encryptedData == null || _sessionKey == null) return;
+        ObjectDisposedException.ThrowIf(_encryptedData == null, this);
+        if (_sessionKey == null) throw new InvalidOperationException("Session key not initialized.");
 
         // Note: SecureSecret must be fully consumed before disposal.
         // We copy to a pinned temporary for the async boundary, then dispose both.

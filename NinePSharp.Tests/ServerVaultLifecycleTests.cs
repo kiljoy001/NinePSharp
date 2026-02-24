@@ -43,3 +43,8 @@ public class ServerVaultLifecycleTests
 public class VaultLifecycleCollectionDefinition
 {
 }
+
+[CollectionDefinition("Global Arena", DisableParallelization = true)]
+public class GlobalArenaCollectionDefinition
+{
+}

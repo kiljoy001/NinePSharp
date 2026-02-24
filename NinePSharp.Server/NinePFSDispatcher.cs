@@ -119,9 +119,13 @@ public class NinePFSDispatcher : INinePFSDispatcher
                 var t = ((NinePMessage.MsgTwalk)message).Item;
                 if (!_fids.TryGetValue(t.Fid, out var fs)) throw new NinePProtocolException("Unknown FID");
 
+                // Per 9P spec: newfid must not already exist (unless newfid == fid for walk-in-place)
+                if (t.NewFid != t.Fid && _fids.ContainsKey(t.NewFid))
+                    return new Rerror(t.Tag, $"newfid {t.NewFid} already exists");
+
                 var targetFs = fs.Clone();
                 var response = await targetFs.WalkAsync(t);
-                
+
                 // Atomic Twalk: only assign newfid if walk is successful
                 // Per spec: nwname = 0 means clone, always successful.
                 // Otherwise, must return exactly nwname QIDs.
@@ -129,7 +133,7 @@ public class NinePFSDispatcher : INinePFSDispatcher
                 {
                     _fids[t.NewFid] = targetFs;
                 }
-                
+
                 return response;
             }
 
@@ -163,15 +167,20 @@ public class NinePFSDispatcher : INinePFSDispatcher
             if (message.IsMsgTclunk)
             {
                 var t = ((NinePMessage.MsgTclunk)message).Item;
+                bool authRemoved = false;
                 if (_authFids.TryRemove(t.Fid, out var secure))
                 {
                     secure.Dispose();
+                    authRemoved = true;
                 }
+                
                 if (_fids.TryRemove(t.Fid, out var fs))
                 {
                     return await fs.ClunkAsync(t);
                 }
-                return new Rclunk(t.Tag);
+
+                if (authRemoved) return new Rclunk(t.Tag);
+                return new Rerror(t.Tag, $"Unknown FID: {t.Fid}");
             }
 
             if (message.IsMsgTstat)
@@ -212,8 +221,11 @@ public class NinePFSDispatcher : INinePFSDispatcher
             if (message.IsMsgTremove)
             {
                 var t = ((NinePMessage.MsgTremove)message).Item;
-                if (!_fids.TryGetValue(t.Fid, out var fs)) throw new NinePProtocolException("Unknown FID");
-                return await fs.RemoveAsync(t);
+                if (_fids.TryRemove(t.Fid, out var fs))
+                {
+                    return await fs.RemoveAsync(t);
+                }
+                throw new NinePProtocolException("Unknown FID");
             }
 
             // 9P2000.L Specific Additions

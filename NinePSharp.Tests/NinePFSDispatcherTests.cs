@@ -78,7 +78,7 @@ public class NinePFSDispatcherTests
         var logger = new TestLogger<NinePFSDispatcher>();
         var backends = new List<IProtocolBackend>();
         var dispatcher = new NinePFSDispatcher(logger, backends, CreateMockClusterManager());
-        var tattach = new Tattach(1, 100, uint.MaxValue, "root", "none");
+        var tattach = new Tattach(1, 100, uint.MaxValue, "root", "notfound");
         var message = NinePMessage.NewMsgTattach(tattach);
 
         // Act
@@ -98,7 +98,7 @@ public class NinePFSDispatcherTests
         var dispatcher = new NinePFSDispatcher(logger, backends, CreateMockClusterManager());
         
         // First attach to create a FID
-        var tattach = new Tattach(1, 100, uint.MaxValue, "root", "none");
+        var tattach = new Tattach(1, 100, uint.MaxValue, "root", "");
         await dispatcher.DispatchAsync(NinePMessage.NewMsgTattach(tattach), false);
 
         var tclunk = new Tclunk(2, 100);

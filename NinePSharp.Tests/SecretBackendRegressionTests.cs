@@ -16,6 +16,7 @@ using Xunit;
 
 namespace NinePSharp.Tests;
 
+[Collection("Sequential Secret Tests")]
 public class SecretBackendRegressionTests
 {
     static SecretBackendRegressionTests()

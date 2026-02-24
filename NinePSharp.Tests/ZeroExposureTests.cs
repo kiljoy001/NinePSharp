@@ -21,7 +21,7 @@ public class ZeroExposureTests
         ss.MakeReadOnly();
 
         byte[] sessionKey = new byte[32];
-        new Random().NextBytes(sessionKey);
+        new System.Random().NextBytes(sessionKey);
         ProtectedSecret.InitializeSessionKey(sessionKey);
 
         using var ps = new ProtectedSecret(ss);
@@ -71,7 +71,7 @@ public class ZeroExposureTests
     {
         byte[] plain = Encoding.UTF8.GetBytes("Hello World");
         byte[] key = new byte[32];
-        new Random().NextBytes(key);
+        new System.Random().NextBytes(key);
 
         byte[] ciphertext = LuxVault.Encrypt((ReadOnlySpan<byte>)plain, (ReadOnlySpan<byte>)key);
         using var decrypted = LuxVault.DecryptToBytes(ciphertext, (ReadOnlySpan<byte>)key);

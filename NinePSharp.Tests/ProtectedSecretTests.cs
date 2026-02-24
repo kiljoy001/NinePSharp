@@ -100,11 +100,11 @@ namespace NinePSharp.Tests
             secret.Dispose();
             
             #pragma warning disable CS0618
-            Assert.Null(secret.Reveal());
+            Assert.Throws<ObjectDisposedException>(() => secret.Reveal());
             #pragma warning restore CS0618
 
             bool executed = false;
-            secret.Use(_ => executed = true);
+            Assert.Throws<ObjectDisposedException>(() => secret.Use(_ => executed = true));
             Assert.False(executed);
         }
 
