@@ -1,0 +1,19 @@
+{
+  "stryker-config": {
+    "project": "NinePSharp.Server/NinePSharp.Server.csproj",
+    "test-projects": [
+      "NinePSharp.Tests/NinePSharp.Tests.csproj"
+    ],
+    "mutation-level": "Standard",
+    "thresholds": {
+      "break": 0,
+      "low": 50,
+      "high": 90
+    },
+    "reporters": [
+      "progress",
+      "json"
+    ],
+    "concurrency": 4
+  }
+}

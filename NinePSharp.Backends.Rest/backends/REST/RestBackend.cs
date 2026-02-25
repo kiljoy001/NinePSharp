@@ -13,19 +13,29 @@ using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends.REST;
 
+/// <summary>
+/// Backend implementation for RESTful web services.
+/// </summary>
 public class RestBackend : IProtocolBackend
 {
     private RestBackendConfig? _config;
     private readonly ILuxVaultService _vault;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="RestBackend"/> class.
+    /// </summary>
+    /// <param name="vault">The vault service.</param>
     public RestBackend(ILuxVaultService vault)
     {
         _vault = vault;
     }
 
+    /// <inheritdoc />
     public string Name => "REST";
+    /// <inheritdoc />
     public string MountPath => _config?.MountPath ?? "/rest";
 
+    /// <inheritdoc />
     public Task InitializeAsync(IConfiguration configuration)
     {
         _config = configuration.Get<RestBackendConfig>();
@@ -33,8 +43,10 @@ public class RestBackend : IProtocolBackend
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null) => GetFileSystem(null);
 
+    /// <inheritdoc />
     public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null)
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");

@@ -9,7 +9,7 @@ namespace NinePSharp.Server.Utils;
 /// <summary>
 /// A contiguous, RAM-locked memory region using a slab-pool allocator.
 /// Eliminates the race condition where a bump-allocator reset could wipe
-/// memory still held by active <see cref="LuxVault"/> SecureBuffer consumers.
+/// memory still held by active SecureBuffer consumers.
 ///
 /// Design:
 /// - The arena is divided into fixed-size slabs (32, 64, 256, 1024, 4096).
@@ -43,6 +43,10 @@ public sealed class SecureMemoryArena : IDisposable
     /// <summary>Number of currently outstanding (un-freed) allocations.</summary>
     public int ActiveAllocations => Volatile.Read(ref _activeAllocations);
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SecureMemoryArena"/> class.
+    /// </summary>
+    /// <param name="size">The total size of the arena in bytes.</param>
     public SecureMemoryArena(int size = 1024 * 1024) // Default 1MB
     {
         _totalSize = size;
@@ -94,6 +98,11 @@ public sealed class SecureMemoryArena : IDisposable
         return -1;
     }
 
+    /// <summary>
+    /// Allocates a RAM-locked buffer of the specified size.
+    /// </summary>
+    /// <param name="size">The number of bytes to allocate.</param>
+    /// <returns>A span pointing to the allocated memory.</returns>
     public unsafe Span<byte> Allocate(int size)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
@@ -142,6 +151,10 @@ public sealed class SecureMemoryArena : IDisposable
         }
     }
 
+    /// <summary>
+    /// Frees a previously allocated buffer back to the arena.
+    /// </summary>
+    /// <param name="slice">The span to free.</param>
     public unsafe void Free(Span<byte> slice)
     {
         if (slice.IsEmpty) return;
@@ -177,6 +190,9 @@ public sealed class SecureMemoryArena : IDisposable
         }
     }
 
+    /// <summary>
+    /// Releases all resources used by the <see cref="SecureMemoryArena"/>, zeroing memory before release.
+    /// </summary>
     public void Dispose()
     {
         if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0) return;

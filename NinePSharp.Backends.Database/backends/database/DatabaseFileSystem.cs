@@ -33,8 +33,15 @@ public class DatabaseFileSystem : INinePFileSystem
     private string? _cachedFileName;
     private byte[]? _cachedContent;
 
+    /// <inheritdoc />
     public bool DotU { get; set; }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DatabaseFileSystem"/> class.
+    /// </summary>
+    /// <param name="config">The configuration for the database backend.</param>
+    /// <param name="vault">The vault service for secure data handling.</param>
+    /// <param name="credentials">Optional database credentials.</param>
     public DatabaseFileSystem(DatabaseBackendConfig config, ILuxVaultService vault, SecureString? credentials = null)
         : this(config, vault, credentials, queryExecutor: null, noSqlHandler: null)
     {
@@ -113,6 +120,7 @@ public class DatabaseFileSystem : INinePFileSystem
         _cachedContent = null;
     }
 
+    /// <inheritdoc />
     public async Task<Rwalk> WalkAsync(Twalk twalk)
     {
         if (twalk.Wname.Length == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>());
@@ -165,11 +173,13 @@ public class DatabaseFileSystem : INinePFileSystem
         return new Rwalk(twalk.Tag, qids.ToArray());
     }
 
+    /// <inheritdoc />
     public Task<Ropen> OpenAsync(Topen topen)
     {
         return Task.FromResult(new Ropen(topen.Tag, GetQid(_currentPath), 0));
     }
 
+    /// <inheritdoc />
     public async Task<Rread> ReadAsync(Tread tread)
     {
         if (IsDirectory(_currentPath))
@@ -374,6 +384,7 @@ public class DatabaseFileSystem : INinePFileSystem
         return new Rread(tread.Tag, allData.AsMemory((int)tread.Offset, totalToSend).ToArray());
     }
 
+    /// <inheritdoc />
     public Task<Rwrite> WriteAsync(Twrite twrite)
     {
         if (IsDirectory(_currentPath))
@@ -401,8 +412,10 @@ public class DatabaseFileSystem : INinePFileSystem
         throw new NinePProtocolException("Target file is read-only.");
     }
 
+    /// <inheritdoc />
     public Task<Rclunk> ClunkAsync(Tclunk tclunk) => Task.FromResult(new Rclunk(tclunk.Tag));
 
+    /// <inheritdoc />
     public Task<Rstat> StatAsync(Tstat tstat)
     {
         bool isDir = IsDirectory(_currentPath);
@@ -428,9 +441,12 @@ public class DatabaseFileSystem : INinePFileSystem
         return Task.FromResult(new Rstat(tstat.Tag, stat));
     }
 
+    /// <inheritdoc />
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NotSupportedException("Database backend is read-only.");
+    /// <inheritdoc />
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NotSupportedException("Database backend is read-only.");
 
+    /// <inheritdoc />
     public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
     {
         bool isDir = IsDirectory(_currentPath);
@@ -445,8 +461,10 @@ public class DatabaseFileSystem : INinePFileSystem
         return new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode);
     }
 
+    /// <inheritdoc />
     public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NotSupportedException("Database backend is read-only.");
 
+    /// <inheritdoc />
     public INinePFileSystem Clone()
     {
         var clone = new DatabaseFileSystem(_config, _vault, _credentials, _queryExecutor);

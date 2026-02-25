@@ -1,0 +1,150 @@
+name: Fuzzing Tests
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+  workflow_dispatch:
+
+jobs:
+  property-based-fuzzing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build generators
+        run: dotnet build NinePSharp.Generators/NinePSharp.Generators.fsproj --configuration Release
+
+      - name: Generate corpus files
+        run: |
+          mkdir -p corpus/parser/valid
+          mkdir -p corpus/parser/edge_cases
+          mkdir -p corpus/backend
+          dotnet run --project NinePSharp.Generators/NinePSharp.Generators.fsproj
+        continue-on-error: true
+
+      - name: Run parser property tests
+        run: dotnet test NinePSharp.Tests/NinePSharp.Tests.csproj --filter "FullyQualifiedName~ParserPropertyTests" --configuration Release --logger "trx;LogFileName=property-tests.trx" --no-restore
+
+      - name: Run F# parser property tests
+        run: dotnet test NinePSharp.Parser.Tests/NinePSharp.Parser.Tests.fsproj --filter "FullyQualifiedName~ParserPropertyTests" --configuration Release --logger "trx;LogFileName=fsharp-property-tests.trx" --no-restore
+        continue-on-error: true
+
+      - name: Count corpus files
+        run: |
+          echo "Corpus statistics:"
+          echo "Valid messages: $(find corpus/parser/valid -type f 2>/dev/null | wc -l)"
+          echo "Edge cases: $(find corpus/parser/edge_cases -type f 2>/dev/null | wc -l)"
+          echo "Backend sequences: $(find corpus/backend -type f 2>/dev/null | wc -l)"
+
+      - name: Upload corpus artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fuzzing-corpus
+          path: corpus/
+          retention-days: 7
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fuzzing-test-results
+          path: |
+            **/TestResults/**/*.trx
+          retention-days: 7
+
+  mutation-fuzzing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build fuzzer
+        run: dotnet build NinePSharp.Fuzzer/NinePSharp.Fuzzer.csproj --configuration Release
+
+      - name: Run mutation tests on corpus
+        run: |
+          echo "Testing byte-level mutations..."
+          dotnet test NinePSharp.Tests/NinePSharp.Tests.csproj --filter "FullyQualifiedName~Parser_Handles_Mutated_Bytes_Gracefully" --configuration Release --logger "console;verbosity=detailed"
+        continue-on-error: true
+
+      - name: Run path traversal attack tests
+        run: |
+          echo "Testing path traversal resistance..."
+          dotnet test NinePSharp.Tests/NinePSharp.Tests.csproj --filter "FullyQualifiedName~Parser_Handles_Path_Traversal_Attacks" --configuration Release --logger "console;verbosity=detailed"
+        continue-on-error: true
+
+      - name: Run attack vector tests
+        run: |
+          echo "Testing attack vector resistance..."
+          dotnet test NinePSharp.Tests/NinePSharp.Tests.csproj --filter "FullyQualifiedName~Parser_Handles_Attack_Vectors" --configuration Release --logger "console;verbosity=detailed"
+        continue-on-error: true
+
+  roundtrip-verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Generate corpus
+        run: |
+          mkdir -p corpus/parser/valid
+          mkdir -p corpus/parser/edge_cases
+          mkdir -p corpus/backend
+          dotnet run --project NinePSharp.Generators/NinePSharp.Generators.fsproj
+        continue-on-error: true
+
+      - name: Run roundtrip tests on all message types
+        run: |
+          echo "Verifying roundtrip consistency for all corpus files..."
+          dotnet test NinePSharp.Tests/NinePSharp.Tests.csproj --filter "FullyQualifiedName~Parser_RoundTrip" --configuration Release --logger "console;verbosity=detailed"
+
+      - name: Verify edge case handling
+        run: |
+          echo "Testing edge case handling..."
+          dotnet test NinePSharp.Tests/NinePSharp.Tests.csproj --filter "FullyQualifiedName~Parser_Handles_Edge_Cases" --configuration Release --logger "console;verbosity=detailed"
+        continue-on-error: true
+
+      - name: Report results
+        if: always()
+        run: |
+          echo "Fuzzing workflow completed"
+          echo "Check test results for any failures"

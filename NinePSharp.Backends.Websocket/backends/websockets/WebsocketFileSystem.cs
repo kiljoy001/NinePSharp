@@ -24,8 +24,15 @@ public class WebsocketFileSystem : INinePFileSystem
     private List<string> _currentPath = new();
     private byte[]? _lastReadData;
 
+    /// <inheritdoc />
     public bool DotU { get; set; }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="WebsocketFileSystem"/> class.
+    /// </summary>
+    /// <param name="config">The configuration for the WebSocket backend.</param>
+    /// <param name="transport">The transport layer for WebSocket messages.</param>
+    /// <param name="vault">The vault service for secure data handling.</param>
     public WebsocketFileSystem(WebsocketBackendConfig config, IWebsocketTransport transport, ILuxVaultService vault)
     {
         _config = config;
@@ -46,6 +53,7 @@ public class WebsocketFileSystem : INinePFileSystem
         return new Qid(type, 0, (ulong)pathStr.GetHashCode());
     }
 
+    /// <inheritdoc />
     public async Task<Rwalk> WalkAsync(Twalk twalk)
     {
         if (twalk.Wname.Length == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>());
@@ -72,11 +80,13 @@ public class WebsocketFileSystem : INinePFileSystem
         return new Rwalk(twalk.Tag, qids.ToArray());
     }
 
+    /// <inheritdoc />
     public Task<Ropen> OpenAsync(Topen topen)
     {
         return Task.FromResult(new Ropen(topen.Tag, GetQid(_currentPath), 0));
     }
 
+    /// <inheritdoc />
     public async Task<Rread> ReadAsync(Tread tread)
     {
         byte[]? dataToRead = null;
@@ -129,6 +139,7 @@ public class WebsocketFileSystem : INinePFileSystem
         return new Rread(tread.Tag, chunk);
     }
 
+    /// <inheritdoc />
     public async Task<Rwrite> WriteAsync(Twrite twrite)
     {
         if (IsDirectory(_currentPath)) throw new NinePProtocolException("Cannot write to directory.");
@@ -156,6 +167,7 @@ public class WebsocketFileSystem : INinePFileSystem
         throw new NotSupportedException("Invalid WebSocket path for write.");
     }
 
+    /// <inheritdoc />
     public async Task<Rclunk> ClunkAsync(Tclunk tclunk)
     {
         if (_lastReadData != null) {
@@ -165,6 +177,7 @@ public class WebsocketFileSystem : INinePFileSystem
         return new Rclunk(tclunk.Tag);
     }
 
+    /// <inheritdoc />
     public async Task<Rstat> StatAsync(Tstat tstat)
     {
         var name = _currentPath.LastOrDefault() ?? "ws";
@@ -172,9 +185,12 @@ public class WebsocketFileSystem : INinePFileSystem
         return new Rstat(tstat.Tag, stat);
     }
 
+    /// <inheritdoc />
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePNotSupportedException();
+    /// <inheritdoc />
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePNotSupportedException();
 
+    /// <inheritdoc />
     public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
     {
         var qid = new Qid(QidType.QTDIR, 0, 0);
@@ -182,8 +198,10 @@ public class WebsocketFileSystem : INinePFileSystem
         return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu));
     }
 
+    /// <inheritdoc />
     public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
 
+    /// <inheritdoc />
     public INinePFileSystem Clone()
     {
         var clone = new WebsocketFileSystem(_config, _transport, _vault);

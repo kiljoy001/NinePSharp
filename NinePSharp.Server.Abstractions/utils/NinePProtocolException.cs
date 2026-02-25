@@ -2,11 +2,21 @@ using System;
 
 namespace NinePSharp.Server.Utils;
 
+/// <summary>
+/// Base exception for 9P protocol-related errors.
+/// </summary>
 public class NinePProtocolException : Exception
 {
+    /// <summary>Gets the error message.</summary>
     public string ErrorMessage { get; }
+    /// <summary>Gets the platform-specific error code.</summary>
     public int ErrorCode { get; }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="NinePProtocolException"/> class.
+    /// </summary>
+    /// <param name="message">The error message.</param>
+    /// <param name="errorCode">The numeric error code (defaults to EIO).</param>
     public NinePProtocolException(string message, int errorCode = 5) : base(message) // Default to EIO
     {
         ErrorMessage = message;
@@ -20,6 +30,8 @@ public class NinePProtocolException : Exception
 /// </summary>
 public class NinePNotSupportedException : NinePProtocolException
 {
+    /// <summary>Initializes a new instance of the <see cref="NinePNotSupportedException"/> class.</summary>
+    /// <param name="message">The error message.</param>
     public NinePNotSupportedException(string message = "Operation not supported") 
         : base(message, 95) { }
 }
@@ -30,6 +42,8 @@ public class NinePNotSupportedException : NinePProtocolException
 /// </summary>
 public class NinePPermissionDeniedException : NinePProtocolException
 {
+    /// <summary>Initializes a new instance of the <see cref="NinePPermissionDeniedException"/> class.</summary>
+    /// <param name="message">The error message.</param>
     public NinePPermissionDeniedException(string message = "Permission denied") 
         : base(message, 13) { }
 }
@@ -40,6 +54,8 @@ public class NinePPermissionDeniedException : NinePProtocolException
 /// </summary>
 public class NinePNotFoundException : NinePProtocolException
 {
+    /// <summary>Initializes a new instance of the <see cref="NinePNotFoundException"/> class.</summary>
+    /// <param name="message">The error message.</param>
     public NinePNotFoundException(string message = "File not found") 
         : base(message, 2) { }
 }
@@ -50,6 +66,8 @@ public class NinePNotFoundException : NinePProtocolException
 /// </summary>
 public class NinePInvalidOperationException : NinePProtocolException
 {
+    /// <summary>Initializes a new instance of the <see cref="NinePInvalidOperationException"/> class.</summary>
+    /// <param name="message">The error message.</param>
     public NinePInvalidOperationException(string message = "Invalid operation") 
         : base(message, 22) { }
 }

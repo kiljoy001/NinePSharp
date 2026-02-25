@@ -9,11 +9,21 @@ using System.Threading.Tasks;
 
 namespace NinePSharp.Server.Utils;
 
+/// <summary>
+/// A lightweight client for performing JSON-RPC 2.0 calls.
+/// </summary>
 public class JsonRpcClient
 {
     private readonly HttpClient _httpClient;
     private static int _idCounter;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="JsonRpcClient"/> class.
+    /// </summary>
+    /// <param name="httpClient">The HTTP client to use.</param>
+    /// <param name="url">Optional base URL for the RPC endpoint.</param>
+    /// <param name="user">Optional username for Basic authentication.</param>
+    /// <param name="password">Optional password for Basic authentication.</param>
     public JsonRpcClient(HttpClient httpClient, string? url = null, string? user = null, string? password = null)
     {
         _httpClient = httpClient;
@@ -26,6 +36,13 @@ public class JsonRpcClient
         }
     }
 
+    /// <summary>
+    /// Executes a JSON-RPC method asynchronously.
+    /// </summary>
+    /// <param name="method">The name of the remote method.</param>
+    /// <param name="args">The arguments to pass to the method.</param>
+    /// <param name="ct">A cancellation token.</param>
+    /// <returns>The result node from the RPC response.</returns>
     public async Task<JsonNode?> CallAsync(string method, object?[]? args = null, CancellationToken ct = default)
     {
         var id = Interlocked.Increment(ref _idCounter);

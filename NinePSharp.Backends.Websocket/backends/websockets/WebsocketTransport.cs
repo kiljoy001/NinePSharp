@@ -6,14 +6,19 @@ using System.Threading.Tasks;
 
 namespace NinePSharp.Server.Backends.Websockets;
 
+/// <summary>
+/// Implementation of WebSocket transport for the 9P backend.
+/// </summary>
 public class WebsocketTransport : IWebsocketTransport
 {
     private ClientWebSocket? _webSocket;
     private readonly ConcurrentQueue<byte[]> _messageBuffer = new();
     private CancellationTokenSource? _cts;
 
+    /// <inheritdoc />
     public bool IsConnected => _webSocket?.State == WebSocketState.Open;
 
+    /// <inheritdoc />
     public async Task ConnectAsync(string url)
     {
         _webSocket = new ClientWebSocket();
@@ -49,6 +54,7 @@ public class WebsocketTransport : IWebsocketTransport
         }
     }
 
+    /// <inheritdoc />
     public async Task SendAsync(byte[] payload)
     {
         if (_webSocket?.State != WebSocketState.Open) throw new InvalidOperationException("WebSocket not connected.");
@@ -56,6 +62,7 @@ public class WebsocketTransport : IWebsocketTransport
         await _webSocket.SendAsync(new ArraySegment<byte>(payload), WebSocketMessageType.Binary, true, CancellationToken.None);
     }
 
+    /// <inheritdoc />
     public Task<byte[]?> GetNextMessageAsync()
     {
         if (_messageBuffer.TryDequeue(out var message))
@@ -65,6 +72,7 @@ public class WebsocketTransport : IWebsocketTransport
         return Task.FromResult<byte[]?>(null);
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         _cts?.Cancel();

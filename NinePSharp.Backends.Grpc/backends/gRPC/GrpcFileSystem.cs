@@ -25,8 +25,15 @@ public class GrpcFileSystem : INinePFileSystem
     private byte[]? _lastResponse;
     private Dictionary<string, string> _metadata = new();
 
+    /// <inheritdoc />
     public bool DotU { get; set; }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="GrpcFileSystem"/> class.
+    /// </summary>
+    /// <param name="config">The configuration for the gRPC backend.</param>
+    /// <param name="transport">The transport layer for gRPC messages.</param>
+    /// <param name="vault">The vault service for secure data handling.</param>
     public GrpcFileSystem(GrpcBackendConfig config, IGrpcTransport transport, ILuxVaultService vault)
     {
         _config = config;
@@ -51,6 +58,7 @@ public class GrpcFileSystem : INinePFileSystem
         return new Qid(type, 0, (ulong)pathStr.GetHashCode());
     }
 
+    /// <inheritdoc />
     public async Task<Rwalk> WalkAsync(Twalk twalk)
     {
         if (twalk.Wname.Length == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>());
@@ -77,11 +85,13 @@ public class GrpcFileSystem : INinePFileSystem
         return new Rwalk(twalk.Tag, qids.ToArray());
     }
 
+    /// <inheritdoc />
     public Task<Ropen> OpenAsync(Topen topen)
     {
         return Task.FromResult(new Ropen(topen.Tag, GetQid(_currentPath), 0));
     }
 
+    /// <inheritdoc />
     public async Task<Rread> ReadAsync(Tread tread)
     {
         byte[]? dataToRead = null;
@@ -160,6 +170,7 @@ public class GrpcFileSystem : INinePFileSystem
         return new Rread(tread.Tag, chunk);
     }
 
+    /// <inheritdoc />
     public async Task<Rwrite> WriteAsync(Twrite twrite)
     {
         if (IsDirectory(_currentPath)) throw new NinePProtocolException("Cannot write to directory.");
@@ -208,6 +219,7 @@ public class GrpcFileSystem : INinePFileSystem
         throw new NotSupportedException("Invalid gRPC path for write.");
     }
 
+    /// <inheritdoc />
     public async Task<Rclunk> ClunkAsync(Tclunk tclunk)
     {
         if (_lastResponse != null) {
@@ -217,6 +229,7 @@ public class GrpcFileSystem : INinePFileSystem
         return new Rclunk(tclunk.Tag);
     }
 
+    /// <inheritdoc />
     public async Task<Rstat> StatAsync(Tstat tstat)
     {
         var name = _currentPath.LastOrDefault() ?? "grpc";
@@ -225,9 +238,12 @@ public class GrpcFileSystem : INinePFileSystem
         return new Rstat(tstat.Tag, stat);
     }
 
+    /// <inheritdoc />
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePNotSupportedException();
+    /// <inheritdoc />
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePNotSupportedException();
 
+    /// <inheritdoc />
     public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
     {
         var qid = new Qid(QidType.QTDIR, 0, 0);
@@ -235,8 +251,10 @@ public class GrpcFileSystem : INinePFileSystem
         return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu));
     }
 
+    /// <inheritdoc />
     public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
 
+    /// <inheritdoc />
     public INinePFileSystem Clone()
     {
         var clone = new GrpcFileSystem(_config, _transport, _vault);

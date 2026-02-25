@@ -6,10 +6,14 @@ using System.Net.Http;
 
 namespace NinePSharp.Server.Backends.gRPC;
 
+/// <summary>
+/// Handles low-level gRPC message transport.
+/// </summary>
 public class GrpcTransport : IGrpcTransport
 {
     private GrpcChannel? _channel;
 
+    /// <inheritdoc />
     public Task ConnectAsync(string host, int port)
     {
         var address = $"http://{host}:{port}";
@@ -23,6 +27,7 @@ public class GrpcTransport : IGrpcTransport
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public async Task<byte[]> CallAsync(string service, string method, byte[] payload, System.Collections.Generic.IDictionary<string, string> metadata)
     {
         if (_channel == null) throw new InvalidOperationException("gRPC not connected.");
