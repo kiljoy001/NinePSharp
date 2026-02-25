@@ -21,11 +21,16 @@ namespace NinePSharp.Tests
 
             byte[] h1 = new byte[32];
             byte[] s1 = new byte[32];
-            MonocypherNative.crypto_elligator_key_pair(h1, s1, seedForFirst);
-
             byte[] h2 = new byte[32];
             byte[] s2 = new byte[32];
-            MonocypherNative.crypto_elligator_key_pair(h2, s2, seedForSecond);
+
+            unsafe {
+                fixed (byte* ph1 = h1, ps1 = s1, pseed1 = seedForFirst)
+                fixed (byte* ph2 = h2, ps2 = s2, pseed2 = seedForSecond) {
+                    MonocypherNative.crypto_elligator_key_pair(ph1, ps1, pseed1);
+                    MonocypherNative.crypto_elligator_key_pair(ph2, ps2, pseed2);
+                }
+            }
 
             Assert.Equal(h1, h2);
             Assert.Equal(s1, s2);

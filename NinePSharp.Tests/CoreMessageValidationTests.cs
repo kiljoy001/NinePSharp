@@ -76,8 +76,21 @@ public class CoreMessageValidationTests
     [Property]
     public void Stat_Serialization_Consistency(bool dotu)
     {
-        var gen = Generators.Generators.genStat(dotu);
-        var stat = gen.Sample(10, 1).First();
+        var stat = new Stat(
+            size: 0,
+            type: 0,
+            dev: 0,
+            qid: new Qid(QidType.QTFILE, 0, 12345),
+            mode: 420,  // 0644 in octal
+            atime: 0,
+            mtime: 0,
+            length: 0,
+            name: "test.txt",
+            uid: "user",
+            gid: "group",
+            muid: "owner",
+            dotu: dotu
+        );
 
         var size = stat.Size;
         var buffer = new byte[size];

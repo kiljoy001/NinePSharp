@@ -100,7 +100,8 @@ public class SecretBackendRegressionTests
         byte[] payload = Encoding.UTF8.GetBytes("cwd-data");
 
         byte[] nameBytes = Encoding.UTF8.GetBytes(secretName);
-        byte[] seed = LuxVault.DeriveSeed(password, nameBytes);
+        byte[] seed = new byte[32];
+        LuxVault.DeriveSeed(password, nameBytes, seed);
         string hiddenId = LuxVault.GenerateHiddenId(seed);
         string expectedPath = LuxVault.GetVaultPath($"secret_{hiddenId}.vlt");
 
@@ -118,9 +119,9 @@ public class SecretBackendRegressionTests
         finally
         {
             Directory.SetCurrentDirectory(originalCwd);
-            Array.Clear(payload);
-            Array.Clear(nameBytes);
-            Array.Clear(seed);
+            Array.Clear(payload, 0, payload.Length);
+            Array.Clear(nameBytes, 0, nameBytes.Length);
+            Array.Clear(seed, 0, seed.Length);
 
             if (Directory.Exists(tempCwd))
             {

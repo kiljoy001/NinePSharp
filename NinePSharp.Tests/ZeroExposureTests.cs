@@ -38,14 +38,16 @@ public class ZeroExposureTests
     public void LuxVault_SecureString_PBKDF2_Consistency()
     {
         string password = "password123";
-        byte[] nonce = Encoding.UTF8.GetBytes("1234567812345678");
+        ReadOnlySpan<byte> nonce = "1234567812345678"u8;
 
         using var ss = new SecureString();
         foreach (char c in password) ss.AppendChar(c);
         ss.MakeReadOnly();
 
-        byte[] seedFromString = LuxVault.DeriveSeed(password, nonce);
-        byte[] seedFromSecureString = LuxVault.DeriveSeed(ss, nonce);
+        Span<byte> seedFromString = stackalloc byte[32];
+        Span<byte> seedFromSecureString = stackalloc byte[32];
+        LuxVault.DeriveSeed(password, nonce, seedFromString);
+        LuxVault.DeriveSeed(ss, nonce, seedFromSecureString);
 
         Assert.True(seedFromString.SequenceEqual(seedFromSecureString), "DeriveSeed should produce same result for string and SecureString");
     }
