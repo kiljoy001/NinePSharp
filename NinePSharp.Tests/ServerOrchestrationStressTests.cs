@@ -97,26 +97,22 @@ public class ServerOrchestrationStressTests
     [Fact]
     public async Task Graceful_Shutdown_Wipes_Arena()
     {
-        // Use reflection to get arena baseline
-        var arenaField = typeof(LuxVault).GetField("Arena", BindingFlags.NonPublic | BindingFlags.Static)!;
-        var activeAllocationsProp = arenaField.FieldType.GetProperty("ActiveAllocations")!;
-        var arenaInstance = arenaField.GetValue(null)!;
+        // Use reflection to get sharded arenas
+        var arenasField = typeof(LuxVault).GetField("Arenas", BindingFlags.Public | BindingFlags.Static)!;
+        var activeAllocationsProp = typeof(SecureMemoryArena).GetProperty("ActiveAllocations")!;
+        var arenas = (SecureMemoryArena[])arenasField.GetValue(null)!;
 
-        // 1. Verify arena is clean initially
-        int baseline = (int)activeAllocationsProp.GetValue(arenaInstance)!;
+        // 1. Verify total allocations return to baseline (all shards)
+        Func<int> getTotalActive = () => arenas.Sum(a => (int)activeAllocationsProp.GetValue(a)!);
+        int baseline = getTotalActive();
 
-        // 2. Perform a decryption. 
-        // LuxVault internal methods allocate a SecureBuffer from the arena,
-        // use it for decryption, and then copy the result to a pinned array
-        // BEFORE disposing the SecureBuffer (which frees it back to the arena).
+        // 2. Perform a decryption.
         var payload = LuxVault.Encrypt(new byte[1024], "pass");
         using (var secret = LuxVault.DecryptToBytes(payload, "pass"))
         {
-            // At this point, DecryptInternal has already returned.
-            // Its internal SecureBuffer (arena-backed) should already be freed.
-            // The 'secret' object itself is a separate pinned array managed by GC.
-            int active = (int)activeAllocationsProp.GetValue(arenaInstance)!;
-            active.Should().Be(baseline, "Internal arena-backed buffers should be freed before method returns");
+            // DecryptToBytes allocates a temporary SecureBuffer from an arena shard,
+            // uses it, and then frees it before returning.
+            getTotalActive().Should().Be(baseline, "Internal arena-backed buffers must be freed before DecryptToBytes returns");
         }
     }
 }

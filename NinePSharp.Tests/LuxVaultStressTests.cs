@@ -19,11 +19,14 @@ namespace NinePSharp.Tests;
 [Collection("Global Arena")]
 public class LuxVaultStressTests
 {
-    private static readonly FieldInfo ArenaField = typeof(LuxVault).GetField("Arena", BindingFlags.NonPublic | BindingFlags.Static)!;
-    private static readonly PropertyInfo ActiveAllocationsProp = ArenaField.FieldType.GetProperty("ActiveAllocations")!;
-    private static readonly object ArenaInstance = ArenaField.GetValue(null)!;
+    private static readonly FieldInfo ArenasField = typeof(LuxVault).GetField("Arenas", BindingFlags.Public | BindingFlags.Static)!;
+    private static readonly PropertyInfo ActiveAllocationsProp = typeof(SecureMemoryArena).GetProperty("ActiveAllocations")!;
 
-    private int GetActiveAllocations() => (int)ActiveAllocationsProp.GetValue(ArenaInstance)!;
+    private int GetActiveAllocations()
+    {
+        var arenas = (SecureMemoryArena[])ArenasField.GetValue(null)!;
+        return arenas.Sum(a => (int)ActiveAllocationsProp.GetValue(a)!);
+    }
 
     [Fact]
     public void Stress_Volume_10k_Operations()
@@ -61,19 +64,27 @@ public class LuxVaultStressTests
         int baseline = GetActiveAllocations();
         var sw = Stopwatch.StartNew();
 
-        // 10M operations with 600k iterations each will take significant time.
-        // Progress reported every 100k ops.
-        for (int i = 0; i < totalOps; i++)
+        // Target 80% CPU usage
+        var options = new ParallelOptions {
+            MaxDegreeOfParallelism = (int)Math.Max(1, Environment.ProcessorCount * 0.8)
+        };
+
+        long progress = 0;
+        Parallel.For(0, totalOps, options, i => 
         {
             byte[] encrypted = LuxVault.Encrypt(data, password);
             using (var secret = LuxVault.DecryptToBytes(encrypted, password))
             {
-                if (i % 100_000 == 0 && i > 0)
+                // Logic check
+                var current = Interlocked.Increment(ref progress);
+                if (current % 1_000_000 == 0)
                 {
-                    Console.WriteLine($"[Stress] Progress: {i} / {totalOps} ({(double)i/totalOps*100:F1}%) - Throughput: {i / sw.Elapsed.TotalSeconds:F0} ops/sec");
+                    secret.Should().NotBeNull();
+                    data.SequenceEqual(secret!.Span.ToArray()).Should().BeTrue();
+                    Console.WriteLine($"[Stress] Progress: {current} / {totalOps} ({(double)current/totalOps*100:F1}%) - Throughput: {current / sw.Elapsed.TotalSeconds:F0} ops/sec");
                 }
             }
-        }
+        });
 
         sw.Stop();
         GetActiveAllocations().Should().Be(baseline, "Arena must return to baseline after 10M churn operations");

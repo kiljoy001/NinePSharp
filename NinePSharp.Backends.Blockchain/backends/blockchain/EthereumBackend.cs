@@ -7,9 +7,13 @@ using Microsoft.Extensions.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
+using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends;
 
+/// <summary>
+/// Implements a protocol translation backend that exposes the Ethereum blockchain via 9P.
+/// </summary>
 public class EthereumBackend : IProtocolBackend
 {
     private EthereumBackendConfig? _config;
@@ -69,8 +73,9 @@ public class EthereumBackend : IProtocolBackend
 
         if (rpcUrl == null && !string.IsNullOrEmpty(_config.VaultKey))
         {
-            var seed = _vault.DeriveSeed(_config.VaultKey, System.Text.Encoding.UTF8.GetBytes(_config.VaultKey));
-            var hiddenId = _vault.GenerateHiddenId(seed);
+            using var seed = new SecureBuffer(32, _vault.GetLocalArena());
+            _vault.DeriveSeed(_config.VaultKey, System.Text.Encoding.UTF8.GetBytes(_config.VaultKey), seed.Span);
+            var hiddenId = _vault.GenerateHiddenId(seed.Span);
             var vaultFile = _vault.GetVaultPath($"secret_{hiddenId}.vlt");
             if (System.IO.File.Exists(vaultFile))
             {

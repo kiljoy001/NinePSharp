@@ -9,6 +9,7 @@ using Microsoft.Extensions.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
+using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends.Cloud;
 
@@ -61,8 +62,9 @@ public class GcpBackend : IProtocolBackend
         if (credentials != null) json = SecureStringHelper.ToString(credentials);
         else if (!string.IsNullOrEmpty(_config?.VaultKey))
         {
-            var seed = _vault.DeriveSeed(_config.VaultKey, Encoding.UTF8.GetBytes(_config.VaultKey));
-            var hiddenId = _vault.GenerateHiddenId(seed);
+            using var seed = new SecureBuffer(32, _vault.GetLocalArena());
+            _vault.DeriveSeed(_config.VaultKey, Encoding.UTF8.GetBytes(_config.VaultKey), seed.Span);
+            var hiddenId = _vault.GenerateHiddenId(seed.Span);
             var vaultFile = _vault.GetVaultPath($"gcp_creds_{hiddenId}.vlt");
             if (System.IO.File.Exists(vaultFile))
             {

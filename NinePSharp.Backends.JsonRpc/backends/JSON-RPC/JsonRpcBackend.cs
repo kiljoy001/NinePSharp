@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
+using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends.JsonRpc;
 
@@ -59,8 +60,9 @@ public class JsonRpcBackend : IProtocolBackend
         else if (!string.IsNullOrEmpty(_config.VaultKey))
         {
             // Look up "user:password" from vault
-            var seed = _vault.DeriveSeed(_config.VaultKey, Encoding.UTF8.GetBytes(_config.VaultKey));
-            var hiddenId = _vault.GenerateHiddenId(seed);
+            using var seed = new SecureBuffer(32, _vault.GetLocalArena());
+            _vault.DeriveSeed(_config.VaultKey, Encoding.UTF8.GetBytes(_config.VaultKey), seed.Span);
+            var hiddenId = _vault.GenerateHiddenId(seed.Span);
             var vaultFile = $"secret_{hiddenId}.vlt";
             if (File.Exists(vaultFile))
             {

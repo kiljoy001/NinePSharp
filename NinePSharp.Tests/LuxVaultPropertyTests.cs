@@ -16,12 +16,15 @@ namespace NinePSharp.Tests;
 [Collection("Global Arena")]
 public class LuxVaultPropertyTests
 {
-    private static readonly FieldInfo ArenaField = typeof(LuxVault).GetField("Arena", BindingFlags.NonPublic | BindingFlags.Static)!;
-    private static readonly PropertyInfo ActiveAllocationsProp = ArenaField.FieldType.GetProperty("ActiveAllocations")!;
-    private static readonly object ArenaInstance = ArenaField.GetValue(null)!;
+    private static readonly FieldInfo ArenasField = typeof(LuxVault).GetField("Arenas", BindingFlags.Public | BindingFlags.Static)!;
+    private static readonly PropertyInfo ActiveAllocationsProp = typeof(SecureMemoryArena).GetProperty("ActiveAllocations")!;
     private static readonly object TestLock = new();
 
-    private int GetActiveAllocations() => (int)ActiveAllocationsProp.GetValue(ArenaInstance)!;
+    private int GetActiveAllocations()
+    {
+        var arenas = (SecureMemoryArena[])ArenasField.GetValue(null)!;
+        return arenas.Sum(a => (int)ActiveAllocationsProp.GetValue(a)!);
+    }
 
     [Property(MaxTest = 100)]
     public bool Arena_Allocations_Always_Return_To_Zero(byte[] data, string password)

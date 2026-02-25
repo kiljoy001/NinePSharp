@@ -183,7 +183,7 @@ public class SecretFileSystem : INinePFileSystem
 
                         try
                         {
-                            LuxVault.StoreSecret(name, payload, password);
+                            _vault.StoreSecret(name, payload, password);
                             _logger.LogInformation("[Secret FS] Provisioned '{Name}' to physical vault.", name);
                         }
                         finally
@@ -204,7 +204,7 @@ public class SecretFileSystem : INinePFileSystem
                         foreach (char c in parts[0]) password.AppendChar(c);
                         password.MakeReadOnly();
 
-                        using var decrypted = LuxVault.LoadSecret(name, password);
+                        using var decrypted = _vault.LoadSecret(name, password);
                         if (decrypted != null)
                         {
                             var next = new ProtectedSecret(password);
