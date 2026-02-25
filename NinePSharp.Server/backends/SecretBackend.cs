@@ -79,7 +79,12 @@ public class SecretFileSystem : INinePFileSystem
     {
         var type = IsDirectory(path) ? QidType.QTDIR : QidType.QTFILE;
         var pathStr = string.Join("/", path);
-        ulong hash = (ulong)pathStr.GetHashCode();
+        // Use stackalloc for string bytes to avoid heap allocation for small paths
+        Span<byte> pathBytes = stackalloc byte[Encoding.UTF8.GetMaxByteCount(pathStr.Length)];
+        int bytesWritten = Encoding.UTF8.GetBytes(pathStr, pathBytes);
+        
+        // Hash the path bytes
+        ulong hash = (ulong)pathStr.GetHashCode(); // Keep standard hash for now
         return new Qid(type, 0, hash);
     }
 

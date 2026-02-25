@@ -9,6 +9,7 @@ internal static class TestAssemblyBootstrap
     [ModuleInitializer]
     internal static void Initialize()
     {
+        ProcessHardening.Apply();
         byte[] sessionKey = new byte[32];
         for (int i = 0; i < sessionKey.Length; i++)
         {

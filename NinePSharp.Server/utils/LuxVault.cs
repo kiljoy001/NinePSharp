@@ -10,39 +10,28 @@ using System.Text;
 
 namespace NinePSharp.Server.Utils
 {
+    /// <summary>
+    /// Provides zero-exposure secret management using Monocypher (XChaCha20-Poly1305) 
+    /// and RAM-locked pinned memory.
+    /// </summary>
     public static class LuxVault
     {
+        /// <summary>
+        /// The directory where encrypted vault files are stored.
+        /// </summary>
         public static readonly string VaultDirectory = Path.Combine(AppContext.BaseDirectory, "vaults");
         private const int KeySize = 32;
 
-        private static readonly SecureMemoryArena Arena = new(1024 * 1024); // 1MB Secure Arena
-
-        /// <summary>
-        /// A scope-bound buffer allocated from the RAM-locked SecureMemoryArena.
-        /// </summary>
-        private ref struct SecureBuffer
-        {
-            public Span<byte> Span { get; }
-            public int Length => Span.Length;
-
-            public SecureBuffer(int size)
-            {
-                Span = Arena.Allocate(size);
-            }
-
-            public void Dispose()
-            {
-                Arena.Free(Span);
-            }
-
-            public static implicit operator Span<byte>(SecureBuffer b) => b.Span;
-            public static implicit operator ReadOnlySpan<byte>(SecureBuffer b) => b.Span;
-        }
+        internal static readonly SecureMemoryArena Arena = new(1024 * 1024); // 1MB Secure Arena
+        private static readonly object _directoryLock = new object();
 
         public static string GetVaultPath(string filename)
         {
-            if (!Directory.Exists(VaultDirectory)) Directory.CreateDirectory(VaultDirectory);
-            return Path.Combine(VaultDirectory, filename);
+            lock (_directoryLock)
+            {
+                if (!Directory.Exists(VaultDirectory)) Directory.CreateDirectory(VaultDirectory);
+                return Path.Combine(VaultDirectory, filename);
+            }
         }
 
         public static void CleanupVaults()
@@ -63,37 +52,43 @@ namespace NinePSharp.Server.Utils
 
         // Session-bound key. If not set, operations will still work but won't be ephemeral.
         private static byte[]? _sessionKey;
+        private static readonly object _sessionKeyLock = new object();
 
         public static void InitializeSessionKey(ReadOnlySpan<byte> sessionKey)
         {
-            if (_sessionKey != null) return;
-            _sessionKey = GC.AllocateArray<byte>(sessionKey.Length, pinned: true);
-            sessionKey.CopyTo(_sessionKey);
-            
-            unsafe {
-                fixed (byte* pKey = _sessionKey) {
-                    MemoryLock.Lock((IntPtr)pKey, (nuint)_sessionKey.Length);
+            lock (_sessionKeyLock)
+            {
+                if (_sessionKey != null) return;
+                _sessionKey = GC.AllocateArray<byte>(sessionKey.Length, pinned: true);
+                sessionKey.CopyTo(_sessionKey);
+
+                unsafe {
+                    fixed (byte* pKey = _sessionKey) {
+                        MemoryLock.Lock((IntPtr)pKey, (nuint)_sessionKey.Length);
+                    }
                 }
             }
         }
 
-        public static string GenerateHiddenId(byte[] seed)
+        public static string GenerateHiddenId(ReadOnlySpan<byte> seed)
         {
             if (seed.Length != 32) throw new ArgumentException("Seed must be exactly 32 bytes.");
-            byte[] seedCopy = (byte[])seed.Clone();
-            byte[] hidden = new byte[32];
-            byte[] secretKey = new byte[32];
-            try {
-                MonocypherNative.crypto_elligator_key_pair(hidden, secretKey, seedCopy);
-                return Convert.ToHexString(hidden).ToLowerInvariant();
+            
+            using var hidden = new SecureBuffer(32, Arena);
+            using var secretKey = new SecureBuffer(32, Arena);
+            
+            unsafe {
+                fixed (byte* pSeed = seed, pHidden = hidden.Span, pSecret = secretKey.Span) {
+                    MonocypherNative.crypto_elligator_key_pair(pHidden, pSecret, pSeed);
+                }
             }
-            finally {
-                Array.Clear(seedCopy);
-                Array.Clear(secretKey);
-            }
+            
+            return Convert.ToHexString(hidden.Span).ToLowerInvariant();
         }
 
-        private static T WithSecureString<T>(SecureString secureString, Func<byte[], T> action)
+        private delegate T ReadOnlySpanAction<T>(ReadOnlySpan<byte> span);
+
+        private static T WithSecureString<T>(SecureString secureString, ReadOnlySpanAction<T> action)
         {
             IntPtr ptr = Marshal.SecureStringToGlobalAllocUnicode(secureString);
             nuint unmanagedLen = (nuint)(secureString.Length * 2); // Unicode
@@ -105,25 +100,16 @@ namespace NinePSharp.Server.Utils
                     int length = secureString.Length;
                     char* chars = (char*)ptr.ToPointer();
                     int byteCount = Encoding.UTF8.GetByteCount(chars, length);
-                    if (byteCount == 0) return action(Array.Empty<byte>());
+                    if (byteCount == 0) return action(ReadOnlySpan<byte>.Empty);
                     
-                    using (var secureBuffer = new SecureBuffer(byteCount))
+                    using (var secureBuffer = new SecureBuffer(byteCount, Arena))
                     {
                         fixed (byte* pBytes = secureBuffer.Span)
                         {
                             Encoding.UTF8.GetBytes(chars, length, pBytes, byteCount);
                         }
                         
-                        // We still need to return a byte[] for legacy compatibility with action(byte[])
-                        // but we ensure it is pinned and copied from the secure arena.
-                        byte[] legacyBytes = GC.AllocateArray<byte>(byteCount, pinned: true);
-                        try {
-                            secureBuffer.Span.CopyTo(legacyBytes);
-                            return action(legacyBytes); 
-                        }
-                        finally { 
-                            Array.Clear(legacyBytes); 
-                        }
+                        return action(secureBuffer.Span);
                     }
                 }
             }
@@ -134,200 +120,139 @@ namespace NinePSharp.Server.Utils
             }
         }
 
-        private static byte[] MixSessionKey(ReadOnlySpan<byte> input)
+        private static void MixSessionKey(ReadOnlySpan<byte> input, Span<byte> output)
         {
-            if (_sessionKey == null) return input.ToArray();
-            
-            // HMAC or Blake2b mix: input + sessionKey
-            byte[] mixed = new byte[32];
-            // Use SecureBuffer from the contiguous Arena
-            using (var buffer = new SecureBuffer(input.Length + _sessionKey.Length))
+            lock (_sessionKeyLock)
             {
-                input.CopyTo(buffer.Span);
-                _sessionKey.CopyTo(buffer.Span.Slice(input.Length));
-                
-                unsafe {
-                    fixed (byte* pMixed = mixed, pBuffer = buffer.Span) {
-                        MonocypherNative.crypto_blake2b_ptr(pMixed, (nuint)mixed.Length, pBuffer, (nuint)buffer.Length);
-                    }
-                }
-            }
-            return mixed;
-        }
-
-        public static byte[] DeriveSeed(string password, byte[] nonce)
-        {
-            if (password == null) throw new ArgumentNullException(nameof(password));
-            using (var rawSeed = new SecureBuffer(KeySize))
-            {
-                Rfc2898DeriveBytes.Pbkdf2(password, nonce, rawSeed.Span, Iterations, HashAlgorithmName.SHA256);
-                return MixSessionKey(rawSeed.Span);
-            }
-        }
-
-        public static byte[] DeriveSeed(SecureString password, byte[] nonce)
-        {
-            return WithSecureString(password, bytes => {
-                using (var rawSeed = new SecureBuffer(KeySize))
+                if (_sessionKey == null)
                 {
-                    Rfc2898DeriveBytes.Pbkdf2(bytes, nonce, rawSeed.Span, Iterations, HashAlgorithmName.SHA256);
-                    return MixSessionKey(rawSeed.Span);
+                    input.CopyTo(output);
+                    return;
                 }
-            });
-        }
 
-        public static byte[] DeriveSeed(ReadOnlySpan<byte> passwordBytes, ReadOnlySpan<byte> nonce)
-        {
-            using (var rawSeed = new SecureBuffer(KeySize))
-            {
-                Rfc2898DeriveBytes.Pbkdf2(passwordBytes, nonce, rawSeed.Span, Iterations, HashAlgorithmName.SHA256);
-                return MixSessionKey(rawSeed.Span);
-            }
-        }
-
-        private static void DeriveKeyFromPassword(string password, ReadOnlySpan<byte> salt, byte[] outKey)
-        {
-            using (var key = new SecureBuffer(KeySize))
-            {
-                Rfc2898DeriveBytes.Pbkdf2(password, salt, key.Span, Iterations, HashAlgorithmName.SHA256);
-                
-                var mixed = MixSessionKey(key.Span);
-                mixed.CopyTo(outKey, 0);
-                Array.Clear(mixed);
-            }
-        }
-
-        private static void DeriveKeyFromSecureString(SecureString password, ReadOnlySpan<byte> salt, byte[] outKey)
-        {
-            byte[] saltArray = salt.ToArray();
-            WithSecureString(password, bytes => {
-                using (var key = new SecureBuffer(KeySize))
+                // HMAC or Blake2b mix: input + sessionKey
+                using (var buffer = new SecureBuffer(input.Length + _sessionKey.Length, Arena))
                 {
-                    Rfc2898DeriveBytes.Pbkdf2(bytes, saltArray, key.Span, Iterations, HashAlgorithmName.SHA256);
-                    
-                    var mixed = MixSessionKey(key.Span);
-                    mixed.CopyTo(outKey, 0);
-                    Array.Clear(mixed);
-                    return true;
-                }
-            });
-        }
+                    input.CopyTo(buffer.Span);
+                    _sessionKey.CopyTo(buffer.Span.Slice(input.Length));
 
-        private static void DeriveKeyFromPasswordBytes(ReadOnlySpan<byte> passwordBytes, ReadOnlySpan<byte> salt, byte[] outKey)
-        {
-            using (var key = new SecureBuffer(KeySize))
-            {
-                Rfc2898DeriveBytes.Pbkdf2(passwordBytes, salt, key.Span, Iterations, HashAlgorithmName.SHA256);
-
-                var mixed = MixSessionKey(key.Span);
-                mixed.CopyTo(outKey, 0);
-                Array.Clear(mixed);
-            }
-        }
-
-        private static void DeriveKeyFromBytes(ReadOnlySpan<byte> keyMaterial, ReadOnlySpan<byte> salt, byte[] outKey)
-        {
-            using (var mixed = new SecureBuffer(keyMaterial.Length + salt.Length))
-            {
-                keyMaterial.CopyTo(mixed.Span);
-                salt.CopyTo(mixed.Span.Slice(keyMaterial.Length));
-                
-                using (var rawKey = new SecureBuffer(32))
-                {
                     unsafe {
-                        fixed (byte* pRaw = rawKey.Span, pMixed = mixed.Span) {
-                            MonocypherNative.crypto_blake2b_ptr(pRaw, (nuint)rawKey.Length, pMixed, (nuint)mixed.Length);
+                        fixed (byte* pMixed = output, pBuffer = buffer.Span) {
+                            MonocypherNative.crypto_blake2b_ptr(pMixed, (nuint)output.Length, pBuffer, (nuint)buffer.Length);
                         }
                     }
-                    
-                    var finalKey = MixSessionKey(rawKey.Span);
-                    finalKey.CopyTo(outKey, 0);
-                    
-                    Array.Clear(finalKey);
                 }
             }
         }
 
-        public static byte[] Encrypt(byte[] plaintextBytes, string password)
+        public static void DeriveSeed(string password, ReadOnlySpan<byte> nonce, Span<byte> output)
         {
-            if (plaintextBytes == null) throw new ArgumentNullException(nameof(plaintextBytes));
             if (password == null) throw new ArgumentNullException(nameof(password));
-            
-            byte[] salt = new byte[SaltSize];
-            RandomNumberGenerator.Fill(salt);
-            using (var key = new SecureBuffer(KeySize))
+            using (var rawSeed = new SecureBuffer(KeySize, Arena))
             {
-                byte[] keyBytes = new byte[KeySize];
-                DeriveKeyFromPassword(password, salt, keyBytes);
-                keyBytes.AsSpan().CopyTo(key.Span);
-                Array.Clear(keyBytes);
-                return EncryptInternal(plaintextBytes, key.Span, salt);
+                Rfc2898DeriveBytes.Pbkdf2(password, nonce, rawSeed.Span, Iterations, HashAlgorithmName.SHA256);
+                MixSessionKey(rawSeed.Span, output);
             }
         }
 
-        public static byte[] Encrypt(byte[] plaintextBytes, SecureString password)
+        public static unsafe void DeriveSeed(SecureString password, ReadOnlySpan<byte> nonce, Span<byte> output)
         {
-            if (plaintextBytes == null) throw new ArgumentNullException(nameof(plaintextBytes));
-            
-            byte[] salt = new byte[SaltSize];
-            RandomNumberGenerator.Fill(salt);
-            using (var key = new SecureBuffer(KeySize))
+            fixed (byte* pOutput = output, pNonce = nonce)
             {
-                byte[] keyBytes = new byte[KeySize];
-                DeriveKeyFromSecureString(password, salt, keyBytes);
-                keyBytes.AsSpan().CopyTo(key.Span);
-                Array.Clear(keyBytes);
-                return EncryptInternal(plaintextBytes, key.Span, salt);
+                byte* pOutputLocal = pOutput;
+                byte* pNonceLocal = pNonce;
+                int nonceLen = nonce.Length;
+                WithSecureString(password, bytes => {
+                    using (var rawSeed = new SecureBuffer(KeySize, Arena))
+                    {
+                        Rfc2898DeriveBytes.Pbkdf2(bytes, new ReadOnlySpan<byte>(pNonceLocal, nonceLen), rawSeed.Span, Iterations, HashAlgorithmName.SHA256);
+                        MixSessionKey(rawSeed.Span, new Span<byte>(pOutputLocal, KeySize));
+                        return true;
+                    }
+                });
+            }
+        }
+
+        public static void DeriveSeed(ReadOnlySpan<byte> passwordBytes, ReadOnlySpan<byte> nonce, Span<byte> output)
+        {
+            using (var rawSeed = new SecureBuffer(KeySize, Arena))
+            {
+                Rfc2898DeriveBytes.Pbkdf2(passwordBytes, nonce, rawSeed.Span, Iterations, HashAlgorithmName.SHA256);
+                MixSessionKey(rawSeed.Span, output);
+            }
+        }
+
+
+        public static byte[] Encrypt(ReadOnlySpan<byte> plaintext, string password)
+        {
+            if (password == null) throw new ArgumentNullException(nameof(password));
+            
+            Span<byte> salt = stackalloc byte[SaltSize];
+            RandomNumberGenerator.Fill(salt);
+            using (var key = new SecureBuffer(KeySize, Arena))
+            {
+                DeriveSeed(password, salt, key.Span);
+                return EncryptInternal(plaintext, key.Span, salt);
+            }
+        }
+
+        public static byte[] Encrypt(ReadOnlySpan<byte> plaintext, SecureString password)
+        {
+            if (password == null) throw new ArgumentNullException(nameof(password));
+            
+            Span<byte> salt = stackalloc byte[SaltSize];
+            RandomNumberGenerator.Fill(salt);
+            using (var key = new SecureBuffer(KeySize, Arena))
+            {
+                DeriveSeed(password, salt, key.Span);
+                return EncryptInternal(plaintext, key.Span, salt);
             }
         }
 
         public static byte[] Encrypt(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> keyMaterial)
         {
-            byte[] salt = new byte[SaltSize];
+            Span<byte> salt = stackalloc byte[SaltSize];
             RandomNumberGenerator.Fill(salt);
-            using (var key = new SecureBuffer(KeySize))
+            using (var key = new SecureBuffer(KeySize, Arena))
             {
-                byte[] keyBytes = new byte[KeySize];
-                DeriveKeyFromBytes(keyMaterial, salt, keyBytes);
-                keyBytes.AsSpan().CopyTo(key.Span);
-                Array.Clear(keyBytes);
+                DeriveSeed(keyMaterial, salt, key.Span);
                 return EncryptInternal(plaintext, key.Span, salt);
             }
         }
 
-        private static byte[] EncryptInternal(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> key, byte[] salt)
+        private static byte[] EncryptInternal(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> key, ReadOnlySpan<byte> salt)
         {
-            byte[] ciphertext = new byte[plaintext.Length];
-            byte[] mac = new byte[MacSize];
-            byte[] nonce = new byte[NonceSize];
-            RandomNumberGenerator.Fill(nonce);
+            byte[] finalPayload = new byte[SaltSize + NonceSize + MacSize + plaintext.Length];
+            salt.CopyTo(finalPayload.AsSpan(0, SaltSize));
+            
+            using var nonce = new SecureBuffer(NonceSize, Arena);
+            RandomNumberGenerator.Fill(nonce.Span);
+            nonce.Span.CopyTo(finalPayload.AsSpan(SaltSize, NonceSize));
+            
+            using var mac = new SecureBuffer(MacSize, Arena);
             
             unsafe {
-                fixed (byte* pCipher = ciphertext, pMac = mac, pKey = key, pNonce = nonce, pPlain = plaintext) {
+                fixed (byte* pPayload = finalPayload, 
+                             pMac = mac.Span, 
+                             pKey = key, 
+                             pNonce = nonce.Span, 
+                             pPlain = plaintext) 
+                {
+                    byte* pCipher = pPayload + SaltSize + NonceSize + MacSize;
                     MonocypherNative.crypto_aead_lock(pCipher, pMac, pKey, pNonce, null, 0, pPlain, (nuint)plaintext.Length);
                 }
             }
 
-            byte[] finalPayload = new byte[SaltSize + NonceSize + MacSize + ciphertext.Length];
-            salt.CopyTo(finalPayload.AsSpan(0, SaltSize));
-            nonce.CopyTo(finalPayload.AsSpan(SaltSize, NonceSize));
-            mac.CopyTo(finalPayload.AsSpan(SaltSize + NonceSize, MacSize));
-            Buffer.BlockCopy(ciphertext, 0, finalPayload, SaltSize + NonceSize + MacSize, ciphertext.Length);
-
-            Array.Clear(mac);
-            Array.Clear(nonce);
+            mac.Span.CopyTo(finalPayload.AsSpan(SaltSize + NonceSize, MacSize));
             return finalPayload;
         }
 
         public static SecureSecret? DecryptToBytes(byte[] payload, string password)
         {
             if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
-            using (var key = new SecureBuffer(KeySize))
+            using (var key = new SecureBuffer(KeySize, Arena))
             {
-                byte[] keyBytes = new byte[KeySize];
-                DeriveKeyFromPassword(password, payload.AsSpan(0, SaltSize), keyBytes);
-                keyBytes.AsSpan().CopyTo(key.Span);
-                Array.Clear(keyBytes);
+                DeriveSeed(password, payload.AsSpan(0, SaltSize), key.Span);
                 return DecryptInternal(payload, key.Span);
             }
         }
@@ -335,12 +260,9 @@ namespace NinePSharp.Server.Utils
         public static SecureSecret? DecryptToBytes(byte[] payload, SecureString password)
         {
             if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
-            using (var key = new SecureBuffer(KeySize))
+            using (var key = new SecureBuffer(KeySize, Arena))
             {
-                byte[] keyBytes = new byte[KeySize];
-                DeriveKeyFromSecureString(password, payload.AsSpan(0, SaltSize), keyBytes);
-                keyBytes.AsSpan().CopyTo(key.Span);
-                Array.Clear(keyBytes);
+                DeriveSeed(password, payload.AsSpan(0, SaltSize), key.Span);
                 return DecryptInternal(payload, key.Span);
             }
         }
@@ -348,12 +270,9 @@ namespace NinePSharp.Server.Utils
         public static SecureSecret? DecryptToBytes(byte[] payload, ReadOnlySpan<byte> keyMaterial)
         {
             if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
-            using (var key = new SecureBuffer(KeySize))
+            using (var key = new SecureBuffer(KeySize, Arena))
             {
-                byte[] keyBytes = new byte[KeySize];
-                DeriveKeyFromBytes(keyMaterial, payload.AsSpan(0, SaltSize), keyBytes);
-                keyBytes.AsSpan().CopyTo(key.Span);
-                Array.Clear(keyBytes);
+                DeriveSeed(keyMaterial, payload.AsSpan(0, SaltSize), key.Span);
                 return DecryptInternal(payload, key.Span);
             }
         }
@@ -361,32 +280,42 @@ namespace NinePSharp.Server.Utils
         public static SecureSecret? DecryptToBytesWithPasswordBytes(byte[] payload, ReadOnlySpan<byte> passwordBytes)
         {
             if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
-            using (var key = new SecureBuffer(KeySize))
+            using (var key = new SecureBuffer(KeySize, Arena))
             {
-                byte[] keyBytes = new byte[KeySize];
-                DeriveKeyFromPasswordBytes(passwordBytes, payload.AsSpan(0, SaltSize), keyBytes);
-                keyBytes.AsSpan().CopyTo(key.Span);
-                Array.Clear(keyBytes);
+                DeriveSeed(passwordBytes, payload.AsSpan(0, SaltSize), key.Span);
                 return DecryptInternal(payload, key.Span);
             }
         }
 
+        /// <summary>
+        /// Encrypts and stores a secret to the physical vault directory.
+        /// </summary>
+        /// <param name="name">The unique name/alias for the secret.</param>
+        /// <param name="plaintext">The cleartext payload to encrypt.</param>
+        /// <param name="password">The password used to derive the encryption key.</param>
         public static void StoreSecret(string name, byte[] plaintext, SecureString password)
         {
             var encrypted = Encrypt(plaintext, password);
-            var seed = DeriveSeed(password, Encoding.UTF8.GetBytes(name));
-            var hiddenId = GenerateHiddenId(seed);
+            using var seed = new SecureBuffer(KeySize, Arena);
+            DeriveSeed(password, Encoding.UTF8.GetBytes(name), seed.Span);
+            var hiddenId = GenerateHiddenId(seed.Span);
             var path = GetVaultPath($"secret_{hiddenId}.vlt");
             File.WriteAllBytes(path, encrypted);
-            Array.Clear(seed);
         }
 
+        /// <summary>
+        /// Decrypts and loads a secret from the physical vault.
+        /// </summary>
+        /// <param name="name">The name/alias of the secret to load.</param>
+        /// <param name="password">The password used to decrypt the secret.</param>
+        /// <returns>A <see cref="SecureSecret"/> containing the decrypted data, or null if loading fails.</returns>
         public static SecureSecret? LoadSecret(string name, SecureString password)
         {
-            var seed = DeriveSeed(password, Encoding.UTF8.GetBytes(name));
+            using var seed = new SecureBuffer(KeySize, Arena);
+            DeriveSeed(password, Encoding.UTF8.GetBytes(name), seed.Span);
             try
             {
-                var hiddenId = GenerateHiddenId(seed);
+                var hiddenId = GenerateHiddenId(seed.Span);
                 var path = GetVaultPath($"secret_{hiddenId}.vlt");
                 if (!File.Exists(path)) return null;
 
@@ -395,17 +324,23 @@ namespace NinePSharp.Server.Utils
             }
             finally
             {
-                Array.Clear(seed);
             }
         }
 
+        /// <summary>
+        /// Decrypts and loads a secret from the physical vault using a raw password span.
+        /// </summary>
+        /// <param name="name">The name/alias of the secret to load.</param>
+        /// <param name="passwordBytes">The raw password bytes.</param>
+        /// <returns>A <see cref="SecureSecret"/> containing the decrypted data, or null if loading fails.</returns>
         public static SecureSecret? LoadSecret(string name, ReadOnlySpan<byte> passwordBytes)
         {
             byte[] nameBytes = Encoding.UTF8.GetBytes(name);
-            var seed = DeriveSeed(passwordBytes, nameBytes);
+            using var seed = new SecureBuffer(KeySize, Arena);
+            DeriveSeed(passwordBytes, nameBytes, seed.Span);
             try
             {
-                var hiddenId = GenerateHiddenId(seed);
+                var hiddenId = GenerateHiddenId(seed.Span);
                 var path = GetVaultPath($"secret_{hiddenId}.vlt");
                 if (!File.Exists(path)) return null;
 
@@ -415,7 +350,6 @@ namespace NinePSharp.Server.Utils
             finally
             {
                 Array.Clear(nameBytes);
-                Array.Clear(seed);
             }
         }
 
@@ -423,28 +357,25 @@ namespace NinePSharp.Server.Utils
         {
             try
             {
-                byte[] nonce = new byte[NonceSize];
-                payload.AsSpan(SaltSize, NonceSize).CopyTo(nonce);
+                using var nonce = new SecureBuffer(NonceSize, Arena);
+                payload.AsSpan(SaltSize, NonceSize).CopyTo(nonce.Span);
                 
-                byte[] mac = new byte[MacSize];
-                payload.AsSpan(SaltSize + NonceSize, MacSize).CopyTo(mac);
+                using var mac = new SecureBuffer(MacSize, Arena);
+                payload.AsSpan(SaltSize + NonceSize, MacSize).CopyTo(mac.Span);
                 
-                byte[] ciphertext = new byte[payload.Length - (SaltSize + NonceSize + MacSize)];
-                payload.AsSpan(SaltSize + NonceSize + MacSize).CopyTo(ciphertext);
-
-                using (var plaintextBuffer = new SecureBuffer(ciphertext.Length))
+                int ciphertextLen = payload.Length - (SaltSize + NonceSize + MacSize);
+                using (var plaintextBuffer = new SecureBuffer(ciphertextLen, Arena))
                 {
                     int result;
                     unsafe {
-                        fixed (byte* pPlain = plaintextBuffer.Span, pMac = mac, pKey = key, pNonce = nonce, pCipher = ciphertext) {
-                            result = MonocypherNative.crypto_aead_unlock(pPlain, pMac, pKey, pNonce, null, 0, pCipher, (nuint)ciphertext.Length);
+                        fixed (byte* pPayload = payload, pKey = key) {
+                            byte* pCiphertext = pPayload + SaltSize + NonceSize + MacSize;
+                            fixed (byte* pPlain = plaintextBuffer.Span, pMac = mac.Span, pNonce = nonce.Span) {
+                                result = MonocypherNative.crypto_aead_unlock(pPlain, pMac, pKey, pNonce, null, 0, pCiphertext, (nuint)ciphertextLen);
+                            }
                         }
                     }
                     
-                    Array.Clear(nonce);
-                    Array.Clear(mac);
-                    Array.Clear(ciphertext);
-
                     if (result == 0)
                     {
                         // Allocate pinned + locked result, wrapped in SecureSecret for guaranteed cleanup
