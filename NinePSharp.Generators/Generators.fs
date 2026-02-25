@@ -1,6 +1,7 @@
 namespace NinePSharp.Generators
 
 open FsCheck
+open FsCheck.FSharp
 open NinePSharp.Constants
 open NinePSharp.Messages
 open NinePSharp.Parser
@@ -10,6 +11,7 @@ open System.Linq
 open System.Text
 
 module Generators =
+    let gen = GenBuilder.gen
     
     // ─── Primitive Generators ────────────────────────────────────────────
 
