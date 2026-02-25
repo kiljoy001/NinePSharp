@@ -1,11 +1,9 @@
 using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Linq;
-using System.Management.Automation;
-using System.Management.Automation.Runspaces;
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace NinePSharp.Backends.PowerShell;
@@ -18,6 +16,7 @@ public class PowerShellJob
     public StringBuilder Errors { get; } = new();
     public string Status { get; private set; } = "Created";
     
+    private Process? _activeProcess;
     private readonly object _lock = new();
 
     public PowerShellJob(string id)
@@ -37,64 +36,69 @@ public class PowerShellJob
             Errors.Clear();
         }
 
+        // Plan 9 Way: Delegate to an isolated subprocess
         try
         {
-            await Task.Run(() =>
+            var tempScript = Path.GetTempFileName() + ".ps1";
+            await File.WriteAllTextAsync(tempScript, Script);
+
+            var startInfo = new ProcessStartInfo
             {
-                // Create a default runspace
-                using var runspace = RunspaceFactory.CreateRunspace();
-                runspace.Open();
+                FileName = "/usr/bin/pwsh",
+                Arguments = $"-NoProfile -NonInteractive -File \"{tempScript}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
 
-                using var ps = System.Management.Automation.PowerShell.Create();
-                ps.Runspace = runspace;
-                ps.AddScript(Script);
+            // Hard Throttling: Set process priority low so it doesn't "crush" the OS
+            _activeProcess = new Process { StartInfo = startInfo };
+            _activeProcess.OutputDataReceived += (s, e) => { if (e.Data != null) lock(_lock) Output.AppendLine(e.Data); };
+            _activeProcess.ErrorDataReceived += (s, e) => { if (e.Data != null) lock(_lock) Errors.AppendLine(e.Data); };
 
-                // Execute the script
-                var results = ps.Invoke();
+            _activeProcess.Start();
+            
+            // Set priority after start
+            try { _activeProcess.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { /* Might fail on some OS */ }
 
-                lock (_lock)
-                {
-                    if (ps.HadErrors)
-                    {
-                        foreach (var error in ps.Streams.Error)
-                        {
-                            Errors.AppendLine(error.ToString());
-                        }
-                    }
+            _activeProcess.BeginOutputReadLine();
+            _activeProcess.BeginErrorReadLine();
 
-                    // Convert results to JSON for "Object-Oriented 9P"
-                    if (results.Count > 0)
-                    {
-                        var serializableResults = results.Select(r => {
-                            if (r.BaseObject is string || r.BaseObject.GetType().IsPrimitive) 
-                                return r.BaseObject;
-                            
-                            var dict = new Dictionary<string, object?>();
-                            foreach (var prop in r.Properties)
-                            {
-                                try { dict[prop.Name] = prop.Value; } catch { /* Ignore non-readable */ }
-                            }
-                            return dict.Count > 0 ? (object)dict : r.BaseObject;
-                        });
+            await _activeProcess.WaitForExitAsync();
 
-                        var json = JsonSerializer.Serialize(serializableResults, new JsonSerializerOptions 
-                        { 
-                            WriteIndented = true 
-                        });
-                        Output.Append(json);
-                    }
-                }
-            });
+            lock (_lock)
+            {
+                Status = _activeProcess.ExitCode == 0 ? "Completed" : "Failed";
+                if (_activeProcess.ExitCode != 0) 
+                    Errors.AppendLine($"Process exited with code: {_activeProcess.ExitCode}");
+            }
 
-            lock (_lock) Status = "Completed";
+            File.Delete(tempScript);
         }
         catch (Exception ex)
         {
             lock (_lock)
             {
                 Status = "Failed";
-                Errors.AppendLine($"Critical Error: {ex.Message}");
+                Errors.AppendLine($"Critical Launcher Error: {ex.Message}");
             }
+        }
+    }
+
+    public void Kill()
+    {
+        lock (_lock)
+        {
+            try
+            {
+                if (_activeProcess != null && !_activeProcess.HasExited)
+                {
+                    _activeProcess.Kill(entireProcessTree: true);
+                    Status = "Cancelled";
+                }
+            }
+            catch { /* Ignore */ }
         }
     }
 }

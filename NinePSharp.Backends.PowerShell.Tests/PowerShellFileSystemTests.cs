@@ -44,6 +44,14 @@ public class PowerShellFileSystemTests
             retries++;
         }
 
+        if (status == "Failed")
+        {
+            var errorFs = (PowerShellFileSystem)testJobFs.Clone();
+            await errorFs.WalkAsync(new Twalk(1, 3, 7, new[] { "errors" }));
+            var errorRes = await errorFs.ReadAsync(new Tread(1, 7, 0, 8192));
+            throw new Exception($"Job failed with errors: {Encoding.UTF8.GetString(errorRes.Data.ToArray())}");
+        }
+
         Assert.Equal("Completed", status);
 
         // 5. Read output

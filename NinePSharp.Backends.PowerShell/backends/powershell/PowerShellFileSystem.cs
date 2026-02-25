@@ -176,8 +176,11 @@ public class PowerShellFileSystem : INinePFileSystem
     {
         if (_currentPath.Count == 2 && _currentPath[0] == "jobs")
         {
-            _globalJobs.TryRemove(_currentPath[1], out _);
-            return Task.FromResult(new Rremove(tremove.Tag));
+            if (_globalJobs.TryRemove(_currentPath[1], out var job))
+            {
+                job.Kill();
+                return Task.FromResult(new Rremove(tremove.Tag));
+            }
         }
         throw new NinePNotSupportedException();
     }
