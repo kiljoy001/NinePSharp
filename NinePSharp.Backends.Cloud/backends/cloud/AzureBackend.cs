@@ -11,10 +11,12 @@ using Microsoft.Extensions.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
-using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends.Cloud;
 
+/// <summary>
+/// Backend implementation for Microsoft Azure (Blobs and Key Vault).
+/// </summary>
 public class AzureBackend : IProtocolBackend
 {
     private AzureBackendConfig? _config;
@@ -22,14 +24,21 @@ public class AzureBackend : IProtocolBackend
     private BlobServiceClient? _blobClient;
     private SecretClient? _secretClient;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="AzureBackend"/> class.
+    /// </summary>
+    /// <param name="vault">The vault service.</param>
     public AzureBackend(ILuxVaultService vault)
     {
         _vault = vault;
     }
 
+    /// <inheritdoc />
     public string Name => "Azure";
+    /// <inheritdoc />
     public string MountPath => _config?.MountPath ?? "/azure";
 
+    /// <inheritdoc />
     public async Task InitializeAsync(IConfiguration configuration)
     {
         try {
@@ -48,8 +57,10 @@ public class AzureBackend : IProtocolBackend
         }
     }
 
+    /// <inheritdoc />
     public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null) => new AzureCloudFileSystem(_config!, _blobClient!, _secretClient!, _vault);
 
+    /// <inheritdoc />
     public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null)
     {
         var (blobs, secrets) = CreateClients(credentials);

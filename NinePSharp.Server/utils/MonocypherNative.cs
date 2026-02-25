@@ -8,7 +8,7 @@ namespace NinePSharp.Server.Utils
         private const string LibName = "monocypher";
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-        public static extern void crypto_elligator_key_pair(byte[] hidden, byte[] secret_key, byte[] seed);
+        public static unsafe extern void crypto_elligator_key_pair(byte* hidden, byte* secret_key, byte* seed);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void crypto_elligator_map(byte[] public_key, byte[] hidden);

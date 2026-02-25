@@ -7,7 +7,8 @@ using Microsoft.Extensions.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
-using NinePSharp.Server.Utils;
+using System;
+using System.Linq;
 
 namespace NinePSharp.Server.Backends;
 
@@ -21,15 +22,23 @@ public class EthereumBackend : IProtocolBackend
     private readonly ILuxVaultService _vault;
     private readonly IEmercoinAuthService? _authService;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="EthereumBackend"/> class.
+    /// </summary>
+    /// <param name="vault">The vault service.</param>
+    /// <param name="authService">Optional authentication service.</param>
     public EthereumBackend(ILuxVaultService vault, IEmercoinAuthService? authService = null)
     {
         _vault = vault;
         _authService = authService;
     }
 
+    /// <inheritdoc />
     public string Name => "Ethereum";
+    /// <inheritdoc />
     public string MountPath => _config?.MountPath ?? "/eth";
 
+    /// <inheritdoc />
     public Task InitializeAsync(IConfiguration configuration)
     {
         try {
@@ -49,12 +58,14 @@ public class EthereumBackend : IProtocolBackend
         return new JsonRpcClient(_httpClient, overrideUrl ?? _config.RpcUrl);
     }
 
+    /// <inheritdoc />
     public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null)
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
         return new EthereumFileSystem(_config, GetRpcClient(), _vault, _authService, certificate);
     }
 
+    /// <inheritdoc />
     public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null)
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");

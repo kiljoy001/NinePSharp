@@ -9,10 +9,12 @@ using Microsoft.Extensions.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
-using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends.Cloud;
 
+/// <summary>
+/// Backend implementation for Google Cloud Platform (Storage and Secret Manager).
+/// </summary>
 public class GcpBackend : IProtocolBackend
 {
     private GcpBackendConfig? _config;
@@ -20,14 +22,21 @@ public class GcpBackend : IProtocolBackend
     private StorageClient? _storageClient;
     private SecretManagerServiceClient? _secretsClient;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="GcpBackend"/> class.
+    /// </summary>
+    /// <param name="vault">The vault service.</param>
     public GcpBackend(ILuxVaultService vault)
     {
         _vault = vault;
     }
 
+    /// <inheritdoc />
     public string Name => "GCP";
+    /// <inheritdoc />
     public string MountPath => _config?.MountPath ?? "/gcp";
 
+    /// <inheritdoc />
     public async Task InitializeAsync(IConfiguration configuration)
     {
         try {
@@ -46,8 +55,10 @@ public class GcpBackend : IProtocolBackend
         }
     }
 
+    /// <inheritdoc />
     public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null) => new GcpCloudFileSystem(_config!, _storageClient!, _secretsClient!, _vault);
 
+    /// <inheritdoc />
     public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null)
     {
         var (storage, secrets) = CreateClients(credentials);

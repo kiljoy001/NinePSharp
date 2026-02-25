@@ -11,10 +11,12 @@ using Microsoft.Extensions.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
-using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Server.Backends.Cloud;
 
+/// <summary>
+/// Backend implementation for Amazon Web Services (S3 and Secrets Manager).
+/// </summary>
 public class AwsBackend : IProtocolBackend
 {
     private AwsBackendConfig? _config;
@@ -22,14 +24,21 @@ public class AwsBackend : IProtocolBackend
     private IAmazonS3? _s3Client;
     private IAmazonSecretsManager? _secretsClient;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="AwsBackend"/> class.
+    /// </summary>
+    /// <param name="vault">The vault service.</param>
     public AwsBackend(ILuxVaultService vault)
     {
         _vault = vault;
     }
 
+    /// <inheritdoc />
     public string Name => "AWS";
+    /// <inheritdoc />
     public string MountPath => _config?.MountPath ?? "/aws";
 
+    /// <inheritdoc />
     public async Task InitializeAsync(IConfiguration configuration)
     {
         try {
@@ -49,8 +58,10 @@ public class AwsBackend : IProtocolBackend
         }
     }
 
+    /// <inheritdoc />
     public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null) => new AwsCloudFileSystem(_config!, _s3Client!, _secretsClient!, _vault);
 
+    /// <inheritdoc />
     public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null)
     {
         var s3 = CreateS3Client(credentials);

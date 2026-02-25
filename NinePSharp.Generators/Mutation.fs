@@ -9,6 +9,8 @@ open System.Linq
 
 module Mutation =
     
+    let gen = GenBuilder()
+
     // ─── Field Mutations ───────────────────────────────────────────────
 
     let mutateUInt16 (v: uint16) =

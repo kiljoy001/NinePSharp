@@ -27,45 +27,45 @@ namespace NinePSharp.Server.Utils
         private const int SaltSize = 16;
 
         // ─── Parallel Optimization & Sharded Arenas ─────────────────────────
-
+        
         private static readonly int MaxParallelOps = (int)Math.Max(1, Environment.ProcessorCount * 0.8);
         private static readonly SemaphoreSlim ConcurrencyGovernor = new(MaxParallelOps, MaxParallelOps);
 
-        private static readonly PerformanceCounter? CpuCounter;
+        private static readonly ICpuMonitor? CpuMonitor;
         private static readonly Timer? CpuMonitorTimer;
         private static int _currentLimit = MaxParallelOps;
         private static DateTime _lastAdjustment = DateTime.MinValue;
 
         static LuxVault()
         {
-            try
+            // Select platform-appropriate monitor
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                // Initialize CPU monitoring (only works on Windows with proper permissions)
-                CpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
-                CpuCounter.NextValue(); // Prime the counter
+                CpuMonitor = new WindowsCpuMonitor();
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                CpuMonitor = new LinuxCpuMonitor();
+            }
 
+            if (CpuMonitor != null)
+            {
                 // Start adaptive CPU monitoring - checks every 2 seconds
                 CpuMonitorTimer = new Timer(_ => AdjustConcurrencyBasedOnCpu(), null,
                     TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
-            }
-            catch
-            {
-                // If PerformanceCounter fails (Linux/macOS or permissions), use static limit
-                CpuCounter = null;
-                CpuMonitorTimer = null;
             }
         }
 
         private static void AdjustConcurrencyBasedOnCpu()
         {
-            if (CpuCounter == null) return;
+            if (CpuMonitor == null) return;
 
             // Rate limit adjustments to once per 5 seconds
             if ((DateTime.UtcNow - _lastAdjustment).TotalSeconds < 5) return;
 
             try
             {
-                float currentCpu = CpuCounter.NextValue();
+                float currentCpu = CpuMonitor.GetUsage();
                 int targetLimit = _currentLimit;
 
                 // If system CPU > 80%, reduce our concurrency
@@ -85,15 +85,13 @@ namespace NinePSharp.Server.Utils
                     int delta = targetLimit - _currentLimit;
                     if (delta > 0)
                     {
-                        // Increase capacity by releasing permits
                         ConcurrencyGovernor.Release(delta);
                     }
                     else if (delta < 0)
                     {
-                        // Decrease capacity by acquiring permits (non-blocking)
                         for (int i = 0; i < Math.Abs(delta); i++)
                         {
-                            ConcurrencyGovernor.Wait(0); // Immediate timeout
+                            ConcurrencyGovernor.Wait(0); 
                         }
                     }
 
@@ -101,7 +99,37 @@ namespace NinePSharp.Server.Utils
                     _lastAdjustment = DateTime.UtcNow;
                 }
             }
-            catch { /* Ignore monitoring failures */ }
+            catch { /* Monitoring should never crash the vault */ }
+        }
+
+        private interface ICpuMonitor { float GetUsage(); }
+
+        private class WindowsCpuMonitor : ICpuMonitor
+        {
+            private readonly PerformanceCounter? _counter;
+            public WindowsCpuMonitor()
+            {
+                try {
+                    _counter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
+                    _counter.NextValue();
+                } catch { _counter = null; }
+            }
+            public float GetUsage() => _counter?.NextValue() ?? 0f;
+        }
+
+        private class LinuxCpuMonitor : ICpuMonitor
+        {
+            public float GetUsage()
+            {
+                try {
+                    // Use loadavg as a proxy for CPU usage on Linux
+                    // Format: "0.10 0.05 0.01 1/123 12345"
+                    string loadStr = File.ReadAllText("/proc/loadavg").Split(' ')[0];
+                    float load = float.Parse(loadStr);
+                    // Convert load to a percentage based on core count
+                    return (load / Environment.ProcessorCount) * 100f;
+                } catch { return 0f; }
+            }
         }
 
         public static readonly SecureMemoryArena[] Arenas = Enumerable.Range(0, MaxParallelOps)
