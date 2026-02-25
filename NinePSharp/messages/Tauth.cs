@@ -37,7 +37,7 @@ public readonly struct Tauth : ISerializable
         }
     }
 
-    public Tauth(ushort tag, uint afid, string uname, string aname, uint? nuname = null)
+    public Tauth(ushort tag, uint afid, string? uname, string? aname, uint? nuname = null)
     {
         Tag = tag;
         Afid = afid;

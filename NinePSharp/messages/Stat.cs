@@ -36,7 +36,7 @@ public readonly struct Stat
     public uint? NGid { get; }
     public uint? NMuid { get; }
 
-    public static ushort CalculateSize(string name, string uid, string gid, string muid, bool dotu, string? extension = null)
+    public static ushort CalculateSize(string? name, string? uid, string? gid, string? muid, bool dotu, string? extension = null)
     {
         // 1. Fixed fields (excluding size[2] itself):
         // type[2] + dev[4] + qid[13] + mode[4] + atime[4] + mtime[4] + length[8] = 39 bytes
@@ -59,7 +59,7 @@ public readonly struct Stat
         return (ushort)(payloadSize + 2);
     }
     
-    public Stat(ushort size, ushort type, uint dev, Qid qid, uint mode, uint atime, uint mtime, ulong length, string name, string uid, string gid, string muid, bool dotu = false, string? extension = null, uint? nUid = null, uint? nGid = null, uint? nMuid = null)
+    public Stat(ushort size, ushort type, uint dev, Qid qid, uint mode, uint atime, uint mtime, ulong length, string? name, string? uid, string? gid, string? muid, bool dotu = false, string? extension = null, uint? nUid = null, uint? nGid = null, uint? nMuid = null)
     {
         DotU = dotu;
         Name = name ?? "";

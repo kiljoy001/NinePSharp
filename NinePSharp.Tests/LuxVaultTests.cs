@@ -22,11 +22,19 @@ namespace NinePSharp.Tests
             Assert.Equal(pk.Length + 56, ciphertext.Length);
 
             // 2. Decrypt with correct password
-            var recoveredPk = LuxVault.Decrypt(ciphertext, password);
+            string? recoveredPk;
+            using (var decrypted = LuxVault.DecryptToBytes(ciphertext, password))
+            {
+                recoveredPk = decrypted == null ? null : Encoding.UTF8.GetString(decrypted.Span);
+            }
             Assert.Equal(pk, recoveredPk);
 
             // 3. Decrypt with wrong password (should return null safely)
-            var wrongPk = LuxVault.Decrypt(ciphertext, "wrong_password");
+            string? wrongPk;
+            using (var wrong = LuxVault.DecryptToBytes(ciphertext, "wrong_password"))
+            {
+                wrongPk = wrong == null ? null : Encoding.UTF8.GetString(wrong.Span);
+            }
             Assert.Null(wrongPk);
         }
 

@@ -63,7 +63,7 @@ public class NamespaceRouterActor : ReceiveActor
 
         Receive<ClusterRequest>(req =>
         {
-            IActorRef targetProvider = null;
+            IActorRef? targetProvider = null;
             string matchedPath = "";
 
             // Find longest matching mount path
@@ -76,7 +76,7 @@ public class NamespaceRouterActor : ReceiveActor
                 }
             }
 
-            if (targetProvider != null)
+            if (targetProvider is not null)
             {
                 targetProvider.Forward(req);
             }

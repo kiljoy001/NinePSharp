@@ -8,10 +8,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.IO.Pipelines" Version="9.0.0" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
     <ProjectReference Include="..\NinePSharp.Server.Abstractions\NinePSharp.Server.Abstractions.csproj" />
   </ItemGroup>

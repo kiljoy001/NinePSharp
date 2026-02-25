@@ -168,7 +168,8 @@ public class NinePFSDispatcherTests
         // Final verification of content via Scoped Reveal logic
         IntPtr ptr = System.Runtime.InteropServices.Marshal.SecureStringToGlobalAllocUnicode(capturedCredentials);
         try {
-            string recovered = System.Runtime.InteropServices.Marshal.PtrToStringUni(ptr);
+            string? recovered = System.Runtime.InteropServices.Marshal.PtrToStringUni(ptr);
+            recovered.Should().NotBeNull();
             recovered.Should().Be(secret);
         }
         finally {

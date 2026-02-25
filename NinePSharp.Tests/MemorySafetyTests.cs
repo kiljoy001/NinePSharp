@@ -33,7 +33,8 @@ public unsafe class MemorySafetyTests
 
             // Decrypt into the buffer
             using var decryptedStream = LuxVault.DecryptToBytes(encrypted, "test-key");
-            decryptedStream.Span.CopyTo(buffer);
+            Assert.NotNull(decryptedStream);
+            decryptedStream!.Span.CopyTo(buffer);
 
             // Verify the buffer contains the password
             var decrypted = System.Text.Encoding.UTF8.GetString(buffer);
@@ -72,8 +73,6 @@ public unsafe class MemorySafetyTests
 
         // Allocate pinned buffer for inspection
         byte[] capturedBytes = null!;
-        bool memoryWasZeroed = false;
-
         protectedSecret.Use(secretBytes =>
         {
             // Capture the bytes during the scope
@@ -147,7 +146,8 @@ public unsafe class MemorySafetyTests
         // Decrypt to a buffer
         byte[] buffer = new byte[testPassword.Length * 4]; // Oversized to catch any leaks
         using var decrypted = LuxVault.DecryptToBytes(encrypted, "test-key");
-        decrypted.Span.CopyTo(buffer);
+        Assert.NotNull(decrypted);
+        decrypted!.Span.CopyTo(buffer);
 
         // Verify only the expected bytes are set
         var recovered = System.Text.Encoding.UTF8.GetString(buffer, 0, testPassword.Length);
@@ -218,7 +218,8 @@ public unsafe class MemorySafetyTests
         {
             byte[] buffer = new byte[testPassword.Length];
             using var decrypted = LuxVault.DecryptToBytes(encrypted, "test-key");
-            decrypted.Span.CopyTo(buffer);
+            Assert.NotNull(decrypted);
+            decrypted!.Span.CopyTo(buffer);
 
             var recovered = System.Text.Encoding.UTF8.GetString(buffer);
             Assert.Equal(testPassword, recovered);
@@ -289,7 +290,8 @@ public unsafe class MemorySafetyTests
         {
             byte[] buffer = new byte[testPassword.Length];
             using var decrypted = LuxVault.DecryptToBytes(encrypted, "test-key");
-            decrypted.Span.CopyTo(buffer);
+            Assert.NotNull(decrypted);
+            decrypted!.Span.CopyTo(buffer);
 
             var recovered = System.Text.Encoding.UTF8.GetString(buffer);
             Assert.Equal(testPassword, recovered);

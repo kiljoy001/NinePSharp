@@ -76,7 +76,6 @@ namespace NinePSharp.Tests
 
             var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             int peakConcurrentOps = 0;
-            long activeOps = 0;
 
             // Spawn double the allowed threads to try and overwhelm the governor
             var tasks = Enumerable.Range(0, maxAllowed * 2).Select(_ => Task.Run(() =>

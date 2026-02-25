@@ -19,6 +19,7 @@ namespace NinePSharp.Tests
         {
             var fs = new PowerShellFileSystem();
             string jobId = $"cleanup-test-{Guid.NewGuid():N}";
+            string marker = $"NINEPSHARP_CLEANUP_{Guid.NewGuid():N}";
             
             // 1. Create job
             var jobsFs = (PowerShellFileSystem)fs.Clone();
@@ -28,7 +29,7 @@ namespace NinePSharp.Tests
             // 2. Start a script that outputs its own PID and then sleeps
             var scriptFs = (PowerShellFileSystem)jobsFs.Clone();
             await scriptFs.WalkAsync(new Twalk(1, 2, 3, new[] { jobId, "script.ps1" }));
-            string script = "echo $pid; Start-Sleep -Seconds 10";
+            string script = $"Write-Output $pid; # {marker}{Environment.NewLine}Start-Sleep -Seconds 10";
             await scriptFs.WriteAsync(new Twrite(1, 3, 0, Encoding.UTF8.GetBytes(script)));
 
             // 3. Capture the PID from the output file
@@ -63,7 +64,12 @@ namespace NinePSharp.Tests
 
             // 6. ASSERT SIDE EFFECT: Temp files must be cleaned up
             var tempFiles = Directory.GetFiles(Path.GetTempPath(), $"*.ps1");
-            tempFiles.Any(f => File.ReadAllText(f).Contains(script)).Should().BeFalse("Temporary script files must be deleted after job completion or removal.");
+            bool leakedScriptFound = tempFiles.Any(f =>
+            {
+                try { return File.ReadAllText(f).Contains(marker, StringComparison.Ordinal); }
+                catch { return false; }
+            });
+            leakedScriptFound.Should().BeFalse("Temporary script files must be deleted after job completion or removal.");
         }
 
         [Fact]

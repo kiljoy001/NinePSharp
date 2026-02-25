@@ -10,6 +10,7 @@ using Microsoft.Coyote;
 using Microsoft.Coyote.SystematicTesting;
 using NinePSharp.Server.Utils;
 using Xunit;
+using CoyoteTask = Microsoft.Coyote.Rewriting.Types.Threading.Tasks.Task;
 
 namespace NinePSharp.Tests.Coyote;
 
@@ -20,6 +21,36 @@ namespace NinePSharp.Tests.Coyote;
 /// </summary>
 public class LuxVaultCoyoteMutationTests
 {
+    private static string BuildCoyoteFailureMessage(Microsoft.Coyote.Configuration configuration, TestingEngine engine, string message)
+    {
+        var bugReports = string.Join("\n---\n", engine.TestReport.BugReports ?? []);
+        var uncontrolled = string.Join("\n", engine.TestReport.UncontrolledInvocations ?? []);
+        var reportText = engine.TestReport.GetText(configuration, message);
+
+        return $"{message}\n" +
+               $"Bugs: {engine.TestReport.NumOfFoundBugs}\n" +
+               $"Uncontrolled Invocations: {engine.TestReport.UncontrolledInvocations?.Count ?? 0}\n" +
+               $"Uncontrolled Details:\n{uncontrolled}\n" +
+               $"Bug Reports:\n{bugReports}\n" +
+               $"Report:\n{reportText}";
+    }
+
+    private static Microsoft.Coyote.Configuration CreateCoyoteConfiguration(uint iterations, uint maxSchedulingSteps = 0)
+    {
+        var configuration = Microsoft.Coyote.Configuration.Create()
+            .WithTestingIterations(iterations)
+            .WithPartiallyControlledConcurrencyAllowed(true)
+            .WithUncontrolledConcurrencyResolutionTimeout(attempts: 100, delay: 1)
+            .WithPotentialDeadlocksReportedAsBugs(false);
+
+        if (maxSchedulingSteps > 0)
+        {
+            configuration = configuration.WithMaxSchedulingSteps(maxSchedulingSteps);
+        }
+
+        return configuration;
+    }
+
     /// <summary>
     /// Tests InitializeSessionKey for TOCTOU race conditions.
     /// Kills mutants on lines 76-77 (null check removal, pinned flag).
@@ -30,15 +61,13 @@ public class LuxVaultCoyoteMutationTests
     [Fact]
     public void Coyote_InitializeSessionKey_Concurrent_Race_Condition()
     {
-        var configuration = Microsoft.Coyote.Configuration.Create()
-            .WithTestingIterations(500)
-            .WithMaxSchedulingSteps(1000);
+        var configuration = CreateCoyoteConfiguration(iterations: 500, maxSchedulingSteps: 1000);
 
         var engine = TestingEngine.Create(configuration, async () =>
         {
             // Reset session key to test initialization race
             var sessionKeyField = typeof(LuxVault).GetField("_sessionKey",
-                BindingFlags.NonPublic | BindingFlags.Static);
+                BindingFlags.NonPublic | BindingFlags.Static)!;
             sessionKeyField.SetValue(null, null);
 
             byte[] key1 = new byte[32];
@@ -47,17 +76,17 @@ public class LuxVaultCoyoteMutationTests
             RandomNumberGenerator.Fill(key2);
 
             // Two threads attempting concurrent initialization
-            var task1 = Task.Run(() => LuxVault.InitializeSessionKey(key1));
-            var task2 = Task.Run(() => LuxVault.InitializeSessionKey(key2));
+            var task1 = CoyoteTask.Run(() => LuxVault.InitializeSessionKey(key1));
+            var task2 = CoyoteTask.Run(() => LuxVault.InitializeSessionKey(key2));
 
-            await Task.WhenAll(task1, task2);
+            await CoyoteTask.WhenAll(task1, task2);
 
             // Invariant 1: Session key must be initialized (not null)
-            var finalKey = (byte[])sessionKeyField.GetValue(null);
+            var finalKey = (byte[]?)sessionKeyField.GetValue(null);
             finalKey.Should().NotBeNull("Session key must be initialized after concurrent calls");
 
             // Invariant 2: Exactly one of the two keys was set (no corruption)
-            (finalKey.SequenceEqual(key1) || finalKey.SequenceEqual(key2))
+            (finalKey!.SequenceEqual(key1) || finalKey.SequenceEqual(key2))
                 .Should().BeTrue("Session key must match one of the initialization attempts");
 
             // Invariant 3: Encryption/decryption still works (no memory corruption)
@@ -68,9 +97,8 @@ public class LuxVaultCoyoteMutationTests
             decrypted.Span.ToArray().Should().Equal(plaintext);
         });
 
-        engine.Run();
-        Assert.True(engine.TestReport.NumOfFoundBugs == 0,
-            $"Coyote found {engine.TestReport.NumOfFoundBugs} race conditions in InitializeSessionKey. " +
+        RunCoyoteEngineWithGovernorDisabled(configuration, engine, e =>
+            $"Coyote found {e.TestReport.NumOfFoundBugs} race conditions in InitializeSessionKey. " +
             $"This indicates the mutant removed the null check or changed pinning, causing double-initialization.");
     }
 
@@ -84,21 +112,20 @@ public class LuxVaultCoyoteMutationTests
     [Fact]
     public void Coyote_Arena_Concurrent_Allocations_Return_To_Baseline()
     {
-        var configuration = Microsoft.Coyote.Configuration.Create()
-            .WithTestingIterations(100);
+        var configuration = CreateCoyoteConfiguration(iterations: 100);
 
         var engine = TestingEngine.Create(configuration, async () =>
         {
-            var arenaField = typeof(LuxVault).GetField("Arena",
-                BindingFlags.NonPublic | BindingFlags.Static);
-            var arenaInstance = arenaField.GetValue(null);
-            var activeAllocationsProp = arenaInstance.GetType()
-                .GetProperty("ActiveAllocations");
+            var arenasField = typeof(LuxVault).GetField("Arenas",
+                BindingFlags.Public | BindingFlags.Static)!;
+            var activeAllocationsProp = typeof(SecureMemoryArena)
+                .GetProperty("ActiveAllocations")!;
+            var arenas = (SecureMemoryArena[])arenasField.GetValue(null)!;
 
-            int baseline = (int)activeAllocationsProp.GetValue(arenaInstance);
+            int baseline = arenas.Sum(a => (int)activeAllocationsProp.GetValue(a)!);
 
             // 10 concurrent encrypt/decrypt operations stressing the arena
-            var tasks = Enumerable.Range(0, 10).Select(i => Task.Run(() =>
+            var tasks = Enumerable.Range(0, 10).Select(i => CoyoteTask.Run(() =>
             {
                 var plaintext = Encoding.UTF8.GetBytes($"Data{i}");
                 var encrypted = LuxVault.Encrypt(plaintext, "password");
@@ -110,18 +137,17 @@ public class LuxVaultCoyoteMutationTests
                     $"Decrypted data {i} doesn't match plaintext - possible memory corruption");
             })).ToArray();
 
-            await Task.WhenAll(tasks);
+            await CoyoteTask.WhenAll(tasks);
 
             // Invariant: Arena must return to baseline (no memory leaks)
-            int final = (int)activeAllocationsProp.GetValue(arenaInstance);
+            int final = arenas.Sum(a => (int)activeAllocationsProp.GetValue(a)!);
             final.Should().Be(baseline,
                 "Arena leaked memory under concurrent allocations. " +
                 "This indicates the mutant removed Arena.Free() or Array.Clear() calls.");
         });
 
-        engine.Run();
-        Assert.True(engine.TestReport.NumOfFoundBugs == 0,
-            $"Coyote found {engine.TestReport.NumOfFoundBugs} arena concurrency bugs. " +
+        RunCoyoteEngineWithGovernorDisabled(configuration, engine, e =>
+            $"Coyote found {e.TestReport.NumOfFoundBugs} arena concurrency bugs. " +
             $"This indicates arena exhaustion or memory corruption under concurrent load.");
     }
 
@@ -135,8 +161,7 @@ public class LuxVaultCoyoteMutationTests
     [Fact]
     public void Coyote_GetVaultPath_Directory_Creation_Race()
     {
-        var configuration = Microsoft.Coyote.Configuration.Create()
-            .WithTestingIterations(100);
+        var configuration = CreateCoyoteConfiguration(iterations: 100);
 
         var engine = TestingEngine.Create(configuration, async () =>
         {
@@ -157,14 +182,14 @@ public class LuxVaultCoyoteMutationTests
             }
 
             // 5 threads concurrently calling GetVaultPath
-            var tasks = Enumerable.Range(0, 5).Select(i => Task.Run(() =>
+            var tasks = Enumerable.Range(0, 5).Select(i => CoyoteTask.Run(() =>
             {
                 var path = LuxVault.GetVaultPath($"test{i}.vlt");
                 path.Should().Contain(vaultDir,
                     $"GetVaultPath should return a path containing vault directory");
             })).ToArray();
 
-            await Task.WhenAll(tasks);
+            await CoyoteTask.WhenAll(tasks);
 
             // Invariant: Directory must exist after concurrent calls
             Directory.Exists(vaultDir).Should().BeTrue(
@@ -172,9 +197,8 @@ public class LuxVaultCoyoteMutationTests
                 "If this fails, the mutant inverted the Directory.Exists check.");
         });
 
-        engine.Run();
-        Assert.True(engine.TestReport.NumOfFoundBugs == 0,
-            $"Coyote found {engine.TestReport.NumOfFoundBugs} directory creation race bugs. " +
+        RunCoyoteEngineWithGovernorDisabled(configuration, engine, e =>
+            $"Coyote found {e.TestReport.NumOfFoundBugs} directory creation race bugs. " +
             $"This indicates TOCTOU vulnerability or inverted Directory.Exists logic.");
     }
 
@@ -186,13 +210,12 @@ public class LuxVaultCoyoteMutationTests
     [Fact]
     public void Coyote_Concurrent_Encrypt_Decrypt_Memory_Safe()
     {
-        var configuration = Microsoft.Coyote.Configuration.Create()
-            .WithTestingIterations(100);
+        var configuration = CreateCoyoteConfiguration(iterations: 100);
 
         var engine = TestingEngine.Create(configuration, async () =>
         {
             // 20 concurrent operations with different data
-            var tasks = Enumerable.Range(0, 20).Select(i => Task.Run(() =>
+            var tasks = Enumerable.Range(0, 20).Select(i => CoyoteTask.Run(() =>
             {
                 var password = $"password{i % 5}"; // 5 different passwords
                 var plaintext = Encoding.UTF8.GetBytes($"TestData{i}");
@@ -206,12 +229,11 @@ public class LuxVaultCoyoteMutationTests
                     $"Data corruption in operation {i} - wrong plaintext recovered");
             })).ToArray();
 
-            await Task.WhenAll(tasks);
+            await CoyoteTask.WhenAll(tasks);
         });
 
-        engine.Run();
-        Assert.True(engine.TestReport.NumOfFoundBugs == 0,
-            $"Coyote found {engine.TestReport.NumOfFoundBugs} memory safety bugs under concurrent operations");
+        RunCoyoteEngineWithGovernorDisabled(configuration, engine, e =>
+            $"Coyote found {e.TestReport.NumOfFoundBugs} memory safety bugs under concurrent operations");
     }
 
     /// <summary>
@@ -222,8 +244,7 @@ public class LuxVaultCoyoteMutationTests
     [Fact]
     public void Coyote_MixSessionKey_Concurrent_Reads_Safe()
     {
-        var configuration = Microsoft.Coyote.Configuration.Create()
-            .WithTestingIterations(100);
+        var configuration = CreateCoyoteConfiguration(iterations: 100);
 
         var engine = TestingEngine.Create(configuration, async () =>
         {
@@ -233,7 +254,7 @@ public class LuxVaultCoyoteMutationTests
             LuxVault.InitializeSessionKey(sessionKey);
 
             // 10 concurrent encrypt operations (all use MixSessionKey internally)
-            var tasks = Enumerable.Range(0, 10).Select(i => Task.Run(() =>
+            var tasks = Enumerable.Range(0, 10).Select(i => CoyoteTask.Run(() =>
             {
                 var plaintext = Encoding.UTF8.GetBytes($"Data{i}");
                 var encrypted = LuxVault.Encrypt(plaintext, "password");
@@ -243,11 +264,29 @@ public class LuxVaultCoyoteMutationTests
                 decrypted.Span.ToArray().Should().Equal(plaintext);
             })).ToArray();
 
-            await Task.WhenAll(tasks);
+            await CoyoteTask.WhenAll(tasks);
         });
 
-        engine.Run();
-        Assert.True(engine.TestReport.NumOfFoundBugs == 0,
-            $"Coyote found {engine.TestReport.NumOfFoundBugs} race conditions in session key mixing");
+        RunCoyoteEngineWithGovernorDisabled(configuration, engine, e =>
+            $"Coyote found {e.TestReport.NumOfFoundBugs} race conditions in session key mixing");
+    }
+
+    private static void RunCoyoteEngineWithGovernorDisabled(
+        Microsoft.Coyote.Configuration configuration,
+        TestingEngine engine,
+        Func<TestingEngine, string> failureMessageFactory)
+    {
+        bool previousGovernorState = LuxVault.IsConcurrencyGovernorEnabled;
+        LuxVault.SetConcurrencyGovernorEnabled(false);
+        try
+        {
+            engine.Run();
+            Assert.True(engine.TestReport.NumOfFoundBugs == 0,
+                BuildCoyoteFailureMessage(configuration, engine, failureMessageFactory(engine)));
+        }
+        finally
+        {
+            LuxVault.SetConcurrencyGovernorEnabled(previousGovernorState);
+        }
     }
 }

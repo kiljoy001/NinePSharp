@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Security;
 using System.Security.Cryptography;
 using System.Text;
@@ -30,6 +31,10 @@ namespace NinePSharp.Server.Utils
         
         private static readonly int MaxParallelOps = (int)Math.Max(1, Environment.ProcessorCount * 0.8);
         private static readonly SemaphoreSlim ConcurrencyGovernor = new(MaxParallelOps, MaxParallelOps);
+        private static int _concurrencyGovernorEnabled = 1;
+
+        internal static bool IsConcurrencyGovernorEnabled => Volatile.Read(ref _concurrencyGovernorEnabled) == 1;
+        internal static void SetConcurrencyGovernorEnabled(bool enabled) => Volatile.Write(ref _concurrencyGovernorEnabled, enabled ? 1 : 0);
 
         private static readonly ICpuMonitor? CpuMonitor;
         private static readonly Timer? CpuMonitorTimer;
@@ -39,11 +44,11 @@ namespace NinePSharp.Server.Utils
         static LuxVault()
         {
             // Select platform-appropriate monitor
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            if (OperatingSystem.IsWindows())
             {
                 CpuMonitor = new WindowsCpuMonitor();
             }
-            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            else if (OperatingSystem.IsLinux())
             {
                 CpuMonitor = new LinuxCpuMonitor();
             }
@@ -104,6 +109,7 @@ namespace NinePSharp.Server.Utils
 
         private interface ICpuMonitor { float GetUsage(); }
 
+        [SupportedOSPlatform("windows")]
         private class WindowsCpuMonitor : ICpuMonitor
         {
             private readonly PerformanceCounter? _counter;
@@ -143,6 +149,28 @@ namespace NinePSharp.Server.Utils
         {
             int index = Math.Abs(Thread.CurrentThread.ManagedThreadId) % Arenas.Length;
             return Arenas[index];
+        }
+
+        private static ConcurrencyGovernorGuard AcquireConcurrencyGovernor()
+        {
+            var governor = Volatile.Read(ref _concurrencyGovernorEnabled) == 1 ? ConcurrencyGovernor : null;
+            return new ConcurrencyGovernorGuard(governor);
+        }
+
+        private readonly struct ConcurrencyGovernorGuard : IDisposable
+        {
+            private readonly SemaphoreSlim? _governor;
+
+            public ConcurrencyGovernorGuard(SemaphoreSlim? governor)
+            {
+                _governor = governor;
+                _governor?.Wait();
+            }
+
+            public void Dispose()
+            {
+                _governor?.Release();
+            }
         }
 
         // ────────────────────────────────────────────────────────────────────
@@ -189,27 +217,23 @@ namespace NinePSharp.Server.Utils
         {
             if (seed.Length != 32) throw new ArgumentException("Seed must be exactly 32 bytes.");
 
-            ConcurrencyGovernor.Wait();
-            try
-            {
-                var arena = GetLocalArena();
-                using var hidden = new SecureBuffer(32, arena);
-                using var secretKey = new SecureBuffer(32, arena);
-                Span<byte> seedCopy = stackalloc byte[32];
-                seed.CopyTo(seedCopy);
+            using var gate = AcquireConcurrencyGovernor();
 
-                unsafe {
-                    fixed (byte* pSeed = seedCopy, pHidden = hidden.Span, pSecret = secretKey.Span) {
-                        MonocypherNative.crypto_elligator_key_pair(pHidden, pSecret, pSeed);
-                    }
+            var arena = GetLocalArena();
+            using var hidden = new SecureBuffer(32, arena);
+            using var secretKey = new SecureBuffer(32, arena);
+            Span<byte> seedCopy = stackalloc byte[32];
+            seed.CopyTo(seedCopy);
+
+            unsafe
+            {
+                fixed (byte* pSeed = seedCopy, pHidden = hidden.Span, pSecret = secretKey.Span)
+                {
+                    MonocypherNative.crypto_elligator_key_pair(pHidden, pSecret, pSeed);
                 }
+            }
 
-                return Convert.ToHexString(hidden.Span).ToLowerInvariant();
-            }
-            finally
-            {
-                ConcurrencyGovernor.Release();
-            }
+            return Convert.ToHexString(hidden.Span).ToLowerInvariant();
         }
 
         private delegate T ReadOnlySpanAction<T>(ReadOnlySpan<byte> span);
@@ -311,59 +335,41 @@ namespace NinePSharp.Server.Utils
         public static byte[] Encrypt(ReadOnlySpan<byte> plaintext, string password)
         {
             if (password == null) throw new ArgumentNullException(nameof(password));
-            ConcurrencyGovernor.Wait();
-            try
+            using var gate = AcquireConcurrencyGovernor();
+
+            Span<byte> salt = stackalloc byte[SaltSize];
+            RandomNumberGenerator.Fill(salt);
+            using (var key = new SecureBuffer(KeySize, GetLocalArena()))
             {
-                Span<byte> salt = stackalloc byte[SaltSize];
-                RandomNumberGenerator.Fill(salt);
-                using (var key = new SecureBuffer(KeySize, GetLocalArena()))
-                {
-                    DeriveSeed(password, salt, key.Span);
-                    return EncryptInternal(plaintext, key.Span, salt);
-                }
-            }
-            finally
-            {
-                ConcurrencyGovernor.Release();
+                DeriveSeed(password, salt, key.Span);
+                return EncryptInternal(plaintext, key.Span, salt);
             }
         }
 
         public static byte[] Encrypt(ReadOnlySpan<byte> plaintext, SecureString password)
         {
             if (password == null) throw new ArgumentNullException(nameof(password));
-            ConcurrencyGovernor.Wait();
-            try
+            using var gate = AcquireConcurrencyGovernor();
+
+            Span<byte> salt = stackalloc byte[SaltSize];
+            RandomNumberGenerator.Fill(salt);
+            using (var key = new SecureBuffer(KeySize, GetLocalArena()))
             {
-                Span<byte> salt = stackalloc byte[SaltSize];
-                RandomNumberGenerator.Fill(salt);
-                using (var key = new SecureBuffer(KeySize, GetLocalArena()))
-                {
-                    DeriveSeed(password, salt, key.Span);
-                    return EncryptInternal(plaintext, key.Span, salt);
-                }
-            }
-            finally
-            {
-                ConcurrencyGovernor.Release();
+                DeriveSeed(password, salt, key.Span);
+                return EncryptInternal(plaintext, key.Span, salt);
             }
         }
 
         public static byte[] Encrypt(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> keyMaterial)
         {
-            ConcurrencyGovernor.Wait();
-            try
+            using var gate = AcquireConcurrencyGovernor();
+
+            Span<byte> salt = stackalloc byte[SaltSize];
+            RandomNumberGenerator.Fill(salt);
+            using (var key = new SecureBuffer(KeySize, GetLocalArena()))
             {
-                Span<byte> salt = stackalloc byte[SaltSize];
-                RandomNumberGenerator.Fill(salt);
-                using (var key = new SecureBuffer(KeySize, GetLocalArena()))
-                {
-                    DeriveSeed(keyMaterial, salt, key.Span);
-                    return EncryptInternal(plaintext, key.Span, salt);
-                }
-            }
-            finally
-            {
-                ConcurrencyGovernor.Release();
+                DeriveSeed(keyMaterial, salt, key.Span);
+                return EncryptInternal(plaintext, key.Span, salt);
             }
         }
 
@@ -393,72 +399,48 @@ namespace NinePSharp.Server.Utils
         public static SecureSecret? DecryptToBytes(byte[] payload, string password)
         {
             if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
-            ConcurrencyGovernor.Wait();
-            try
+            using var gate = AcquireConcurrencyGovernor();
+
+            using (var key = new SecureBuffer(KeySize, GetLocalArena()))
             {
-                using (var key = new SecureBuffer(KeySize, GetLocalArena()))
-                {
-                    DeriveSeed(password, payload.AsSpan(0, SaltSize), key.Span);
-                    return DecryptInternal(payload, key.Span);
-                }
-            }
-            finally
-            {
-                ConcurrencyGovernor.Release();
+                DeriveSeed(password, payload.AsSpan(0, SaltSize), key.Span);
+                return DecryptInternal(payload, key.Span);
             }
         }
 
         public static SecureSecret? DecryptToBytes(byte[] payload, SecureString password)
         {
             if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
-            ConcurrencyGovernor.Wait();
-            try
+            using var gate = AcquireConcurrencyGovernor();
+
+            using (var key = new SecureBuffer(KeySize, GetLocalArena()))
             {
-                using (var key = new SecureBuffer(KeySize, GetLocalArena()))
-                {
-                    DeriveSeed(password, payload.AsSpan(0, SaltSize), key.Span);
-                    return DecryptInternal(payload, key.Span);
-                }
-            }
-            finally
-            {
-                ConcurrencyGovernor.Release();
+                DeriveSeed(password, payload.AsSpan(0, SaltSize), key.Span);
+                return DecryptInternal(payload, key.Span);
             }
         }
 
         public static SecureSecret? DecryptToBytes(byte[] payload, ReadOnlySpan<byte> keyMaterial)
         {
             if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
-            ConcurrencyGovernor.Wait();
-            try
+            using var gate = AcquireConcurrencyGovernor();
+
+            using (var key = new SecureBuffer(KeySize, GetLocalArena()))
             {
-                using (var key = new SecureBuffer(KeySize, GetLocalArena()))
-                {
-                    DeriveSeed(keyMaterial, payload.AsSpan(0, SaltSize), key.Span);
-                    return DecryptInternal(payload, key.Span);
-                }
-            }
-            finally
-            {
-                ConcurrencyGovernor.Release();
+                DeriveSeed(keyMaterial, payload.AsSpan(0, SaltSize), key.Span);
+                return DecryptInternal(payload, key.Span);
             }
         }
 
         public static SecureSecret? DecryptToBytesWithPasswordBytes(byte[] payload, ReadOnlySpan<byte> passwordBytes)
         {
             if (payload == null || payload.Length < SaltSize + NonceSize + MacSize) return null;
-            ConcurrencyGovernor.Wait();
-            try
+            using var gate = AcquireConcurrencyGovernor();
+
+            using (var key = new SecureBuffer(KeySize, GetLocalArena()))
             {
-                using (var key = new SecureBuffer(KeySize, GetLocalArena()))
-                {
-                    DeriveSeed(passwordBytes, payload.AsSpan(0, SaltSize), key.Span);
-                    return DecryptInternal(payload, key.Span);
-                }
-            }
-            finally
-            {
-                ConcurrencyGovernor.Release();
+                DeriveSeed(passwordBytes, payload.AsSpan(0, SaltSize), key.Span);
+                return DecryptInternal(payload, key.Span);
             }
         }
 
@@ -582,7 +564,8 @@ namespace NinePSharp.Server.Utils
             if (!secretUri.StartsWith("secret://")) return secretUri;
             var base64 = secretUri.Substring("secret://".Length);
             var ciphertext = Convert.FromBase64String(base64);
-            return Decrypt(ciphertext, masterKey);
+            using var secret = DecryptToBytes(ciphertext, masterKey);
+            return secret == null ? null : Encoding.UTF8.GetString(secret.Span);
         }
     }
 }

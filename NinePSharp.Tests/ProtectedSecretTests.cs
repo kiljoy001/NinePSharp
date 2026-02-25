@@ -11,6 +11,17 @@ namespace NinePSharp.Tests
 {
     public class ProtectedSecretTests
     {
+        private static SecureString ToSecureString(string value)
+        {
+            var secure = new SecureString();
+            foreach (char c in value)
+            {
+                secure.AppendChar(c);
+            }
+            secure.MakeReadOnly();
+            return secure;
+        }
+
         public ProtectedSecretTests()
         {
             // Initialize session key if not already done by another test
@@ -23,16 +34,15 @@ namespace NinePSharp.Tests
         public void ProtectedSecret_RoundTrip_Works()
         {
             string original = "my-ultra-secret-password-123";
-            using var secret = new ProtectedSecret(original);
+            using var originalSecure = ToSecureString(original);
+            using var secret = new ProtectedSecret(originalSecure);
             
             // Should not show cleartext in ToString
             Assert.DoesNotContain(original, secret.ToString());
             Assert.Equal("********", secret.ToString());
 
-            // Reveal should return the original
-            #pragma warning disable CS0618
-            string? revealed = secret.Reveal();
-            #pragma warning restore CS0618
+            string? revealed = null;
+            secret.Use(bytes => revealed = Encoding.UTF8.GetString(bytes));
             Assert.Equal(original, revealed);
         }
 
@@ -42,9 +52,11 @@ namespace NinePSharp.Tests
             // This tests that even for the same plaintext, the encrypted data in memory is different
             // due to the random salt/nonce used by LuxVault internally.
             string plaintext = "static-secret";
+            using var plaintextSecure1 = ToSecureString(plaintext);
+            using var plaintextSecure2 = ToSecureString(plaintext);
             
-            using var s1 = new ProtectedSecret(plaintext);
-            using var s2 = new ProtectedSecret(plaintext);
+            using var s1 = new ProtectedSecret(plaintextSecure1);
+            using var s2 = new ProtectedSecret(plaintextSecure2);
 
             // We can't directly access _encryptedData as it is private, 
             // but we've verified LuxVault.Encrypt uses random nonces.
@@ -74,19 +86,21 @@ namespace NinePSharp.Tests
             byte[] original = { 0xDE, 0xAD, 0xBE, 0xEF };
             using var secret = new ProtectedSecret((ReadOnlySpan<byte>)original);
             
-            byte[] recovered = null;
+            byte[]? recovered = null;
             secret.Use(bytes => {
                 recovered = bytes.ToArray();
             });
 
-            Assert.True(original.SequenceEqual(recovered));
+            Assert.NotNull(recovered);
+            Assert.True(original.SequenceEqual(recovered!));
         }
 
         [Fact]
         public void ProtectedSecret_Use_DecodesCorrectly()
         {
             string original = "use-test-data";
-            using var secret = new ProtectedSecret(original);
+            using var originalSecure = ToSecureString(original);
+            using var secret = new ProtectedSecret(originalSecure);
             
             secret.Use(bytes => {
                 Assert.Equal(original, Encoding.UTF8.GetString(bytes));
@@ -96,13 +110,10 @@ namespace NinePSharp.Tests
         [Fact]
         public void ProtectedSecret_DisposeClearsData()
         {
-            var secret = new ProtectedSecret("data");
+            using var secure = ToSecureString("data");
+            var secret = new ProtectedSecret(secure);
             secret.Dispose();
             
-            #pragma warning disable CS0618
-            Assert.Throws<ObjectDisposedException>(() => secret.Reveal());
-            #pragma warning restore CS0618
-
             bool executed = false;
             Assert.Throws<ObjectDisposedException>(() => secret.Use(_ => executed = true));
             Assert.False(executed);

@@ -14,6 +14,17 @@ namespace NinePSharp.Tests
 {
     public class VaultRegressionTests
     {
+        private static SecureString ToSecureString(string value)
+        {
+            var secure = new SecureString();
+            foreach (char c in value)
+            {
+                secure.AppendChar(c);
+            }
+            secure.MakeReadOnly();
+            return secure;
+        }
+
         public VaultRegressionTests()
         {
             // Initialize session key if not already done
@@ -26,31 +37,8 @@ namespace NinePSharp.Tests
         public unsafe void ProtectedSecret_Use_Wipes_Memory_After_Call()
         {
             string secretText = "regression-test-secret-12345";
-            using var secret = new ProtectedSecret(secretText);
-            
-            byte[]? capturedBuffer = null;
-
-            secret.Use(span => {
-                // We trick the system to get the underlying array reference
-                // This is only possible in tests where we can be "unsafe"
-                fixed (byte* p = span)
-                {
-                    // Verify data is correct DURING the call
-                    string current = Encoding.UTF8.GetString(span);
-                    Assert.Equal(secretText, current);
-                }
-                
-                // Capture the array to check it later
-                // Note: span is usually a slice of the 'decrypted' array in Use()
-                // In our implementation, decrypted is the full array.
-                capturedBuffer = span.ToArray(); 
-                
-                // Wait, span.ToArray() creates a COPY. That's not what we want to check.
-                // We want to check the ACTUAL memory that was used by the ProtectedSecret.
-                // Since ProtectedSecret.Use uses 'decrypted' which is passed as a span,
-                // we can't easily get the reference to the original array from the span 
-                // without MemoryMarshal.
-            });
+            using var secretTextSecure = ToSecureString(secretText);
+            using var secret = new ProtectedSecret(secretTextSecure);
 
             // Let's use a different approach: Capture the pointer.
             IntPtr bufferPtr = IntPtr.Zero;
@@ -118,11 +106,12 @@ namespace NinePSharp.Tests
         [Fact]
         public void ProtectedSecret_Constructor_Wipes_Input_Buffer()
         {
-            // This is hard to test because the input is a string, which is immutable.
-            // But we can verify functionality.
             string raw = "sensitive";
-            using var ps = new ProtectedSecret(raw);
-            Assert.Equal(raw, ps.Reveal());
+            using var rawSecure = ToSecureString(raw);
+            using var ps = new ProtectedSecret(rawSecure);
+            string? recovered = null;
+            ps.Use(bytes => recovered = Encoding.UTF8.GetString(bytes));
+            Assert.Equal(raw, recovered);
         }
     }
 }

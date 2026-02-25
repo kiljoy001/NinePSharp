@@ -37,7 +37,7 @@ namespace NinePSharp.Tests
         public async Task Walk_Clone_Preserves_Path_State()
         {
             var config = new EthereumBackendConfig { MountPath = "/eth", RpcUrl = "http://localhost" };
-            var mockRpc = new Mock<JsonRpcClient>(new HttpClient(), config.RpcUrl, null, null);
+            var mockRpc = new Mock<JsonRpcClient>(new HttpClient(), config.RpcUrl, string.Empty, string.Empty);
             var mockVault = new Mock<ILuxVaultService>();
             var fs = new EthereumFileSystem(config, mockRpc.Object, mockVault.Object);
 

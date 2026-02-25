@@ -168,7 +168,7 @@ namespace NinePSharp.Tests
         #region SecureMemoryArena Boundary Testing
 
         [Fact]
-        public void Arena_Exhaustion_Does_Not_Crash_Server()
+        public async Task Arena_Exhaustion_Does_Not_Crash_Server()
         {
             // We use the sharded Arenas pool
             var arena = LuxVault.GetLocalArena();
@@ -190,13 +190,13 @@ namespace NinePSharp.Tests
                 // 2. Verify we can still perform small allocations in OTHER shards
                 // By switching threads, we hit a different shard.
                 bool otherShardWorks = false;
-                Task.Run(() =>
+                await Task.Run(() =>
                 {
                     var otherArena = LuxVault.GetLocalArena();
                     var span = otherArena.Allocate(100);
                     otherShardWorks = span.Length == 100;
                     otherArena.Free(span);
-                }).Wait();
+                });
 
                 otherShardWorks.Should().BeTrue("Exhausting one arena shard should not block other threads");
             }

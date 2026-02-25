@@ -6,7 +6,6 @@ using NinePSharp.Messages;
 using NinePSharp.Parser;
 using NinePSharp.Constants;
 using NinePSharp.Generators;
-using System.Text;
 using Xunit;
 
 namespace NinePSharp.Tests;

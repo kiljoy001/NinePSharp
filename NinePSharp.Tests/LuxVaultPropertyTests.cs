@@ -606,11 +606,11 @@ public class LuxVaultPropertyTests
             LuxVault.InitializeSessionKey(sessionKey);
 
             // Use reflection to get _sessionKey field
-            var sessionKeyField = typeof(LuxVault).GetField("_sessionKey", BindingFlags.NonPublic | BindingFlags.Static);
-            var internalKey = (byte[])sessionKeyField.GetValue(null);
+            var sessionKeyField = typeof(LuxVault).GetField("_sessionKey", BindingFlags.NonPublic | BindingFlags.Static)!;
+            var internalKey = (byte[]?)sessionKeyField.GetValue(null);
 
             internalKey.Should().NotBeNull("Session key should be initialized");
-            internalKey.Length.Should().Be(32);
+            internalKey!.Length.Should().Be(32);
 
             // Force multiple GC cycles - pinned memory shouldn't move
             GC.Collect();
