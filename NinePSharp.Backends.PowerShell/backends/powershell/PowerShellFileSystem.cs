@@ -108,6 +108,23 @@ public class PowerShellFileSystem : INinePFileSystem
         return new Rread(tread.Tag, data.AsSpan((int)tread.Offset, count).ToArray());
     }
 
+    public Task<Rreaddir> ReaddirAsync(Treaddir treaddir)
+    {
+        if (!IsDirectory(_currentPath))
+        {
+            throw new NinePNotSupportedException();
+        }
+
+        byte[] data = BuildDirectoryListing();
+        if (treaddir.Offset >= (ulong)data.Length)
+        {
+            return Task.FromResult(new Rreaddir(9, treaddir.Tag, 0, ReadOnlyMemory<byte>.Empty));
+        }
+
+        int count = (int)Math.Min((long)treaddir.Count, data.Length - (long)treaddir.Offset);
+        return Task.FromResult(new Rreaddir(9 + (uint)count, treaddir.Tag, (uint)count, data.AsSpan((int)treaddir.Offset, count).ToArray()));
+    }
+
     private byte[] BuildDirectoryListing()
     {
         var entries = new List<byte>();

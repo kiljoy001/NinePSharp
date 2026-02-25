@@ -21,30 +21,40 @@ namespace NinePSharp.Tests
             string jobId = $"cleanup-test-{Guid.NewGuid():N}";
             
             // 1. Create job
-            await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "jobs" }));
-            await fs.MkdirAsync(new Tmkdir(0, 1, 2, jobId, 0755, 0));
-            await fs.WalkAsync(new Twalk(1, 2, 3, new[] { jobId, "script.ps1" }));
+            var jobsFs = (PowerShellFileSystem)fs.Clone();
+            await jobsFs.WalkAsync(new Twalk(1, 1, 2, new[] { "jobs" }));
+            await jobsFs.MkdirAsync(new Tmkdir(0, 1, 2, jobId, 0755, 0));
 
             // 2. Start a script that outputs its own PID and then sleeps
+            var scriptFs = (PowerShellFileSystem)jobsFs.Clone();
+            await scriptFs.WalkAsync(new Twalk(1, 2, 3, new[] { jobId, "script.ps1" }));
             string script = "echo $pid; Start-Sleep -Seconds 10";
-            await fs.WriteAsync(new Twrite(1, 3, 0, Encoding.UTF8.GetBytes(script)));
+            await scriptFs.WriteAsync(new Twrite(1, 3, 0, Encoding.UTF8.GetBytes(script)));
 
             // 3. Capture the PID from the output file
-            await Task.Delay(2000); // Wait for startup
-            var outFs = fs.Clone();
-            await outFs.WalkAsync(new Twalk(1, 3, 4, new[] { "output.json" }));
-            var readRes = await outFs.ReadAsync(new Tread(1, 4, 0, 1024));
-            string output = Encoding.UTF8.GetString(readRes.Data.ToArray());
-            
-            // Extract PID (it will be in a JSON array)
-            int pid = int.Parse(new string(output.Where(char.IsDigit).ToArray()));
+            int pid = 0;
+            for (int attempt = 0; attempt < 20 && pid == 0; attempt++)
+            {
+                await Task.Delay(250);
+                var outFs = (PowerShellFileSystem)jobsFs.Clone();
+                await outFs.WalkAsync(new Twalk(1, 2, 4, new[] { jobId, "output.json" }));
+                var readRes = await outFs.ReadAsync(new Tread(1, 4, 0, 4096));
+                string output = Encoding.UTF8.GetString(readRes.Data.ToArray());
+                var digits = new string(output.Where(char.IsDigit).ToArray());
+                if (!string.IsNullOrEmpty(digits))
+                {
+                    int.TryParse(digits, out pid);
+                }
+            }
+            pid.Should().BeGreaterThan(0, "PowerShell output should contain the job PID before cleanup assertions.");
             
             // ASSERT SIDE EFFECT: Process must exist in OS
             Process.GetProcessById(pid).Should().NotBeNull();
 
             // 4. KILL the job via Tremove
-            await fs.WalkAsync(new Twalk(1, 1, 5, new[] { "jobs", jobId }));
-            await fs.RemoveAsync(new Tremove(1, 5));
+            var removeFs = (PowerShellFileSystem)jobsFs.Clone();
+            await removeFs.WalkAsync(new Twalk(1, 2, 5, new[] { jobId }));
+            await removeFs.RemoveAsync(new Tremove(1, 5));
 
             // 5. ASSERT SIDE EFFECT: Process must be GONE from OS immediately
             await Task.Delay(500); // Give OS a tiny window to reap

@@ -54,15 +54,28 @@ public class PowerShellResourceExhaustionTests
         
         _output.WriteLine($"Concurrent 'Walk' took: {baselineSw.ElapsedMilliseconds}ms");
 
-        // 3. Wait for completion
+        // 3. Wait for completion (bounded to avoid hanging the test run forever)
         string status = "";
-        while (true) {
+        const int maxPolls = 120;
+        for (int poll = 0; poll < maxPolls; poll++)
+        {
             var statusFs = (PowerShellFileSystem)jobFs.Clone();
             await statusFs.WalkAsync(new Twalk(1, 3, 5, new[] { "status" }));
             var res = await statusFs.ReadAsync(new Tread(1, 5, 0, 100));
             status = Encoding.UTF8.GetString(res.Data.ToArray()).Trim();
-            if (status == "Completed" || status == "Failed") break;
+            if (status == "Completed" || status == "Failed")
+            {
+                break;
+            }
             await Task.Delay(500);
+        }
+
+        if (status == "Failed")
+        {
+            var errorsFs = (PowerShellFileSystem)jobFs.Clone();
+            await errorsFs.WalkAsync(new Twalk(1, 3, 6, new[] { "errors" }));
+            var errors = await errorsFs.ReadAsync(new Tread(1, 6, 0, 8192));
+            throw new Xunit.Sdk.XunitException($"PowerShell job failed: {Encoding.UTF8.GetString(errors.Data.ToArray())}");
         }
 
         Assert.Equal("Completed", status);
@@ -101,14 +114,7 @@ public class PowerShellResourceExhaustionTests
 
         // NOW: The Plan 9 way to cancel a process is to remove its directory/control file
         _output.WriteLine("Attempting to cancel job via Tremove...");
-        var pathField = typeof(PowerShellFileSystem).GetField("_currentPath", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        var currentPath = pathField?.GetValue(jobFs) as List<string>;
-        _output.WriteLine($"DEBUG job path before removal: {string.Join("/", currentPath ?? new())}");
-        var jobsField = typeof(PowerShellFileSystem).GetField("_globalJobs", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-        var jobsDict = jobsField?.GetValue(null) as ConcurrentDictionary<string, PowerShellJob>;
-        _output.WriteLine($"DEBUG job exists before removal: {jobsDict?.ContainsKey("infinite-job")}");
         await jobFs.RemoveAsync(new Tremove(1, 7));
-        _output.WriteLine($"DEBUG job exists after removal: {jobsDict?.ContainsKey("infinite-job")}");
 
         // Verify it's gone
         INinePFileSystem verifierFs = new PowerShellFileSystem();

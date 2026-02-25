@@ -386,21 +386,22 @@ public class JsonRpcFileSystemPropertyTests
     [Property]
     public bool RootListing_NeverExposesMethodNames(NonEmptyString fsName, NonEmptyString methodName)
     {
-        var n = fsName.Get;
-        var m = methodName.Get;
+        var n = fsName.Get.Replace("/", "").Trim();
+        var m = methodName.Get.Replace("/", "").Trim();
         // Skip impossible or reserved-control cases.
+        if (string.IsNullOrEmpty(n) || string.IsNullOrEmpty(m)) return true;
         if (n == m || m == "status") return true;
         if (n.Any(c => c < 32 || c == '\n' || c == '\r')) return true;
         if (m.Any(c => c < 32 || c == '\n' || c == '\r')) return true;
 
         var cfg = new JsonRpcBackendConfig { MountPath = "/rpc", EndpointUrl = "http://fake/" };
-        cfg.Endpoints.Add(new JsonRpcEndpointConfig { Name = fsName.Get, Method = methodName.Get });
+        cfg.Endpoints.Add(new JsonRpcEndpointConfig { Name = n, Method = m });
         var fs = new JsonRpcFileSystem(cfg, new FakeTransport());
 
         var read = fs.ReadAsync(new Tread(1, 10, 0, 65535)).GetAwaiter().GetResult();
         var names = Helpers.ParseDirectory(read.Data.ToArray()).Select(s => s.Name).ToArray();
 
-        return names.Contains(fsName.Get) && !names.Contains(methodName.Get);
+        return names.Contains(n) && !names.Contains(m);
     }
 
     /// <summary>Reading at any nonzero offset always returns empty bytes.</summary>

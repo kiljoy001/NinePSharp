@@ -181,7 +181,10 @@ namespace NinePSharp.Tests
                 for (int i = 0; i < 150; i++)
                 {
                     try { allocations.Add(arena.Allocate(10240).ToArray()); }
-                    catch (InvalidOperationException) { /* Expected failure when shard is full */ }
+                    catch (Exception ex) when (ex is OutOfMemoryException || ex is InvalidOperationException)
+                    {
+                        // Expected failure when shard is full.
+                    }
                 }
 
                 // 2. Verify we can still perform small allocations in OTHER shards

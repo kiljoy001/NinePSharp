@@ -149,22 +149,30 @@ namespace NinePSharp.Server.Utils
 
         internal static int Iterations = 600000;
         private static byte[]? _sessionKey;
+        private static readonly object SessionKeyInitLock = new();
 
         public static void InitializeSessionKey(ReadOnlySpan<byte> sessionKey)
         {
-            if (_sessionKey != null) return;
-            _sessionKey = GC.AllocateArray<byte>(sessionKey.Length, pinned: true);
-            sessionKey.CopyTo(_sessionKey);
-            unsafe {
-                fixed (byte* pKey = _sessionKey) {
-                    MemoryLock.Lock((IntPtr)pKey, (nuint)_sessionKey.Length);
+            if (Volatile.Read(ref _sessionKey) != null) return;
+
+            lock (SessionKeyInitLock)
+            {
+                if (_sessionKey != null) return;
+
+                var pinnedKey = GC.AllocateArray<byte>(sessionKey.Length, pinned: true);
+                sessionKey.CopyTo(pinnedKey);
+                unsafe {
+                    fixed (byte* pKey = pinnedKey) {
+                        MemoryLock.Lock((IntPtr)pKey, (nuint)pinnedKey.Length);
+                    }
                 }
+                Volatile.Write(ref _sessionKey, pinnedKey);
             }
         }
 
         public static string GetVaultPath(string filename)
         {
-            if (!Directory.Exists(VaultDirectory)) Directory.CreateDirectory(VaultDirectory);
+            Directory.CreateDirectory(VaultDirectory);
             return Path.Combine(VaultDirectory, filename);
         }
 
@@ -187,9 +195,11 @@ namespace NinePSharp.Server.Utils
                 var arena = GetLocalArena();
                 using var hidden = new SecureBuffer(32, arena);
                 using var secretKey = new SecureBuffer(32, arena);
+                Span<byte> seedCopy = stackalloc byte[32];
+                seed.CopyTo(seedCopy);
 
                 unsafe {
-                    fixed (byte* pSeed = seed, pHidden = hidden.Span, pSecret = secretKey.Span) {
+                    fixed (byte* pSeed = seedCopy, pHidden = hidden.Span, pSecret = secretKey.Span) {
                         MonocypherNative.crypto_elligator_key_pair(pHidden, pSecret, pSeed);
                     }
                 }
@@ -237,16 +247,17 @@ namespace NinePSharp.Server.Utils
 
         private static void MixSessionKey(ReadOnlySpan<byte> input, Span<byte> output)
         {
-            if (_sessionKey == null)
+            var sessionKey = Volatile.Read(ref _sessionKey);
+            if (sessionKey == null)
             {
                 input.CopyTo(output);
                 return;
             }
             
-            using (var buffer = new SecureBuffer(input.Length + _sessionKey.Length, GetLocalArena()))
+            using (var buffer = new SecureBuffer(input.Length + sessionKey.Length, GetLocalArena()))
             {
                 input.CopyTo(buffer.Span);
-                _sessionKey.CopyTo(buffer.Span.Slice(input.Length));
+                sessionKey.CopyTo(buffer.Span.Slice(input.Length));
                 unsafe {
                     fixed (byte* pMixed = output, pBuffer = buffer.Span) {
                         MonocypherNative.crypto_blake2b_ptr(pMixed, (nuint)output.Length, pBuffer, (nuint)buffer.Length);

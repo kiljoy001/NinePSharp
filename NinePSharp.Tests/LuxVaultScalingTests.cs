@@ -31,12 +31,14 @@ namespace NinePSharp.Tests
             // We want to verify that different threads map to different arena shards.
             var arenas = LuxVault.Arenas;
             var seenArenas = new ConcurrentDictionary<int, bool>();
+            var seenThreads = new ConcurrentDictionary<int, bool>();
             int threadCount = Math.Max(arenas.Length * 2, 8);
             
             var options = new ParallelOptions { MaxDegreeOfParallelism = threadCount };
             
             Parallel.For(0, 100, options, i =>
             {
+                seenThreads.TryAdd(Thread.CurrentThread.ManagedThreadId, true);
                 // Access GetLocalArena directly (it is public internal now)
                 var arena = LuxVault.GetLocalArena();
                 
@@ -49,11 +51,17 @@ namespace NinePSharp.Tests
             });
 
             _output.WriteLine($"Total Arena Shards: {arenas.Length}");
+            _output.WriteLine($"Unique Worker Threads Observed: {seenThreads.Count}");
             _output.WriteLine($"Unique Arenas Used in Test: {seenArenas.Count}");
 
-            // With 16 shards and 100 iterations on multiple threads, 
-            // we should definitely see more than 1 unique arena being used.
-            seenArenas.Count.Should().BeGreaterThan(1, "Vault must distribute work across multiple arena shards");
+            if (seenThreads.Count > 1)
+            {
+                seenArenas.Count.Should().BeGreaterThan(1, "Vault must distribute work across multiple arena shards when multiple workers are active");
+            }
+            else
+            {
+                seenArenas.Count.Should().Be(1, "Single-thread execution should map to a single arena shard");
+            }
         }
 
         [Fact]

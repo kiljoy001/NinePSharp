@@ -19,15 +19,15 @@ public readonly struct Tattach : ISerializable
     public string Aname {get;}
     public uint? NUname {get;} // 9P2000.u extension
 
-    public Tattach(ushort tag, uint fid, uint afid, string uname, string aname)
+    public Tattach(ushort tag, uint fid, uint afid, string? uname, string? aname)
     {
         Tag = tag;
         Fid = fid;
         Afid = afid;
-        Uname = uname;
-        Aname = aname;
+        Uname = uname ?? string.Empty;
+        Aname = aname ?? string.Empty;
         NUname = null;
-        Size = (uint)(NinePConstants.HeaderSize + 4 + 4 + 2 + System.Text.Encoding.UTF8.GetByteCount(uname) + 2 + System.Text.Encoding.UTF8.GetByteCount(aname));
+        Size = (uint)(NinePConstants.HeaderSize + 4 + 4 + 2 + System.Text.Encoding.UTF8.GetByteCount(Uname) + 2 + System.Text.Encoding.UTF8.GetByteCount(Aname));
     }
 
     public Tattach(ReadOnlySpan<byte> data, bool is9u = false)
