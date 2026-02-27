@@ -1,0 +1,47 @@
+  Determining projects to restore...
+/home/scott/Repo/NinePSharp/NinePSharp.Backends.Pipes/NinePSharp.Backends.Pipes.csproj : warning NU1510: PackageReference System.IO.Pipelines will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary. [/home/scott/Repo/NinePSharp/NinePSharp.Tests/NinePSharp.Tests.csproj]
+  All projects are up-to-date for restore.
+/home/scott/Repo/NinePSharp/NinePSharp.Backends.Pipes/NinePSharp.Backends.Pipes.csproj : warning NU1510: PackageReference System.IO.Pipelines will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary.
+  NinePSharp -> /home/scott/Repo/NinePSharp/NinePSharp/bin/Debug/net10.0/NinePSharp.dll
+  NinePSharp.Parser -> /home/scott/Repo/NinePSharp/NinePSharp.Parser/bin/Debug/net10.0/NinePSharp.Parser.dll
+  NinePSharp.Server.Abstractions -> /home/scott/Repo/NinePSharp/NinePSharp.Server.Abstractions/bin/Debug/net10.0/NinePSharp.Server.Abstractions.dll
+  NinePSharp.Backends.Grpc -> /home/scott/Repo/NinePSharp/NinePSharp.Backends.Grpc/bin/Debug/net10.0/NinePSharp.Backends.Grpc.dll
+  NinePSharp.Backends.JsonRpc -> /home/scott/Repo/NinePSharp/NinePSharp.Backends.JsonRpc/bin/Debug/net10.0/NinePSharp.Backends.JsonRpc.dll
+  NinePSharp.Backends.Compute -> /home/scott/Repo/NinePSharp/NinePSharp.Backends.Compute/bin/Debug/net10.0/NinePSharp.Backends.Compute.dll
+  NinePSharp.Backends.Websocket -> /home/scott/Repo/NinePSharp/NinePSharp.Backends.Websocket/bin/Debug/net10.0/NinePSharp.Backends.Websocket.dll
+  NinePSharp.Backends.Blockchain -> /home/scott/Repo/NinePSharp/NinePSharp.Backends.Blockchain/bin/Debug/net10.0/NinePSharp.Backends.Blockchain.dll
+  NinePSharp.Backends.Rest -> /home/scott/Repo/NinePSharp/NinePSharp.Backends.Rest/bin/Debug/net10.0/NinePSharp.Backends.Rest.dll
+  NinePSharp.Backends.Soap -> /home/scott/Repo/NinePSharp/NinePSharp.Backends.Soap/bin/Debug/net10.0/NinePSharp.Backends.Soap.dll
+  NinePSharp.Backends.Mqtt -> /home/scott/Repo/NinePSharp/NinePSharp.Backends.Mqtt/bin/Debug/net10.0/NinePSharp.Backends.Mqtt.dll
+  NinePSharp.Backends.Pipes -> /home/scott/Repo/NinePSharp/NinePSharp.Backends.Pipes/bin/Debug/net10.0/NinePSharp.Backends.Pipes.dll
+  NinePSharp.Generators -> /home/scott/Repo/NinePSharp/NinePSharp.Generators/bin/Debug/net10.0/NinePSharp.Generators.dll
+  NinePSharp.Backends.Cloud -> /home/scott/Repo/NinePSharp/NinePSharp.Backends.Cloud/bin/Debug/net10.0/NinePSharp.Backends.Cloud.dll
+  NinePSharp.Backends.PowerShell -> /home/scott/Repo/NinePSharp/NinePSharp.Backends.PowerShell/bin/Debug/net10.0/NinePSharp.Backends.PowerShell.dll
+  NinePSharp.Backends.Database -> /home/scott/Repo/NinePSharp/NinePSharp.Backends.Database/bin/Debug/net10.0/NinePSharp.Backends.Database.dll
+  NinePSharp.Server -> /home/scott/Repo/NinePSharp/NinePSharp.Server/bin/Debug/net10.0/NinePSharp.Server.dll
+  NinePSharp.Tests -> /home/scott/Repo/NinePSharp/NinePSharp.Tests/bin/Debug/net10.0/NinePSharp.Tests.dll
+Test run for /home/scott/Repo/NinePSharp/NinePSharp.Tests/bin/Debug/net10.0/NinePSharp.Tests.dll (.NETCoreApp,Version=v10.0)
+VSTest version 18.0.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:02.67]     NinePSharp.Tests.SecretBackendRegressionTests.Read_Uses_PhysicalVault_Stream_And_Sees_Updated_Secret_After_Unlock [FAIL]
+  Failed NinePSharp.Tests.SecretBackendRegressionTests.Read_Uses_PhysicalVault_Stream_And_Sees_Updated_Secret_After_Unlock [141 ms]
+  Error Message:
+   Assert.Equal() Failure: Strings differ
+           ↓ (pos 0)
+Expected: "hidden-data-v2"
+Actual:   ""
+  Stack Trace:
+     at NinePSharp.Tests.SecretBackendRegressionTests.Read_Uses_PhysicalVault_Stream_And_Sees_Updated_Secret_After_Unlock() in /home/scott/Repo/NinePSharp/NinePSharp.Tests/SecretBackendRegressionTests.cs:line 92
+--- End of stack trace from previous location ---
+[xUnit.net 00:00:02.78]     NinePSharp.Tests.SecretBackendRegressionTests.Unlock_State_Persists_Across_New_FileSystem_Instances [FAIL]
+  Failed NinePSharp.Tests.SecretBackendRegressionTests.Unlock_State_Persists_Across_New_FileSystem_Instances [57 ms]
+  Error Message:
+   Assert.Equal() Failure: Strings differ
+           ↓ (pos 0)
+Expected: "hidden-data-150eb5de1edc4bb1912cf666a8d16"···
+Actual:   ""
+  Stack Trace:
+     at NinePSharp.Tests.SecretBackendRegressionTests.Unlock_State_Persists_Across_New_FileSystem_Instances() in /home/scott/Repo/NinePSharp/NinePSharp.Tests/SecretBackendRegressionTests.cs:line 46
+--- End of stack trace from previous location ---

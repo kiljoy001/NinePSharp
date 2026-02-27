@@ -24,6 +24,11 @@ public class DataPipeNode : IPipeNode
 
     public async Task<ReadOnlyMemory<byte>> ReadAsync(uint count)
     {
+        if (count == 0)
+        {
+            return ReadOnlyMemory<byte>.Empty;
+        }
+
         var result = await _pipe.Reader.ReadAtLeastAsync((int)Math.Min(1, count), _cts.Token);
         var buffer = result.Buffer;
 

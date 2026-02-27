@@ -1,9 +1,6 @@
 namespace NinePSharp.Parser
 
-type NinePDialect = 
-    | NineP2000      = 0
-    | NineP2000U     = 1
-    | NineP2000L     = 2
+open NinePSharp.Constants
 
 [<RequireQualifiedAccess>]
 module Dialect =

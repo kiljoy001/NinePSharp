@@ -1,3 +1,4 @@
+using NinePSharp.Constants;
 using System;
 using Akka.Actor;
 using Akka.TestKit;
@@ -5,7 +6,6 @@ using Akka.TestKit.Xunit2;
 using FluentAssertions;
 using Xunit;
 using NinePSharp.Messages;
-using NinePSharp.Constants;
 
 namespace NinePSharp.Tests;
 

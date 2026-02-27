@@ -40,40 +40,64 @@ public class VaultService
         }
     }
 
-    public static EncryptedPayload Encrypt(string plaintext, string password)
+    public static EncryptedPayload Encrypt(ReadOnlySpan<byte> plaintext, string password) => Encrypt(plaintext, Encoding.UTF8.GetBytes(password));
+
+    public static EncryptedPayload Encrypt(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> password)
     {
         var salt = RandomNumberGenerator.GetBytes(SaltSize);
         var nonce = RandomNumberGenerator.GetBytes(12); // GCM standard nonce size
         var key = DeriveKey(password, salt);
 
-        var plaintextBytes = Encoding.UTF8.GetBytes(plaintext);
-        var ciphertext = new byte[plaintextBytes.Length];
+        var ciphertext = new byte[plaintext.Length];
         var tag = new byte[16];
 
-        using var aes = new AesGcm(key, 16);
-        aes.Encrypt(nonce, plaintextBytes, ciphertext, tag);
+        try {
+            using var aes = new AesGcm(key, 16);
+            aes.Encrypt(nonce, plaintext, ciphertext, tag);
 
-        return new EncryptedPayload
-        {
-            Salt = salt,
-            Nonce = nonce,
-            Ciphertext = ciphertext,
-            Tag = tag
-        };
+            return new EncryptedPayload
+            {
+                Salt = salt,
+                Nonce = nonce,
+                Ciphertext = ciphertext,
+                Tag = tag
+            };
+        }
+        finally {
+            Array.Clear(key);
+        }
     }
 
-    public static string Decrypt(EncryptedPayload payload, string password)
+    public static SecureSecret DecryptToBytes(EncryptedPayload payload, string password) => DecryptToBytes(payload, Encoding.UTF8.GetBytes(password));
+
+    public static SecureSecret DecryptToBytes(EncryptedPayload payload, ReadOnlySpan<byte> password)
     {
         var key = DeriveKey(password, payload.Salt);
-        var plaintextBytes = new byte[payload.Ciphertext.Length];
+        byte[] plaintextBytes = GC.AllocateArray<byte>(payload.Ciphertext.Length, pinned: true);
 
-        using var aes = new AesGcm(key, 16);
-        aes.Decrypt(payload.Nonce, payload.Ciphertext, payload.Tag, plaintextBytes);
+        unsafe {
+            fixed (byte* p = plaintextBytes) {
+                MemoryLock.Lock((IntPtr)p, (nuint)plaintextBytes.Length);
+            }
+        }
 
-        return Encoding.UTF8.GetString(plaintextBytes);
+        try {
+            using var aes = new AesGcm(key, 16);
+            aes.Decrypt(payload.Nonce, payload.Ciphertext, payload.Tag, plaintextBytes);
+            return new SecureSecret(plaintextBytes);
+        }
+        catch {
+            Array.Clear(plaintextBytes);
+            throw;
+        }
+        finally {
+            Array.Clear(key);
+        }
     }
 
-    private static byte[] DeriveKey(string password, byte[] salt)
+    private static byte[] DeriveKey(string password, byte[] salt) => DeriveKey(Encoding.UTF8.GetBytes(password), salt);
+
+    private static byte[] DeriveKey(ReadOnlySpan<byte> password, byte[] salt)
     {
         return Rfc2898DeriveBytes.Pbkdf2(password, salt, Iterations, HashAlgorithmName.SHA256, KeySize);
     }

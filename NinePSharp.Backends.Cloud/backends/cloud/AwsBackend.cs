@@ -87,9 +87,15 @@ public class AwsBackend : IProtocolBackend
         
         if (credentials != null)
         {
-            string credsStr = SecureStringHelper.ToString(credentials);
-            var parts = credsStr.Split(':', 2);
-            if (parts.Length == 2) awsCreds = new BasicAWSCredentials(parts[0], parts[1]);
+            SecureStringHelper.Use(credentials, span => {
+                int colonIndex = span.IndexOf((byte)':');
+                if (colonIndex != -1)
+                {
+                    var accessKey = Encoding.UTF8.GetString(span.Slice(0, colonIndex));
+                    var secretKey = Encoding.UTF8.GetString(span.Slice(colonIndex + 1));
+                    awsCreds = new BasicAWSCredentials(accessKey, secretKey);
+                }
+            });
         }
         else if (!string.IsNullOrEmpty(_config?.VaultKey))
         {
@@ -106,9 +112,14 @@ public class AwsBackend : IProtocolBackend
                 {
                     using (rawBytes)
                     {
-                        string credsStr = Encoding.UTF8.GetString(rawBytes.Span);
-                        var parts = credsStr.Split(':', 2);
-                        if (parts.Length == 2) awsCreds = new BasicAWSCredentials(parts[0], parts[1]);
+                        var span = rawBytes.Span;
+                        int colonIndex = span.IndexOf((byte)':');
+                        if (colonIndex != -1)
+                        {
+                            var accessKey = Encoding.UTF8.GetString(span.Slice(0, colonIndex));
+                            var secretKey = Encoding.UTF8.GetString(span.Slice(colonIndex + 1));
+                            awsCreds = new BasicAWSCredentials(accessKey, secretKey);
+                        }
                     }
                 }
             }

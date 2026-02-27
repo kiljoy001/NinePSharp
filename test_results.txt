@@ -1,0 +1,276 @@
+scott@pop-os:~/Repo/NinePSharp$ dotnet test NinePSharp.Tests
+Restore succeeded with 1 warning(s) in 1.4s
+    /home/scott/Repo/NinePSharp/NinePSharp.Backends.Pipes/NinePSharp.Backends.Pipes.csproj : warning NU1510: PackageReference System.IO.Pipelines will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary.
+  NinePSharp net10.0 succeeded (0.2s) → NinePSharp/bin/Debug/net10.0/NinePSharp.dll
+  NinePSharp.Parser net10.0 succeeded (0.2s) → NinePSharp.Parser/bin/Debug/net10.0/NinePSharp.Parser.dll
+  NinePSharp.Server.Abstractions net10.0 succeeded (0.2s) → NinePSharp.Server.Abstractions/bin/Debug/net10.0/NinePSharp.Server.Abstractions.dll
+  NinePSharp.Backends.Blockchain net10.0 succeeded (0.2s) → NinePSharp.Backends.Blockchain/bin/Debug/net10.0/NinePSharp.Backends.Blockchain.dll
+  NinePSharp.Backends.Rest net10.0 succeeded (0.3s) → NinePSharp.Backends.Rest/bin/Debug/net10.0/NinePSharp.Backends.Rest.dll
+  NinePSharp.Backends.Pipes net10.0 succeeded with 1 warning(s) (0.3s) → NinePSharp.Backends.Pipes/bin/Debug/net10.0/NinePSharp.Backends.Pipes.dll
+    /home/scott/Repo/NinePSharp/NinePSharp.Backends.Pipes/NinePSharp.Backends.Pipes.csproj : warning NU1510: PackageReference System.IO.Pipelines will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary.
+  NinePSharp.Backends.Compute net10.0 succeeded (0.3s) → NinePSharp.Backends.Compute/bin/Debug/net10.0/NinePSharp.Backends.Compute.dll
+  NinePSharp.Backends.JsonRpc net10.0 succeeded (0.3s) → NinePSharp.Backends.JsonRpc/bin/Debug/net10.0/NinePSharp.Backends.JsonRpc.dll
+  NinePSharp.Backends.Cloud net10.0 succeeded (0.3s) → NinePSharp.Backends.Cloud/bin/Debug/net10.0/NinePSharp.Backends.Cloud.dll
+  NinePSharp.Backends.Soap net10.0 succeeded (0.4s) → NinePSharp.Backends.Soap/bin/Debug/net10.0/NinePSharp.Backends.Soap.dll
+  NinePSharp.Backends.Mqtt net10.0 succeeded (0.3s) → NinePSharp.Backends.Mqtt/bin/Debug/net10.0/NinePSharp.Backends.Mqtt.dll
+  NinePSharp.Generators net10.0 succeeded (0.3s) → NinePSharp.Generators/bin/Debug/net10.0/NinePSharp.Generators.dll
+  NinePSharp.Backends.PowerShell net10.0 succeeded (0.4s) → NinePSharp.Backends.PowerShell/bin/Debug/net10.0/NinePSharp.Backends.PowerShell.dll
+  NinePSharp.Backends.Database net10.0 succeeded (0.4s) → NinePSharp.Backends.Database/bin/Debug/net10.0/NinePSharp.Backends.Database.dll
+  NinePSharp.Backends.Websocket net10.0 succeeded (0.4s) → NinePSharp.Backends.Websocket/bin/Debug/net10.0/NinePSharp.Backends.Websocket.dll
+  NinePSharp.Backends.Grpc net10.0 succeeded (0.4s) → NinePSharp.Backends.Grpc/bin/Debug/net10.0/NinePSharp.Backends.Grpc.dll
+  NinePSharp.Server net10.0 succeeded (0.4s) → NinePSharp.Server/bin/Debug/net10.0/NinePSharp.Server.dll
+  NinePSharp.Tests net10.0 succeeded (0.3s) → NinePSharp.Tests/bin/Debug/net10.0/NinePSharp.Tests.dll
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.4+50e68bbb8b (64-bit .NET 10.0.3)
+[xUnit.net 00:00:00.09]   Discovering: NinePSharp.Tests
+[xUnit.net 00:00:00.19]   Discovered:  NinePSharp.Tests
+[xUnit.net 00:00:00.26]   Starting:    NinePSharp.Tests
+[INFO] Anti-Dumping protection enabled (PR_SET_DUMPABLE=0).
+     Warning:
+     The component "Fluent Assertions" is governed by the rules defined in the Xceed License Agreement and
+     the Xceed Fluent Assertions Community License. You may use Fluent Assertions free of charge for
+     non-commercial use only. An active subscription is required to use Fluent Assertions for commercial use.
+     Please contact Xceed Sales mailto:sales@xceed.com to acquire a subscription at a very low cost.
+     A paid commercial license supports the development and continued increasing support of
+     Fluent Assertions users under both commercial and community licenses. Help us
+     keep Fluent Assertions at the forefront of unit testing.
+     For more information, visit https://xceed.com/products/unit-testing/fluent-assertions/
+[Audit] Flooding dispatcher with 100000 Tattach requests...
+[Audit] Dispatcher maintained stability under 100k FID load.
+[Secret Backend] Initialized with MountPath: /secrets
+[INFO][02/25/2026 09:20:36.426Z][Thread 0029][CoordinatedShutdown (akka://test)] CoordinatedShutdown invoked due to [Reason:Akka.Actor.CoordinatedShutdown+ActorSystemTerminateReason]. Exiting with [ExitCode:0].
+[INFO][02/25/2026 09:20:36.426Z][Thread 0037][CoordinatedShutdown (akka://ClusterFederationTests)] CoordinatedShutdown invoked due to [Reason:Akka.Actor.CoordinatedShutdown+ActorSystemTerminateReason]. Exiting with [ExitCode:0].
+[INFO][02/25/2026 09:20:36.427Z][Thread 0022][CoordinatedShutdown (akka://test)] CoordinatedShutdown invoked due to [Reason:Akka.Actor.CoordinatedShutdown+ActorSystemTerminateReason]. Exiting with [ExitCode:0].
+[Secret Backend] Initialized with MountPath: /secrets
+[Secret Backend] Initialized with MountPath: /secrets
+[INFO][02/25/2026 09:20:36.490Z][Thread 0022][CoordinatedShutdown (akka://test)] CoordinatedShutdown invoked due to [Reason:Akka.Actor.CoordinatedShutdown+ActorSystemTerminateReason]. Exiting with [ExitCode:0].
+[INFO][02/25/2026 09:20:36.517Z][Thread 0040][CoordinatedShutdown (akka://ClusterFederationTests)] CoordinatedShutdown invoked due to [Reason:Akka.Actor.CoordinatedShutdown+ActorSystemTerminateReason]. Exiting with [ExitCode:0].
+[INFO][02/25/2026 09:20:36.530Z][Thread 0043][CoordinatedShutdown (akka://ClusterFederationTests)] CoordinatedShutdown invoked due to [Reason:Akka.Actor.CoordinatedShutdown+ActorSystemTerminateReason]. Exiting with [ExitCode:0].
+[INFO][02/25/2026 09:20:36.562Z][Thread 0022][CoordinatedShutdown (akka://test)] CoordinatedShutdown invoked due to [Reason:Akka.Actor.CoordinatedShutdown+ActorSystemTerminateReason]. Exiting with [ExitCode:0].
+..... Anonymized telemetry is enabled, see https://aka.ms/coyote-telemetry.
+... Assembly is not rewritten for testing, see https://aka.ms/coyote-rewrite.
+... Setting up the test:
+..... Using the portfolio[fair,seed:3485984048] exploration strategy.
+... Running test iterations:
+..... Iteration #1
+[INFO][02/25/2026 09:20:36.574Z][Thread 0035][remoting (akka://test)] Starting remoting
+[DEBUG][02/25/2026 09:20:36.577Z][Thread 0025][test] DeadLetter from [akka://test/deadLetters] to [akka://test/system/remoting-terminator#742248500]: <Akka.Remote.RemoteActorRefProvider+Internals>
+..... Iteration #2
+[INFO][02/25/2026 09:20:36.714Z][Thread 0035][remoting (akka://test)] Remoting started; listening on addresses : [akka.tcp://test@0.0.0.0:2552]
+[INFO][02/25/2026 09:20:36.714Z][Thread 0035][remoting (akka://test)] Remoting now listens on addresses: [akka.tcp://test@0.0.0.0:2552]
+[INFO][02/25/2026 09:20:36.732Z][Thread 0035][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - Starting up...
+[INFO][02/25/2026 09:20:36.744Z][Thread 0035][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - Started up successfully
+[INFO][02/25/2026 09:20:36.766Z][Thread 0035][CoordinatedShutdown (akka://test)] CoordinatedShutdown invoked due to [Reason:Akka.Actor.CoordinatedShutdown+ActorSystemTerminateReason]. Exiting with [ExitCode:0].
+[INFO][02/25/2026 09:20:36.778Z][Thread 0024][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - No seed-nodes configured, manual cluster join required
+[DEBUG][02/25/2026 09:20:36.786Z][Thread 0022][test] DeadLetter from [akka://test/system/cluster/$a#1990096176] to [akka://test/system/cluster/core/daemon#2002471866]: <Akka.Cluster.ClusterUserAction+Leave>
+[INFO][02/25/2026 09:20:36.788Z][Thread 0013][akka://test/system/cluster/core/daemon] Message [Leave] from [akka://test/system/cluster/$a#1990096176] to [akka://test/system/cluster/core/daemon#2002471866] was unhandled. [1] dead letters encountered. This logging can be turned off or adjusted with configuration settings 'akka.log-dead-letters' and 'akka.log-dead-letters-during-shutdown'. Message content: Akka.Cluster.ClusterUserAction+Leave
+..... Iteration #3
+[INFO][02/25/2026 09:20:36.798Z][Thread 0026][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - Exiting completed.
+[INFO][02/25/2026 09:20:36.799Z][Thread 0026][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - Shutting down...
+[INFO][02/25/2026 09:20:36.799Z][Thread 0026][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - Successfully shut down
+[INFO][02/25/2026 09:20:36.810Z][Thread 0024][remoting-terminator] Shutting down remote daemon.
+[INFO][02/25/2026 09:20:36.811Z][Thread 0024][remoting-terminator] Remote daemon shut down; proceeding with flushing remote transports.
+[INFO][02/25/2026 09:20:36.833Z][Thread 0034][remoting (akka://test)] Remoting shut down
+[INFO][02/25/2026 09:20:36.834Z][Thread 0034][remoting-terminator] Remoting shut down.
+[INFO][02/25/2026 09:20:36.854Z][Thread 0035][remoting (akka://test)] Starting remoting
+[DEBUG][02/25/2026 09:20:36.854Z][Thread 0017][test] DeadLetter from [akka://test/system/testActor6#570563958] to [akka://test/system/remoting-terminator#1169400970]: <Akka.Remote.RemoteActorRefProvider+Internals>
+[INFO][02/25/2026 09:20:36.859Z][Thread 0035][remoting (akka://test)] Remoting started; listening on addresses : [akka.tcp://test@0.0.0.0:2552]
+[INFO][02/25/2026 09:20:36.859Z][Thread 0035][remoting (akka://test)] Remoting now listens on addresses: [akka.tcp://test@0.0.0.0:2552]
+[INFO][02/25/2026 09:20:36.860Z][Thread 0035][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - Starting up...
+[INFO][02/25/2026 09:20:36.862Z][Thread 0035][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - Started up successfully
+[INFO][02/25/2026 09:20:36.863Z][Thread 0026][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - No seed-nodes configured, manual cluster join required
+[INFO][02/25/2026 09:20:36.865Z][Thread 0035][CoordinatedShutdown (akka://test)] CoordinatedShutdown invoked due to [Reason:Akka.Actor.CoordinatedShutdown+ActorSystemTerminateReason]. Exiting with [ExitCode:0].
+[DEBUG][02/25/2026 09:20:36.865Z][Thread 0013][test] DeadLetter from [akka://test/system/cluster/$a#871373075] to [akka://test/system/cluster/core/daemon#1118980174]: <Akka.Cluster.ClusterUserAction+Leave>
+[INFO][02/25/2026 09:20:36.865Z][Thread 0013][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - Exiting completed.
+[INFO][02/25/2026 09:20:36.865Z][Thread 0013][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - Shutting down...
+[INFO][02/25/2026 09:20:36.865Z][Thread 0013][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - Successfully shut down
+[INFO][02/25/2026 09:20:36.865Z][Thread 0013][akka://test/system/cluster/core/daemon] Message [Leave] from [akka://test/system/cluster/$a#871373075] to [akka://test/system/cluster/core/daemon#1118980174] was unhandled. [1] dead letters encountered. This logging can be turned off or adjusted with configuration settings 'akka.log-dead-letters' and 'akka.log-dead-letters-during-shutdown'. Message content: Akka.Cluster.ClusterUserAction+Leave
+..... Iteration #4
+[WARNING][02/25/2026 09:20:36.866Z][Thread 0028][akka://test/system/cluster/core/daemon] DeadLetter from [akka://test/system/cluster/$b#224954707] to [akka://test/system/cluster/core/daemon#1118980174]: <Received dead letter from [akka://test/system/cluster/$b#224954707]: Akka.Cluster.InternalClusterAction+Subscribe>
+DeadLetter from [akka://test/system/cluster/core/daemon/downingProvider#1987607801] to [akka://test/system/cluster/core/daemon#1118980174]: <Akka.Cluster.InternalClusterAction+Subscribe>
+[INFO][02/25/2026 09:20:36.866Z][Thread 0017][remoting-terminator] Shutting down remote daemon.
+[INFO][02/25/2026 09:20:36.866Z][Thread 0017][remoting-terminator] Remote daemon shut down; proceeding with flushing remote transports.
+[INFO][02/25/2026 09:20:36.866Z][Thread 0017][remoting (akka://test)] Remoting shut down
+[INFO][02/25/2026 09:20:36.866Z][Thread 0017][remoting-terminator] Remoting shut down.
+[INFO][02/25/2026 09:20:36.881Z][Thread 0035][remoting (akka://test)] Starting remoting
+[DEBUG][02/25/2026 09:20:36.881Z][Thread 0013][test] DeadLetter from [akka://test/system/testActor8#1847062394] to [akka://test/system/remoting-terminator#1803783328]: <Akka.Remote.RemoteActorRefProvider+Internals>
+[INFO][02/25/2026 09:20:36.883Z][Thread 0035][remoting (akka://test)] Remoting started; listening on addresses : [akka.tcp://test@0.0.0.0:2552]
+[INFO][02/25/2026 09:20:36.883Z][Thread 0035][remoting (akka://test)] Remoting now listens on addresses: [akka.tcp://test@0.0.0.0:2552]
+[INFO][02/25/2026 09:20:36.883Z][Thread 0035][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - Starting up...
+[INFO][02/25/2026 09:20:36.887Z][Thread 0035][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - Started up successfully
+[INFO][02/25/2026 09:20:36.887Z][Thread 0026][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - No seed-nodes configured, manual cluster join required
+[INFO][02/25/2026 09:20:36.891Z][Thread 0035][CoordinatedShutdown (akka://test)] CoordinatedShutdown invoked due to [Reason:Akka.Actor.CoordinatedShutdown+ActorSystemTerminateReason]. Exiting with [ExitCode:0].
+[DEBUG][02/25/2026 09:20:36.891Z][Thread 0026][test] DeadLetter from [akka://test/system/cluster/$a#1070877395] to [akka://test/system/cluster/core/daemon#884735100]: <Akka.Cluster.ClusterUserAction+Leave>
+[INFO][02/25/2026 09:20:36.891Z][Thread 0026][akka://test/system/cluster/core/daemon] Message [Leave] from [akka://test/system/cluster/$a#1070877395] to [akka://test/system/cluster/core/daemon#884735100] was unhandled. [1] dead letters encountered. This logging can be turned off or adjusted with configuration settings 'akka.log-dead-letters' and 'akka.log-dead-letters-during-shutdown'. Message content: Akka.Cluster.ClusterUserAction+Leave
+[INFO][02/25/2026 09:20:36.892Z][Thread 0028][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - Exiting completed.
+[INFO][02/25/2026 09:20:36.892Z][Thread 0028][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - Shutting down...
+[INFO][02/25/2026 09:20:36.892Z][Thread 0028][Cluster (akka://test)] Cluster Node [akka.tcp://test@0.0.0.0:2552] - Successfully shut down
+[WARNING][02/25/2026 09:20:36.892Z][Thread 0026][akka://test/system/cluster/core/daemon] DeadLetter from [akka://test/system/cluster/$b#146261580] to [akka://test/system/cluster/core/daemon#884735100]: <Received dead letter from [akka://test/system/cluster/$b#146261580]: Akka.Cluster.InternalClusterAction+Subscribe>
+[INFO][02/25/2026 09:20:36.892Z][Thread 0028][akka://test/system/cluster/core/daemon] Message [Subscribe] from [akka://test/system/cluster/$b#146261580] to [akka://test/system/cluster/core/daemon#884735100] was not delivered. [2] dead letters encountered. If this is not an expected behavior then [akka://test/system/cluster/core/daemon#884735100] may have terminated unexpectedly. This logging can be turned off or adjusted with configuration settings 'akka.log-dead-letters' and 'akka.log-dead-letters-during-shutdown'. Message content: Akka.Cluster.InternalClusterAction+Subscribe
+[INFO][02/25/2026 09:20:36.892Z][Thread 0024][remoting-terminator] Shutting down remote daemon.
+[INFO][02/25/2026 09:20:36.892Z][Thread 0024][remoting-terminator] Remote daemon shut down; proceeding with flushing remote transports.
+[INFO][02/25/2026 09:20:36.892Z][Thread 0022][remoting (akka://test)] Remoting shut down
+[INFO][02/25/2026 09:20:36.892Z][Thread 0022][remoting-terminator] Remoting shut down.
+..... Iteration #5
+..... Iteration #6
+[INFO][02/25/2026 09:20:37.040Z][Thread 0029][CoordinatedShutdown (akka://test)] CoordinatedShutdown invoked due to [Reason:Akka.Actor.CoordinatedShutdown+ActorSystemTerminateReason]. Exiting with [ExitCode:0].
+..... Iteration #7
+..... Iteration #8
+..... Iteration #9
+..... Iteration #10
+..... Iteration #20
+..... Iteration #30
+..... Iteration #40
+..... Iteration #50
+..... Iteration #60
+..... Iteration #70
+..... Iteration #80
+..... Iteration #90
+..... Iteration #100
+..... Anonymized telemetry is enabled, see https://aka.ms/coyote-telemetry.
+... Assembly is not rewritten for testing, see https://aka.ms/coyote-rewrite.
+... Setting up the test:
+..... Using the portfolio[fair,seed:3716785391] exploration strategy.
+... Running test iterations:
+..... Iteration #1
+..... Iteration #2
+..... Iteration #3
+..... Iteration #4
+..... Iteration #5
+..... Iteration #6
+..... Iteration #7
+..... Iteration #8
+..... Iteration #9
+..... Iteration #10
+..... Iteration #20
+..... Iteration #30
+..... Iteration #40
+..... Iteration #50
+..... Iteration #60
+..... Iteration #70
+..... Iteration #80
+..... Iteration #90
+..... Iteration #100
+..... Anonymized telemetry is enabled, see https://aka.ms/coyote-telemetry.
+... Assembly is not rewritten for testing, see https://aka.ms/coyote-rewrite.
+... Setting up the test:
+..... Using the portfolio[fair,seed:1777788914] exploration strategy.
+... Running test iterations:
+..... Iteration #1
+..... Iteration #2
+..... Iteration #3
+..... Iteration #4
+..... Iteration #5
+..... Iteration #6
+..... Iteration #7
+..... Iteration #8
+..... Iteration #9
+..... Iteration #10
+..... Iteration #20
+..... Iteration #30
+..... Iteration #40
+..... Iteration #50
+..... Iteration #60
+..... Iteration #70
+..... Iteration #80
+..... Iteration #90
+..... Iteration #100
+..... Anonymized telemetry is enabled, see https://aka.ms/coyote-telemetry.
+... Assembly is not rewritten for testing, see https://aka.ms/coyote-rewrite.
+... Setting up the test:
+..... Using the portfolio[fair,seed:3033153609] exploration strategy.
+... Running test iterations:
+..... Iteration #1
+..... Iteration #2
+..... Iteration #3
+..... Iteration #4
+..... Iteration #5
+..... Iteration #6
+..... Iteration #7
+..... Iteration #8
+..... Iteration #9
+..... Iteration #10
+..... Iteration #20
+..... Iteration #30
+..... Iteration #40
+..... Iteration #50
+..... Iteration #60
+..... Iteration #70
+..... Iteration #80
+..... Iteration #90
+..... Iteration #100
+..... Anonymized telemetry is enabled, see https://aka.ms/coyote-telemetry.
+... Assembly is not rewritten for testing, see https://aka.ms/coyote-rewrite.
+... Setting up the test:
+..... Using the portfolio[fair,seed:4191844771] exploration strategy.
+... Running test iterations:
+..... Iteration #1
+..... Iteration #2
+..... Iteration #3
+..... Iteration #4
+..... Iteration #5
+..... Iteration #6
+..... Iteration #7
+..... Iteration #8
+..... Iteration #9
+..... Iteration #10
+..... Iteration #20
+..... Iteration #30
+..... Iteration #40
+..... Iteration #50
+..... Iteration #60
+..... Iteration #70
+..... Iteration #80
+..... Iteration #90
+..... Iteration #100
+..... Iteration #200
+..... Iteration #300
+..... Iteration #400
+..... Iteration #500
+[Orch] Pipelining 100000 requests...
+[Orch] Pipelined 100000 responses in 0.45s (223942 req/sec)
+[Stress] Volume Test (10k): 10000 ops in 37.49s
+[Stress] Attempting 100MB secret decryption (expected to exceed 1MB arena)...
+[Stress] 100MB payload correctly rejected by arena bounds.
+[Stress] Concurrency Test: 10000 tasks in 4852.26ms
+[Stress] Progress: 1000000 / 10000000 (10.0%) - Throughput: 2276 ops/sec
+[Stress] Progress: 2000000 / 10000000 (20.0%) - Throughput: 2274 ops/sec
+[Stress] Progress: 3000000 / 10000000 (30.0%) - Throughput: 2257 ops/sec
+[Stress] Progress: 4000000 / 10000000 (40.0%) - Throughput: 2252 ops/sec
+[Stress] Progress: 5000000 / 10000000 (50.0%) - Throughput: 2252 ops/sec
+[Stress] Progress: 6000000 / 10000000 (60.0%) - Throughput: 2250 ops/sec
+[Stress] Progress: 7000000 / 10000000 (70.0%) - Throughput: 2250 ops/sec
+[Stress] Progress: 8000000 / 10000000 (80.0%) - Throughput: 2249 ops/sec
+[Stress] Progress: 9000000 / 10000000 (90.0%) - Throughput: 2247 ops/sec
+[Stress] Progress: 10000000 / 10000000 (100.0%) - Throughput: 2232 ops/sec
+[Stress] Attempting decryption of 1048577 bytes (Limit+1)...
+[Stress] Boundary (1MB + 1 byte) correctly rejected.
+[xUnit.net 01:15:59.50]   Finished:    NinePSharp.Tests
+  NinePSharp.Tests test net10.0 succeeded (4560.4s)
+  Determining projects to restore...
+/home/scott/Repo/NinePSharp/NinePSharp.Backends.Pipes/NinePSharp.Backends.Pipes.csproj : warning NU1510: PackageReference System.IO.Pipelines will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary. [/home/scott/Repo/NinePSharp/NinePSharp.Backends.Pipes.Tests/NinePSharp.Backends.Pipes.Tests.csproj]
+  All projects are up-to-date for restore.
+/home/scott/Repo/NinePSharp/NinePSharp.Backends.Pipes/NinePSharp.Backends.Pipes.csproj : warning NU1510: PackageReference System.IO.Pipelines will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary.
+  NinePSharp -> /home/scott/Repo/NinePSharp/NinePSharp/bin/Debug/net10.0/NinePSharp.dll
+  NinePSharp.Server.Abstractions -> /home/scott/Repo/NinePSharp/NinePSharp.Server.Abstractions/bin/Debug/net10.0/NinePSharp.Server.Abstractions.dll
+  NinePSharp.Backends.Pipes -> /home/scott/Repo/NinePSharp/NinePSharp.Backends.Pipes/bin/Debug/net10.0/NinePSharp.Backends.Pipes.dll
+  NinePSharp.Backends.Pipes.Tests -> /home/scott/Repo/NinePSharp/NinePSharp.Backends.Pipes.Tests/bin/Debug/net10.0/NinePSharp.Backends.Pipes.Tests.dll
+Test run for /home/scott/Repo/NinePSharp/NinePSharp.Backends.Pipes.Tests/bin/Debug/net10.0/NinePSharp.Backends.Pipes.Tests.dll (.NETCoreApp,Version=v10.0)
+VSTest version 18.0.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:     3, Skipped:     0, Total:     3, Duration: 136 ms - NinePSharp.Backends.Pipes.Tests.dll (net10.0)
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  NinePSharp -> /home/scott/Repo/NinePSharp/NinePSharp/bin/Debug/net10.0/NinePSharp.dll
+  NinePSharp.Parser -> /home/scott/Repo/NinePSharp/NinePSharp.Parser/bin/Debug/net10.0/NinePSharp.Parser.dll
+  NinePSharp.Generators -> /home/scott/Repo/NinePSharp/NinePSharp.Generators/bin/Debug/net10.0/NinePSharp.Generators.dll
+  NinePSharp.Parser.Tests -> /home/scott/Repo/NinePSharp/NinePSharp.Parser.Tests/bin/Debug/net10.0/NinePSharp.Parser.Tests.dll
+Test run for /home/scott/Repo/NinePSharp/NinePSharp.Parser.Tests/bin/Debug/net10.0/NinePSharp.Parser.Tests.dll (.NETCoreApp,Version=v10.0)
+VSTest version 18.0.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:     7, Skipped:     0, Total:     7, Duration: 136 ms - NinePSharp.Parser.Tests.dll (net10.0)

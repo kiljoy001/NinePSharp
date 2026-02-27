@@ -1,11 +1,12 @@
+using NinePSharp.Constants;
 using System;
 using System.Linq;
 using System.Text;
 using FsCheck;
 using FsCheck.Xunit;
 using NinePSharp.Messages;
-using NinePSharp.Constants;
 using NinePSharp.Generators;
+using NinePSharp.Parser;
 using Xunit;
 
 namespace NinePSharp.Tests;
@@ -74,7 +75,7 @@ public class CoreMessageValidationTests
     }
 
     [Property]
-    public void Stat_Serialization_Consistency(bool dotu)
+    public void Stat_Serialization_Consistency(NinePDialect dialect)
     {
         var stat = new Stat(
             size: 0,
@@ -89,7 +90,7 @@ public class CoreMessageValidationTests
             uid: "user",
             gid: "group",
             muid: "owner",
-            dotu: dotu
+            dialect: dialect
         );
 
         var size = stat.Size;
@@ -100,7 +101,7 @@ public class CoreMessageValidationTests
         Assert.Equal(size, (uint)offset);
 
         int reparseOffset = 0;
-        var reparsed = new Stat(buffer, ref reparseOffset, dotu);
+        var reparsed = new Stat(buffer, ref reparseOffset, dialect);
 
         Assert.Equal(stat.Name, reparsed.Name);
         Assert.Equal(stat.Uid, reparsed.Uid);
@@ -110,7 +111,8 @@ public class CoreMessageValidationTests
         Assert.Equal(stat.Length, reparsed.Length);
         Assert.Equal(stat.Qid.Path, reparsed.Qid.Path);
         
-        if (dotu)
+        bool is9u = dialect == NinePDialect.NineP2000U || dialect == NinePDialect.NineP2000L;
+        if (is9u)
         {
             Assert.Equal(stat.Extension ?? "", reparsed.Extension ?? "");
             Assert.Equal(stat.NUid, reparsed.NUid);

@@ -1,10 +1,10 @@
+using NinePSharp.Constants;
 using System;
 using System.Threading.Tasks;
 using Akka.Actor;
 using Akka.TestKit.Xunit2;
 using Microsoft.Extensions.Logging;
 using Moq;
-using NinePSharp.Constants;
 using NinePSharp.Messages;
 using NinePSharp.Server.Cluster.Actors;
 using NinePSharp.Server.Cluster.Messages;

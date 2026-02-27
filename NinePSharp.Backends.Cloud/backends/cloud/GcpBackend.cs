@@ -69,8 +69,15 @@ public class GcpBackend : IProtocolBackend
     {
         // For GCP, we usually need a Service Account JSON.
         // If provided via 9P Auth, it's expected to be the full JSON string.
-        string? json = null;
-        if (credentials != null) json = SecureStringHelper.ToString(credentials);
+        Google.Apis.Auth.OAuth2.GoogleCredential? credential = null;
+
+        if (credentials != null)
+        {
+            SecureStringHelper.Use(credentials, span => {
+                var json = Encoding.UTF8.GetString(span);
+                credential = Google.Apis.Auth.OAuth2.GoogleCredential.FromJson(json);
+            });
+        }
         else if (!string.IsNullOrEmpty(_config?.VaultKey))
         {
             using var seed = new SecureBuffer(32, _vault.GetLocalArena());
@@ -85,7 +92,8 @@ public class GcpBackend : IProtocolBackend
                 {
                     using (raw)
                     {
-                        json = Encoding.UTF8.GetString(raw.Span);
+                        var json = Encoding.UTF8.GetString(raw.Span);
+                        credential = Google.Apis.Auth.OAuth2.GoogleCredential.FromJson(json);
                     }
                 }
             }
@@ -94,12 +102,8 @@ public class GcpBackend : IProtocolBackend
         StorageClient? storage = null;
         SecretManagerServiceClient? secrets = null;
 
-        if (json != null)
+        if (credential != null)
         {
-            #pragma warning disable CS0618 // Type or member is obsolete
-            var credential = Google.Apis.Auth.OAuth2.GoogleCredential.FromJson(json);
-            #pragma warning restore CS0618
-
             storage = new StorageClientBuilder { Credential = credential }.Build();
             secrets = new SecretManagerServiceClientBuilder { Credential = credential }.Build();
         }

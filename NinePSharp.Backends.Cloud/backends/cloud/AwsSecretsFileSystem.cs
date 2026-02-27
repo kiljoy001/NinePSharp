@@ -22,8 +22,6 @@ public class AwsSecretsFileSystem : INinePFileSystem
     private List<string> _currentPath = new();
     private byte[]? _lastReadData;
 
-    public bool DotU { get; set; }
-
     public AwsSecretsFileSystem(AwsBackendConfig config, IAmazonSecretsManager secretsClient, ILuxVaultService vault)
     {
         _config = config;
@@ -104,14 +102,23 @@ public class AwsSecretsFileSystem : INinePFileSystem
         if (_currentPath.Count == 0) throw new NinePProtocolException("Cannot write to root secrets directory.");
 
         var secretId = _currentPath[0];
-        var newValue = Encoding.UTF8.GetString(twrite.Data.ToArray());
-
+        var bytes = twrite.Data.Span;
+        int maxChars = Encoding.UTF8.GetMaxCharCount(bytes.Length);
+        char[] chars = System.Buffers.ArrayPool<char>.Shared.Rent(maxChars);
         try {
-            await _secretsClient.PutSecretValueAsync(new PutSecretValueRequest { SecretId = secretId, SecretString = newValue });
-            return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+            int charsDecoded = Encoding.UTF8.GetChars(bytes, chars);
+            var newValue = new string(chars, 0, charsDecoded);
+
+            try {
+                await _secretsClient.PutSecretValueAsync(new PutSecretValueRequest { SecretId = secretId, SecretString = newValue });
+                return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+            }
+            catch (Exception ex) {
+                throw new NinePProtocolException($"AWS Secrets Update failed: {ex.Message}");
+            }
         }
-        catch (Exception ex) {
-            throw new NinePProtocolException($"AWS Secrets Update failed: {ex.Message}");
+        finally {
+            System.Buffers.ArrayPool<char>.Shared.Return(chars, clearArray: true);
         }
     }
 
@@ -121,27 +128,17 @@ public class AwsSecretsFileSystem : INinePFileSystem
     {
         var name = _currentPath.LastOrDefault() ?? "secrets";
         bool isDir = IsDirectory(_currentPath);
-        var stat = new Stat(0, 0, 0, GetQid(_currentPath), 0755 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0), 0, 0, 0, name, "scott", "scott", "scott", dotu: DotU);
+        var stat = new Stat(0, 0, 0, GetQid(_currentPath), 0755 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0), 0, 0, 0, name, "scott", "scott", "scott");
         return new Rstat(tstat.Tag, stat);
     }
 
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePNotSupportedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePNotSupportedException();
 
-    public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
-    {
-        var qid = new Qid(QidType.QTDIR, 0, 0);
-        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu));
-    }
-
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
-
     public INinePFileSystem Clone()
     {
         var clone = new AwsSecretsFileSystem(_config, _secretsClient, _vault);
         clone._currentPath = new List<string>(_currentPath);
-        clone.DotU = DotU;
         return clone;
     }
 }

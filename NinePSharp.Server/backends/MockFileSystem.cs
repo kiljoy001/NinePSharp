@@ -33,7 +33,7 @@ public class MockFileSystem : INinePFileSystem
     private readonly ConcurrentDictionary<string, MockEntry> _entries;
     private List<string> _currentPath = new();
 
-    public bool DotU { get; set; }
+    public NinePDialect Dialect { get; set; }
 
     public MockFileSystem(ILuxVaultService vault)
     {
@@ -176,14 +176,14 @@ public class MockFileSystem : INinePFileSystem
             }
 
             var stat = new Stat(0, 0, 0, new Qid(qidType, 0, entry.Qid), mode, 0, 0,
-                (ulong)entry.Content.Length, entry.Name, "scott", "scott", "scott", dotu: DotU);
+                (ulong)entry.Content.Length, entry.Name, "scott", "scott", "scott", dialect: Dialect);
             return Task.FromResult(new Rstat(tstat.Tag, stat));
         }
         else
         {
             // Fallback for non-existent paths
             var name = _currentPath.Count > 0 ? _currentPath.Last() : "mock";
-            var stat = new Stat(0, 0, 0, new Qid(QidType.QTFILE, 0, 1), 0644, 0, 0, 0, name, "scott", "scott", "scott", dotu: DotU);
+            var stat = new Stat(0, 0, 0, new Qid(QidType.QTFILE, 0, 1), 0644, 0, 0, 0, name, "scott", "scott", "scott", dialect: Dialect);
             return Task.FromResult(new Rstat(tstat.Tag, stat));
         }
     }
@@ -474,7 +474,7 @@ public class MockFileSystem : INinePFileSystem
     {
         var clone = new MockFileSystem(_vault);
         clone._currentPath = new List<string>(_currentPath);
-        clone.DotU = DotU;
+        clone.Dialect = Dialect;
 
         // Deep copy entries
         foreach (var kvp in _entries)

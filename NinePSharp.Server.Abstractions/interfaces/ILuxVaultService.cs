@@ -98,24 +98,6 @@ public interface ILuxVaultService
     SecureSecret? DecryptToBytes(byte[] payload, ReadOnlySpan<byte> keyMaterial);
 
     /// <summary>
-    /// Decrypts a payload into a string. Note: This leaks secrets into the managed heap.
-    /// </summary>
-    [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
-    string? Decrypt(byte[] payload, string password);
-
-    /// <summary>
-    /// Decrypts a payload into a string using a SecureString. Note: This leaks secrets into the managed heap.
-    /// </summary>
-    [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
-    string? Decrypt(byte[] payload, SecureString password);
-
-    /// <summary>
-    /// Decrypts a payload into a string using raw key material. Note: This leaks secrets into the managed heap.
-    /// </summary>
-    [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
-    string? Decrypt(byte[] payload, ReadOnlySpan<byte> key);
-
-    /// <summary>
     /// Encrypts and stores a secret to the physical vault directory.
     /// </summary>
     /// <param name="name">The name of the secret.</param>
@@ -142,16 +124,24 @@ public interface ILuxVaultService
     /// <summary>
     /// Protects a configuration string using a master key.
     /// </summary>
-    /// <param name="secret">The configuration string.</param>
+    /// <param name="secret">The configuration cleartext bytes.</param>
     /// <param name="masterKey">The master key material.</param>
     /// <returns>A protected URI string.</returns>
-    string ProtectConfig(string secret, ReadOnlySpan<byte> masterKey);
+    string ProtectConfig(ReadOnlySpan<byte> secret, ReadOnlySpan<byte> masterKey);
 
     /// <summary>
     /// Unprotects a configuration string using a master key.
     /// </summary>
-    /// <param name="protectedSecret">A protected URI string.</param>
+    /// <param name="protectedSecret">A protected URI string (or a plain text string).</param>
     /// <param name="masterKey">The master key material.</param>
     /// <returns>The original configuration string.</returns>
     string? UnprotectConfig(string protectedSecret, ReadOnlySpan<byte> masterKey);
+
+    /// <summary>
+    /// Unprotects a configuration string using a master key into a secure buffer.
+    /// </summary>
+    /// <param name="protectedSecret">A protected URI string (or a plain text string).</param>
+    /// <param name="masterKey">The master key material.</param>
+    /// <returns>A SecureSecret containing the original configuration bytes.</returns>
+    SecureSecret? UnprotectConfigToBytes(string protectedSecret, ReadOnlySpan<byte> masterKey);
 }

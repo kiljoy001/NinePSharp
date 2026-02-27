@@ -1,3 +1,4 @@
+using NinePSharp.Constants;
 using System;
 using System.IO;
 using System.Net;
@@ -16,7 +17,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using NinePSharp.Constants;
 using NinePSharp.Messages;
 using NinePSharp.Server;
 using NinePSharp.Server.Interfaces;
@@ -36,15 +36,15 @@ namespace NinePSharp.Tests
         #region Unit Tests (Program.cs Logic)
 
         [Fact]
-        public void Generate64BitSecureSeed_ProducesUniqueSeeds()
+        public void Generate4096BitSecureSeed_ProducesUniqueSeeds()
         {
             // Act
-            using var seed1 = ReflectionHelper.InvokeStatic<SecureString>(typeof(Program), "Generate64BitSecureSeed");
-            using var seed2 = ReflectionHelper.InvokeStatic<SecureString>(typeof(Program), "Generate64BitSecureSeed");
+            using var seed1 = ReflectionHelper.InvokeStatic<SecureString>(typeof(Program), "Generate4096BitSecureSeed");
+            using var seed2 = ReflectionHelper.InvokeStatic<SecureString>(typeof(Program), "Generate4096BitSecureSeed");
 
             // Assert
-            seed1.Length.Should().Be(8);
-            seed2.Length.Should().Be(8);
+            seed1.Length.Should().Be(512);
+            seed2.Length.Should().Be(512);
             
             string s1 = ToInsecureString(seed1);
             string s2 = ToInsecureString(seed2);
@@ -55,7 +55,7 @@ namespace NinePSharp.Tests
         public void DeriveSessionKey_ProducesCorrectLength()
         {
             // Arrange
-            using var seed = ReflectionHelper.InvokeStatic<SecureString>(typeof(Program), "Generate64BitSecureSeed");
+            using var seed = ReflectionHelper.InvokeStatic<SecureString>(typeof(Program), "Generate4096BitSecureSeed");
 
             // Act
             byte[] key = ReflectionHelper.InvokeStatic<byte[]>(typeof(Program), "DeriveSessionKeyFromSecureSeed", seed);
@@ -75,8 +75,8 @@ namespace NinePSharp.Tests
         {
             if (seedData == null || seedData.Length == 0) return true;
             
-            byte[] normalized = new byte[8];
-            Array.Copy(seedData, 0, normalized, 0, Math.Min(seedData.Length, 8));
+            byte[] normalized = new byte[512];
+            Array.Copy(seedData, 0, normalized, 0, Math.Min(seedData.Length, 512));
 
             using var secureSeed1 = new SecureString();
             using var secureSeed2 = new SecureString();

@@ -162,20 +162,6 @@ public sealed class ProtectedSecret : IDisposable
         }
     }
 
-    /// <summary>
-    /// Legacy reveal as string. DISCOURAGED. 
-    /// This will leak cleartext into the managed string pool.
-    /// </summary>
-    [Obsolete("Use the Use() method to prevent cleartext leakage into the managed heap.")]
-    public string? Reveal()
-    {
-        string? result = null;
-        Use(bytes => {
-            result = Encoding.UTF8.GetString(bytes);
-        });
-        return result;
-    }
-
     public void Dispose()
     {
         if (_encryptedData != null)

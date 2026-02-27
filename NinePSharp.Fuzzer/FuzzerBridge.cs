@@ -1,3 +1,4 @@
+using NinePSharp.Constants;
 using System;
 using System.Linq;
 using NinePSharp.Constants;
@@ -37,7 +38,7 @@ namespace NinePSharp.Fuzzer
 
         public static byte[] Mutate(byte[] input)
         {
-            var result = NinePParser.parse(true, input);
+            var result = NinePParser.parse(NinePDialect.NineP2000U, input);
             if (result.IsOk)
             {
                 // For parsed messages, use byte-level mutations which are more reliable

@@ -16,7 +16,9 @@ namespace NinePSharp.Messages;
 /// </summary>
 public readonly struct Stat
 {
-    public bool DotU { get; }
+    public NinePDialect Dialect { get; }
+    private bool Is9u => Dialect == NinePDialect.NineP2000U || Dialect == NinePDialect.NineP2000L;
+    
     public ushort Size { get; } // Total size including the 2-byte header
     public ushort Type { get; }
     public uint Dev { get; }
@@ -36,8 +38,9 @@ public readonly struct Stat
     public uint? NGid { get; }
     public uint? NMuid { get; }
 
-    public static ushort CalculateSize(string? name, string? uid, string? gid, string? muid, bool dotu, string? extension = null)
+    public static ushort CalculateSize(string? name, string? uid, string? gid, string? muid, NinePDialect dialect, string? extension = null)
     {
+        bool is9u = dialect == NinePDialect.NineP2000U || dialect == NinePDialect.NineP2000L;
         // 1. Fixed fields (excluding size[2] itself):
         // type[2] + dev[4] + qid[13] + mode[4] + atime[4] + mtime[4] + length[8] = 39 bytes
         int payloadSize = 39;
@@ -49,7 +52,7 @@ public readonly struct Stat
         payloadSize += 2 + Encoding.UTF8.GetByteCount(muid ?? "");
         
         // 3. 9P2000.u extensions
-        if (dotu)
+        if (is9u)
         {
             payloadSize += 2 + Encoding.UTF8.GetByteCount(extension ?? "");
             payloadSize += 4 + 4 + 4; // n_uid[4] n_gid[4] n_muid[4]
@@ -59,9 +62,9 @@ public readonly struct Stat
         return (ushort)(payloadSize + 2);
     }
     
-    public Stat(ushort size, ushort type, uint dev, Qid qid, uint mode, uint atime, uint mtime, ulong length, string? name, string? uid, string? gid, string? muid, bool dotu = false, string? extension = null, uint? nUid = null, uint? nGid = null, uint? nMuid = null)
+    public Stat(ushort size, ushort type, uint dev, Qid qid, uint mode, uint atime, uint mtime, ulong length, string? name, string? uid, string? gid, string? muid, NinePDialect dialect = NinePDialect.NineP2000, string? extension = null, uint? nUid = null, uint? nGid = null, uint? nMuid = null)
     {
-        DotU = dotu;
+        Dialect = dialect;
         Name = name ?? "";
         Uid = uid ?? "";
         Gid = gid ?? "";
@@ -76,16 +79,18 @@ public readonly struct Stat
         Mtime = mtime;
         Length = length;
 
-        NUid = nUid ?? (dotu ? uint.MaxValue : (uint?)null);
-        NGid = nGid ?? (dotu ? uint.MaxValue : (uint?)null);
-        NMuid = nMuid ?? (dotu ? uint.MaxValue : (uint?)null);
+        bool is9u = dialect == NinePDialect.NineP2000U || dialect == NinePDialect.NineP2000L;
+        NUid = nUid ?? (is9u ? uint.MaxValue : (uint?)null);
+        NGid = nGid ?? (is9u ? uint.MaxValue : (uint?)null);
+        NMuid = nMuid ?? (is9u ? uint.MaxValue : (uint?)null);
 
-        Size = size == 0 ? CalculateSize(Name, Uid, Gid, Muid, dotu, Extension) : size;
+        Size = size == 0 ? CalculateSize(Name, Uid, Gid, Muid, dialect, Extension) : size;
     }
 
-    public Stat(ReadOnlySpan<byte> data, ref int offset, bool dotu = false)
+    public Stat(ReadOnlySpan<byte> data, ref int offset, NinePDialect dialect = NinePDialect.NineP2000)
     {
-        DotU = dotu;
+        Dialect = dialect;
+        bool is9u = dialect == NinePDialect.NineP2000U || dialect == NinePDialect.NineP2000L;
         int startOffset = offset;
         
         // size[2] header
@@ -123,7 +128,7 @@ public readonly struct Stat
         NGid = null;
         NMuid = null;
 
-        if (dotu && (offset - startOffset < Size))
+        if (is9u && (offset - startOffset < Size))
         {
             Extension = data.ReadString(ref offset);
             NUid = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
@@ -171,7 +176,7 @@ public readonly struct Stat
         data.WriteString(Muid, ref offset);
         
         // 4. Unix Extensions
-        if (DotU)
+        if (Is9u)
         {
             data.WriteString(Extension ?? "", ref offset);
             BinaryPrimitives.WriteUInt32LittleEndian(data.Slice(offset, 4), NUid ?? uint.MaxValue);

@@ -532,40 +532,35 @@ namespace NinePSharp.Server.Utils
             catch (Exception ex) { throw new Exception("DECRYPT TO BYTES FAILED", ex); }
         }
 
-        [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
-        public static string? Decrypt(byte[] payload, string password)
+        public static string ProtectConfig(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> masterKey)
         {
-            using var secret = DecryptToBytes(payload, password);
-            return secret == null ? null : Encoding.UTF8.GetString(secret.Span);
-        }
-
-        [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
-        public static string? Decrypt(byte[] payload, SecureString password)
-        {
-            using var secret = DecryptToBytes(payload, password);
-            return secret == null ? null : Encoding.UTF8.GetString(secret.Span);
-        }
-
-        [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
-        public static string? Decrypt(byte[] payload, ReadOnlySpan<byte> keyMaterial)
-        {
-            using var secret = DecryptToBytes(payload, keyMaterial);
-            return secret == null ? null : Encoding.UTF8.GetString(secret.Span);
-        }
-
-        public static string ProtectConfig(string plainText, ReadOnlySpan<byte> masterKey)
-        {
-            var ciphertext = Encrypt(Encoding.UTF8.GetBytes(plainText), masterKey);
+            var ciphertext = Encrypt(plaintext, masterKey);
             return "secret://" + Convert.ToBase64String(ciphertext);
         }
 
         public static string? UnprotectConfig(string secretUri, ReadOnlySpan<byte> masterKey)
         {
-            if (!secretUri.StartsWith("secret://")) return secretUri;
+            using var buffer = UnprotectConfigToBytes(secretUri, masterKey);
+            return buffer == null ? null : Encoding.UTF8.GetString(buffer.Span);
+        }
+
+        public static SecureSecret? UnprotectConfigToBytes(string secretUri, ReadOnlySpan<byte> masterKey)
+        {
+            if (string.IsNullOrEmpty(secretUri)) return null;
+            if (!secretUri.StartsWith("secret://"))
+            {
+                byte[] resultBytes = GC.AllocateArray<byte>(Encoding.UTF8.GetByteCount(secretUri), pinned: true);
+                Encoding.UTF8.GetBytes(secretUri, resultBytes);
+                unsafe {
+                    fixed (byte* pResult = resultBytes) {
+                        MemoryLock.Lock((IntPtr)pResult, (nuint)resultBytes.Length);
+                    }
+                }
+                return new SecureSecret(resultBytes);
+            }
             var base64 = secretUri.Substring("secret://".Length);
             var ciphertext = Convert.FromBase64String(base64);
-            using var secret = DecryptToBytes(ciphertext, masterKey);
-            return secret == null ? null : Encoding.UTF8.GetString(secret.Span);
+            return DecryptToBytes(ciphertext, masterKey);
         }
     }
 }

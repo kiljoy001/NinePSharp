@@ -1,3 +1,4 @@
+using NinePSharp.Constants;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -125,9 +126,8 @@ namespace NinePSharp.Tests
             if (pk == null || password == null) return true;
 
             byte[] encrypted = _vault.Encrypt(Encoding.UTF8.GetBytes(pk), password);
-            #pragma warning disable CS0618
-            string? recovered = _vault.Decrypt(encrypted, password);
-            #pragma warning restore CS0618
+            using var decrypted = _vault.DecryptToBytes(encrypted, password);
+            string? recovered = decrypted == null ? null : Encoding.UTF8.GetString(decrypted.Span);
 
             return pk == recovered;
         }
@@ -210,9 +210,7 @@ namespace NinePSharp.Tests
                     byte[] payload = (byte[])originalPayload.Clone();
                     payload[i] ^= (byte)(1 << bit);
 
-                    #pragma warning disable CS0618
-                    var result = LuxVault.Decrypt(payload, password);
-                    #pragma warning restore CS0618
+                    using var result = LuxVault.DecryptToBytes(payload, password);
                     Assert.Null(result);
                 }
             }
@@ -239,23 +237,26 @@ namespace NinePSharp.Tests
         {
             // Empty key
             byte[] c1 = LuxVault.Encrypt(Encoding.UTF8.GetBytes(""), "password");
-            #pragma warning disable CS0618
-            Assert.Equal("", LuxVault.Decrypt(c1, "password"));
-            #pragma warning restore CS0618
+            using (var d1 = LuxVault.DecryptToBytes(c1, "password"))
+            {
+                Assert.Equal("", Encoding.UTF8.GetString(d1!.Span));
+            }
 
             // Long password (1KB)
             string longPassword = new string('a', 1024);
             byte[] c2 = LuxVault.Encrypt(Encoding.UTF8.GetBytes("pk"), longPassword);
-            #pragma warning disable CS0618
-            Assert.Equal("pk", LuxVault.Decrypt(c2, longPassword));
-            #pragma warning restore CS0618
+            using (var d2 = LuxVault.DecryptToBytes(c2, longPassword))
+            {
+                Assert.Equal("pk", Encoding.UTF8.GetString(d2!.Span));
+            }
 
             // Unicode/Emojis
             string emojiPass = "🔑🚀🌈";
             byte[] c3 = LuxVault.Encrypt(Encoding.UTF8.GetBytes("pk"), emojiPass);
-            #pragma warning disable CS0618
-            Assert.Equal("pk", LuxVault.Decrypt(c3, emojiPass));
-            #pragma warning restore CS0618
+            using (var d3 = LuxVault.DecryptToBytes(c3, emojiPass))
+            {
+                Assert.Equal("pk", Encoding.UTF8.GetString(d3!.Span));
+            }
             
             // Null inputs
             Assert.Throws<ArgumentNullException>(() => LuxVault.Encrypt(Encoding.UTF8.GetBytes("pk"), (string)null!));

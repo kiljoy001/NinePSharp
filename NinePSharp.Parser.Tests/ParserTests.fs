@@ -19,7 +19,7 @@ let ``Parser successfully parses valid Tversion binary vector`` () =
            0x06uy; 0x00uy
            0x39uy; 0x50uy; 0x32uy; 0x30uy; 0x30uy; 0x30uy |]
 
-    match NinePParser.parse false (ReadOnlyMemory tversionBytes) with
+    match NinePParser.parse NinePDialect.NineP2000 (ReadOnlyMemory tversionBytes) with
     | Ok (MsgTversion t) -> 
         Assert.Equal(8192u, t.MSize)
         Assert.Equal("9P2000", t.Version)
@@ -44,7 +44,7 @@ let ``Parser parses Tauth 9P2000.u extension with numeric UID`` () =
            0x00uy; 0x00uy
            0x00uy; 0x00uy; 0x00uy; 0x00uy |]
 
-    match NinePParser.parse true (ReadOnlyMemory tauthUBytes) with
+    match NinePParser.parse NinePDialect.NineP2000U (ReadOnlyMemory tauthUBytes) with
     | Ok (MsgTauth t) ->
         Assert.Equal(10u, t.Afid)
         Assert.Equal("root", t.Uname)
@@ -70,7 +70,7 @@ let ``Parser parses Tauth baseline 9P2000 without numeric UID`` () =
            0x04uy; 0x00uy; 0x72uy; 0x6Fuy; 0x6Fuy; 0x74uy
            0x00uy; 0x00uy |]
 
-    match NinePParser.parse false (ReadOnlyMemory tauthBytes) with
+    match NinePParser.parse NinePDialect.NineP2000 (ReadOnlyMemory tauthBytes) with
     | Ok (MsgTauth t) ->
         Assert.Equal(10u, t.Afid)
         Assert.False(t.NUname.HasValue) // Should be none
@@ -78,7 +78,7 @@ let ``Parser parses Tauth baseline 9P2000 without numeric UID`` () =
     | _ -> Assert.Fail("Expected Ok(MsgTauth) without 9u flag, got other message")
 
 [<Fact>]
-let ``Parser parses Rlerror 9P2000.L extension`` () =
+let ``Parser rejects Rlerror under core 9P2000 dialect`` () =
     // size (4): 11
     // type (1): 7 (Rlerror)
     // tag (2): 0x0001
@@ -89,22 +89,22 @@ let ``Parser parses Rlerror 9P2000.L extension`` () =
            0x01uy; 0x00uy
            0x02uy; 0x00uy; 0x00uy; 0x00uy |]
 
-    match NinePParser.parse false (ReadOnlyMemory rlerrorBytes) with
-    | Ok (MsgRlerror r) ->
-        Assert.Equal(2u, r.Ecode)
-    | _ -> Assert.Fail("Expected Ok(MsgRlerror)")
+    match NinePParser.parse NinePDialect.NineP2000 (ReadOnlyMemory rlerrorBytes) with
+    | Error msg ->
+        Assert.Contains("Unknown message type", msg)
+    | _ -> Assert.Fail("Expected 9P2000 parser to reject Rlerror")
 
 [<Property>]
-let ``Parser never throws unhandled exceptions on arbitrary byte payloads`` (payload: byte[], is9u: bool) =
+let ``Parser never throws unhandled exceptions on arbitrary byte payloads`` (payload: byte[], dialect: NinePDialect) =
     let safePayload = if isNull payload then [||] else payload
     try
-        match NinePParser.parse is9u (ReadOnlyMemory safePayload) with
+        match NinePParser.parse dialect (ReadOnlyMemory safePayload) with
         | Ok _ | Error _ -> true
     with
     | _ -> false
 
 [<Property>]
-let ``Parser gracefully returns Error when receiving truncated valid payload`` (amount: int, is9u: bool) =
+let ``Parser gracefully returns Error when receiving truncated valid payload`` (amount: int, dialect: NinePDialect) =
     let validTversion = 
         [| 0x13uy; 0x00uy; 0x00uy; 0x00uy
            0x64uy
@@ -117,6 +117,6 @@ let ``Parser gracefully returns Error when receiving truncated valid payload`` (
     let len = safeAmount % validTversion.Length
     let truncated = Array.take len validTversion
     
-    match NinePParser.parse is9u (ReadOnlyMemory truncated) with
+    match NinePParser.parse dialect (ReadOnlyMemory truncated) with
     | Error _ -> true
     | Ok _ -> false

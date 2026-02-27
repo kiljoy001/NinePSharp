@@ -1,3 +1,4 @@
+using NinePSharp.Constants;
 using System;
 using System.Linq;
 using System.Text;
@@ -6,7 +7,6 @@ using FsCheck.Xunit;
 using NinePSharp.Parser;
 using NinePSharp.Generators;
 using NinePSharp.Messages;
-using NinePSharp.Constants;
 using Xunit;
 
 namespace NinePSharp.Tests;
@@ -33,7 +33,8 @@ public class MutationKillerTests
     public void Stat_DotU_Extension_Fields_Only_Present_When_DotU_True(Stat stat)
     {
         // Verify 9P2000.u extension logic
-        if (stat.DotU)
+        bool is9u = stat.Dialect == NinePDialect.NineP2000U || stat.Dialect == NinePDialect.NineP2000L;
+        if (is9u)
         {
             Assert.NotNull(stat.NUid);
             Assert.NotNull(stat.NGid);
@@ -41,7 +42,7 @@ public class MutationKillerTests
         }
         else
         {
-            // When DotU is false, extension fields may be null
+            // When Dialect is classic, extension fields may be null
             // But if present, they shouldn't affect serialization
         }
     }
@@ -54,7 +55,7 @@ public class MutationKillerTests
         stat.WriteTo(buffer, ref writeOffset);
 
         int readOffset = 0;
-        var parsed = new Stat(buffer, ref readOffset, stat.DotU);
+        var parsed = new Stat(buffer, ref readOffset, stat.Dialect);
 
         // 9P protocol contract: null and empty string are equivalent (both serialize to 0x00 0x00)
         Assert.Equal(stat.Name ?? "", parsed.Name);
@@ -62,22 +63,24 @@ public class MutationKillerTests
         Assert.Equal(stat.Gid ?? "", parsed.Gid);
         Assert.Equal(stat.Muid ?? "", parsed.Muid);
 
-        if (stat.DotU)
+        bool is9u = stat.Dialect == NinePDialect.NineP2000U || stat.Dialect == NinePDialect.NineP2000L;
+        if (is9u)
         {
             Assert.Equal(stat.Extension ?? "", parsed.Extension ?? "");
         }
     }
 
     [Property(MaxTest = 200)]
-    public void Stat_CalculateSize_Method_Handles_Edge_Cases(string name, string uid, string gid, string muid, bool dotu)
+    public void Stat_CalculateSize_Method_Handles_Edge_Cases(string name, string uid, string gid, string muid, NinePDialect dialect)
     {
         if (name == null) name = "";
         if (uid == null) uid = "";
         if (gid == null) gid = "";
         if (muid == null) muid = "";
 
+        bool is9u = dialect == NinePDialect.NineP2000U || dialect == NinePDialect.NineP2000L;
         // Should never throw, even with extreme inputs
-        var size = Stat.CalculateSize(name, uid, gid, muid, dotu, dotu ? "ext" : null);
+        var size = Stat.CalculateSize(name, uid, gid, muid, dialect, is9u ? "ext" : null);
 
         // Minimum size: 2 (size field) + 39 (fixed fields) + 8 (4 empty strings) = 49
         Assert.True(size >= 49, $"Size too small: {size}");
@@ -89,7 +92,7 @@ public class MutationKillerTests
             2 + Encoding.UTF8.GetByteCount(gid) +
             2 + Encoding.UTF8.GetByteCount(muid);
 
-        if (dotu)
+        if (is9u)
         {
             expectedStringBytes += 2 + Encoding.UTF8.GetByteCount("ext");
             expectedStringBytes += 12; // n_uid[4] + n_gid[4] + n_muid[4]
@@ -103,7 +106,7 @@ public class MutationKillerTests
     public void Stat_Empty_Strings_Serialize_As_Zero_Length()
     {
         var qid = new Qid((QidType)0, 0, 0);
-        var stat = new Stat(0, 0, 0, qid, 0, 0, 0, 0, "", "", "", "", false, null, null, null, null);
+        var stat = new Stat(0, 0, 0, qid, 0, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000, null, null, null, null);
 
         var buffer = new byte[stat.Size];
         int offset = 0;
@@ -119,16 +122,16 @@ public class MutationKillerTests
     {
         var qid = new Qid((QidType)1, 2, 3);
 
-        // Create two identical stats, one with DotU, one without
+        // Create two identical stats, one with Dialect, one without
         var statNoDotU = new Stat(0, 1, 2, qid, 0x1EDu, 1000u, 2000u, 12345uL,
                                   "file.txt", "user", "group", "muid",
-                                  false, null, null, null, null);
+                                  NinePDialect.NineP2000, null, null, null, null);
 
         var statWithDotU = new Stat(0, 1, 2, qid, 0x1EDu, 1000u, 2000u, 12345uL,
                                     "file.txt", "user", "group", "muid",
-                                    true, "ext", 1000u, 1000u, 1000u);
+                                    NinePDialect.NineP2000U, "ext", 1000u, 1000u, 1000u);
 
-        // DotU version should be exactly 2 (extension length) + 3 (ext bytes) + 12 (3 x uint32) = 17 bytes larger
+        // Dialect version should be exactly 2 (extension length) + 3 (ext bytes) + 12 (3 x uint32) = 17 bytes larger
         int expectedDiff = 2 + Encoding.UTF8.GetByteCount("ext") + 12;
         Assert.Equal(statNoDotU.Size + expectedDiff, statWithDotU.Size);
     }

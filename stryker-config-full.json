@@ -1,0 +1,44 @@
+{
+  "stryker-config": {
+    "project": "NinePSharp.Server/NinePSharp.Server.csproj",
+    "test-projects": [
+      "NinePSharp.Tests/NinePSharp.Tests.csproj"
+    ],
+    "mutation-level": "Complete",
+    "thresholds": {
+      "break": 70,
+      "low": 75,
+      "high": 90
+    },
+    "reporters": [
+      "html",
+      "progress",
+      "json",
+      "cleartext",
+      "baseline"
+    ],
+    "concurrency": 12,
+    "additional-timeout": 10000,
+    "project-info": {
+      "name": "NinePSharp",
+      "version": "0.1.0"
+    },
+    "baseline": {
+      "enabled": true,
+      "provider": "disk"
+    },
+    "mutate": [
+      "**/*.cs",
+      "!**/*Designer.cs",
+      "!**/AssemblyInfo.cs",
+      "!**/Program.cs"
+    ],
+    "ignore-mutations": [
+      "String",
+      "Regex"
+    ],
+    "coverage-analysis": "perTest",
+    "disable-bail": false,
+    "disable-mix-mutants": false
+  }
+}

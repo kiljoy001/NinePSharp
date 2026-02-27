@@ -2,6 +2,8 @@ using System;
 using NinePSharp.Messages;
 using NinePSharp.Constants;
 
+using NinePSharp.Parser;
+
 namespace NinePSharp.Server.Cluster.Messages;
 
 // Serializable wrappers for 9P messages
@@ -128,11 +130,11 @@ public class TWstatDto
     public ushort Tag { get; set; }
     public uint Fid { get; set; }
     public byte[] StatBytes { get; set; } = Array.Empty<byte>();
-    public bool DotU { get; set; }
+    public NinePDialect Dialect { get; set; }
     public TWstatDto() {}
     public TWstatDto(Twstat t) 
     { 
-        Tag = t.Tag; Fid = t.Fid; DotU = t.Stat.DotU;
+        Tag = t.Tag; Fid = t.Fid; Dialect = t.Stat.Dialect;
         StatBytes = new byte[t.Stat.Size];
         int offset = 0;
         t.Stat.WriteTo(StatBytes, ref offset);
@@ -212,13 +214,13 @@ public class RClunkDto
 public class RStatDto
 {
     public ushort Tag { get; set; }
-    public bool DotU { get; set; }
+    public NinePDialect Dialect { get; set; }
     public byte[] StatBytes { get; set; } = Array.Empty<byte>();
     public RStatDto() {}
     public RStatDto(Rstat r)
     {
         Tag = r.Tag;
-        DotU = r.Stat.DotU;
+        Dialect = r.Stat.Dialect;
         StatBytes = new byte[r.Stat.Size];
         int offset = 0;
         r.Stat.WriteTo(StatBytes, ref offset);

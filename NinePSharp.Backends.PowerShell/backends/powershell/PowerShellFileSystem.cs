@@ -20,8 +20,6 @@ public class PowerShellFileSystem : INinePFileSystem
     private List<string> _currentPath = new();
     private static readonly ConcurrentDictionary<string, PowerShellJob> _globalJobs = new();
 
-    public bool DotU { get; set; }
-
     public PowerShellFileSystem()
     {
     }
@@ -108,23 +106,6 @@ public class PowerShellFileSystem : INinePFileSystem
         return new Rread(tread.Tag, data.AsSpan((int)tread.Offset, count).ToArray());
     }
 
-    public Task<Rreaddir> ReaddirAsync(Treaddir treaddir)
-    {
-        if (!IsDirectory(_currentPath))
-        {
-            throw new NinePNotSupportedException();
-        }
-
-        byte[] data = BuildDirectoryListing();
-        if (treaddir.Offset >= (ulong)data.Length)
-        {
-            return Task.FromResult(new Rreaddir(9, treaddir.Tag, 0, ReadOnlyMemory<byte>.Empty));
-        }
-
-        int count = (int)Math.Min((long)treaddir.Count, data.Length - (long)treaddir.Offset);
-        return Task.FromResult(new Rreaddir(9 + (uint)count, treaddir.Tag, (uint)count, data.AsSpan((int)treaddir.Offset, count).ToArray()));
-    }
-
     private byte[] BuildDirectoryListing()
     {
         var entries = new List<byte>();
@@ -173,8 +154,11 @@ public class PowerShellFileSystem : INinePFileSystem
                 _ = job.RunAsync();
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
+
+            throw new NinePNotSupportedException("Cannot write script: job no longer exists.");
         }
-        return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+
+        throw new NinePNotSupportedException("Cannot write to this path.");
     }
 
     public Task<Rclunk> ClunkAsync(Tclunk tclunk) => Task.FromResult(new Rclunk(tclunk.Tag));
@@ -202,21 +186,15 @@ public class PowerShellFileSystem : INinePFileSystem
         throw new NinePNotSupportedException();
     }
 
-    public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
-    {
-        return Task.FromResult(new Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, GetQidForPath(_currentPath), 0644));
-    }
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
-
-    public Task<Rmkdir> MkdirAsync(Tmkdir tmkdir)
+    public Task<Rcreate> CreateAsync(Tcreate tcreate)
     {
         if (_currentPath.Count == 1 && _currentPath[0] == "jobs")
         {
-            var job = new PowerShellJob(tmkdir.Name);
-            if (_globalJobs.TryAdd(tmkdir.Name, job))
+            var job = new PowerShellJob(tcreate.Name);
+            if (_globalJobs.TryAdd(tcreate.Name, job))
             {
-                var path = new List<string>(_currentPath) { tmkdir.Name };
-                return Task.FromResult(new Rmkdir(NinePConstants.HeaderSize + 13, tmkdir.Tag, GetQidForPath(path)));
+                var path = new List<string>(_currentPath) { tcreate.Name };
+                return Task.FromResult(new Rcreate(tcreate.Tag, GetQidForPath(path), 0));
             }
         }
         throw new InvalidOperationException("Cannot create directory here.");

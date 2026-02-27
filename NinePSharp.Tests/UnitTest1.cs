@@ -1,3 +1,4 @@
+using NinePSharp.Constants;
 ﻿namespace NinePSharp.Tests;
 
 public class UnitTest1

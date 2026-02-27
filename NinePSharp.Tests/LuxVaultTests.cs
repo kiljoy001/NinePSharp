@@ -1,3 +1,4 @@
+using NinePSharp.Constants;
 using System;
 using System.Security.Cryptography;
 using System.Text;
@@ -92,18 +93,23 @@ namespace NinePSharp.Tests
         [Fact]
         public void LuxVault_ConfigProtection_Works()
         {
-            var masterKey = Encoding.UTF8.GetBytes("master_key_123");
+            var masterKey = new byte[32];
+            RandomNumberGenerator.Fill(masterKey);
             var plainSecret = "api_key_xyz";
+            var plainBytes = Encoding.UTF8.GetBytes(plainSecret);
 
-            var protectedSecret = LuxVault.ProtectConfig(plainSecret, masterKey);
+            var protectedSecret = LuxVault.ProtectConfig(plainBytes, masterKey);
             Assert.StartsWith("secret://", protectedSecret);
 
-            var recovered = LuxVault.UnprotectConfig(protectedSecret, masterKey);
-            Assert.Equal(plainSecret, recovered);
+            using var recovered = LuxVault.UnprotectConfigToBytes(protectedSecret, masterKey);
+            Assert.NotNull(recovered);
+            Assert.Equal(plainSecret, Encoding.UTF8.GetString(recovered.Span));
 
             // Verify it handles non-secret strings
             var normalString = "not_a_secret";
-            Assert.Equal(normalString, LuxVault.UnprotectConfig(normalString, masterKey));
+            using var normalRecovered = LuxVault.UnprotectConfigToBytes(normalString, masterKey);
+            Assert.NotNull(normalRecovered);
+            Assert.Equal(normalString, Encoding.UTF8.GetString(normalRecovered.Span));
         }
     }
 }

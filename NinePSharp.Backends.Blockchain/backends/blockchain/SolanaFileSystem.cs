@@ -30,8 +30,6 @@ public class SolanaFileSystem : INinePFileSystem
     private List<string> _mockTransactions = new();
     private long _mockTxCounter;
 
-    public bool DotU { get; set; }
-
     public SolanaFileSystem(SolanaBackendConfig config, JsonRpcClient? rpcClient, ILuxVaultService vault, IEmercoinAuthService? authService = null, X509Certificate2? certificate = null)
     {
         _config = config;
@@ -185,62 +183,79 @@ public class SolanaFileSystem : INinePFileSystem
     public async Task<Rwrite> WriteAsync(Twrite twrite)
     {
         await EnsureAuthorizedAsync();
-        if (_currentPath.Count == 2 && _currentPath[0] == "wallets")
-        {
-            if (_currentPath[1] == "use")
+        var bytes = twrite.Data.Span;
+        int maxChars = Encoding.UTF8.GetMaxCharCount(bytes.Length);
+        char[] chars = System.Buffers.ArrayPool<char>.Shared.Rent(maxChars);
+        try {
+            int charsDecoded = Encoding.UTF8.GetChars(bytes, chars);
+            var charSpan = chars.AsSpan(0, charsDecoded).Trim();
+
+            if (_currentPath.Count == 2 && _currentPath[0] == "wallets")
             {
-                var bytes = twrite.Data.Span;
-                if (bytes.Length == 0) throw new NinePProtocolException("Account address required.");
-                _proxyAccount = Encoding.UTF8.GetString(bytes).Trim();
+                if (_currentPath[1] == "use")
+                {
+                    if (charSpan.Length == 0) throw new NinePProtocolException("Account address required.");
+                    _proxyAccount = charSpan.ToString();
+                    return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                }
+            }
+
+            if (_currentPath.Count == 1 && _currentPath[0] == "send")
+            {
+                if (_proxyAccount == null && _rpcClient != null)
+                {
+                    throw new InvalidOperationException("No proxy account selected. Write address to /wallets/use first.");
+                }
+
+                var (to, amount) = ParseTransferCommand(charSpan, "address:amount");
+                if (_rpcClient != null)
+                {
+                    EnsureMethodAllowed("sendTransaction");
+                    throw new NinePProtocolException("Node-side signing for Solana is not supported via standard RPC proxy. Keystore on node required.");
+                }
+
+                if (_mockBalanceSol < amount)
+                {
+                    throw new NinePProtocolException("Insufficient funds.");
+                }
+
+                _mockBalanceSol -= amount;
+                _mockTxCounter++;
+                _mockTransactions.Insert(
+                    0,
+                    $"sol-mock-{_mockTxCounter:D6} to={to} amount={amount.ToString("0.######", CultureInfo.InvariantCulture)} status=confirmed");
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
         }
-
-        if (_currentPath.Count == 1 && _currentPath[0] == "send")
-        {
-            if (_proxyAccount == null && _rpcClient != null)
-            {
-                throw new InvalidOperationException("No proxy account selected. Write address to /wallets/use first.");
-            }
-
-            var transfer = ParseTransferCommand(twrite.Data, "address:amount");
-            if (_rpcClient != null)
-            {
-                EnsureMethodAllowed("sendTransaction");
-                throw new NinePProtocolException("Node-side signing for Solana is not supported via standard RPC proxy. Keystore on node required.");
-            }
-
-            if (_mockBalanceSol < transfer.Amount)
-            {
-                throw new NinePProtocolException("Insufficient funds.");
-            }
-
-            _mockBalanceSol -= transfer.Amount;
-            _mockTxCounter++;
-            _mockTransactions.Insert(
-                0,
-                $"sol-mock-{_mockTxCounter:D6} to={transfer.To} amount={transfer.Amount.ToString("0.######", CultureInfo.InvariantCulture)} status=confirmed");
-            return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+        finally {
+            System.Buffers.ArrayPool<char>.Shared.Return(chars, clearArray: true);
         }
         
         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
     }
 
-    private static (string To, decimal Amount) ParseTransferCommand(ReadOnlyMemory<byte> payload, string expectedFormat)
+    private static (string To, decimal Amount) ParseTransferCommand(ReadOnlySpan<char> command, string expectedFormat)
     {
-        var command = Encoding.UTF8.GetString(payload.Span).Trim();
-        var parts = command.Split(':', 2, StringSplitOptions.TrimEntries);
-        if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]))
+        int colon = command.IndexOf(':');
+        if (colon == -1)
         {
             throw new NinePProtocolException($"Invalid format. Use '{expectedFormat}'");
         }
 
-        if (!decimal.TryParse(parts[1], NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) || amount <= 0)
+        var toSpan = command.Slice(0, colon).Trim();
+        var amountSpan = command.Slice(colon + 1).Trim();
+
+        if (toSpan.Length == 0)
         {
             throw new NinePProtocolException($"Invalid format. Use '{expectedFormat}'");
         }
 
-        return (parts[0], amount);
+        if (!decimal.TryParse(amountSpan, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) || amount <= 0)
+        {
+            throw new NinePProtocolException($"Invalid format. Use '{expectedFormat}'");
+        }
+
+        return (toSpan.ToString(), amount);
     }
 
     private async Task<string?> TryGetLiveBalanceTextAsync()
@@ -287,19 +302,6 @@ public class SolanaFileSystem : INinePFileSystem
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePPermissionDeniedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePPermissionDeniedException();
 
-    public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
-    {
-        var name = _currentPath.LastOrDefault() ?? "solana";
-        bool isDir = IsDirectory(_currentPath);
-        uint mode = isDir ? (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu : 0644;
-        if (name == "use" || name == "send") mode = 0666;
-
-        var qid = GetQid(_currentPath);
-        return new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode);
-    }
-
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePPermissionDeniedException();
-
     public INinePFileSystem Clone()
     {
         var clone = new SolanaFileSystem(_config, _rpcClient, _vault, _authService, _certificate);
@@ -308,7 +310,6 @@ public class SolanaFileSystem : INinePFileSystem
         clone._mockBalanceSol = _mockBalanceSol;
         clone._mockTransactions = new List<string>(_mockTransactions);
         clone._mockTxCounter = _mockTxCounter;
-        clone.DotU = DotU;
         return clone;
     }
 }

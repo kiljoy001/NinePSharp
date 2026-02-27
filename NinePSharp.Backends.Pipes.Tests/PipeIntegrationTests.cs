@@ -18,7 +18,7 @@ public class PipeIntegrationTests
         
         // 1. Create a queue
         await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "queues" }));
-        await fs.MkdirAsync(new Tmkdir(0, 1, 2, "test_queue", 0755, 0));
+        await fs.CreateAsync(PipeTestHelpers.BuildCreate(1, 2, "test_queue"));
 
         // 2. Write two distinct objects
         await fs.WalkAsync(new Twalk(1, 2, 3, new[] { "test_queue" }));
@@ -41,7 +41,7 @@ public class PipeIntegrationTests
         
         // 1. Create a pipe
         await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "pipes" }));
-        await fs.MkdirAsync(new Tmkdir(0, 1, 2, "test_pipe", 0755, 0));
+        await fs.CreateAsync(PipeTestHelpers.BuildCreate(1, 2, "test_pipe"));
 
         // 2. Write a large chunk of data
         await fs.WalkAsync(new Twalk(1, 2, 3, new[] { "test_pipe" }));
@@ -61,7 +61,7 @@ public class PipeIntegrationTests
     {
         INinePFileSystem fs = new PipeFileSystem();
         await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "queues" }));
-        await fs.MkdirAsync(new Tmkdir(0, 1, 2, "cancel_test", 0755, 0));
+        await fs.CreateAsync(PipeTestHelpers.BuildCreate(1, 2, "cancel_test"));
 
         await fs.WalkAsync(new Twalk(1, 2, 3, new[] { "cancel_test" }));
         

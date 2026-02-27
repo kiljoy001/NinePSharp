@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
     <ProjectReference Include="..\NinePSharp.Server.Abstractions\NinePSharp.Server.Abstractions.csproj" />
+    <ProjectReference Include="..\NinePSharp.Backends.Pipes\NinePSharp.Backends.Pipes.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,15 +1,20 @@
 using System.Threading.Tasks;
 using NinePSharp.Server.Utils;
 using NinePSharp.Messages;
+using NinePSharp.Constants;
 
 namespace NinePSharp.Server.Interfaces;
 
 public interface INinePFileSystem
 {
     /// <summary>
-    /// Gets or sets a value indicating whether the session is using 9P2000.u or 9P2000.L extensions.
+    /// Negotiated protocol dialect.
     /// </summary>
-    bool DotU { get; set; }
+    NinePDialect Dialect
+    {
+        get => NinePDialect.NineP2000;
+        set { }
+    }
 
     /// <summary>
     /// Walks a path in the filesystem.
@@ -47,14 +52,14 @@ public interface INinePFileSystem
     Task<Rclunk> ClunkAsync(Tclunk tclunk);
 
     /// <summary>
-    /// Retrieves status information for a file (9P2000/9P2000.u).
+    /// Retrieves status information for a file.
     /// </summary>
     /// <param name="tstat">The stat request message.</param>
     /// <returns>A stat response message containing the file statistics.</returns>
     Task<Rstat> StatAsync(Tstat tstat);
 
     /// <summary>
-    /// Updates status information for a file (9P2000/9P2000.u).
+    /// Updates status information for a file.
     /// </summary>
     /// <param name="twstat">The wstat request message.</param>
     /// <returns>A wstat response message.</returns>
@@ -68,18 +73,18 @@ public interface INinePFileSystem
     Task<Rremove> RemoveAsync(Tremove tremove);
 
     /// <summary>
-    /// Retrieves extended attributes for a file (9P2000.L).
+    /// Legacy extension hook; unsupported in strict 9P2000 core mode unless overridden.
     /// </summary>
     /// <param name="tgetattr">The getattr request message.</param>
     /// <returns>A getattr response message.</returns>
-    Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr);
+    Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr) => Task.FromException<Rgetattr>(new NinePNotSupportedException("Message type not implemented or supported"));
 
     /// <summary>
-    /// Updates extended attributes for a file (9P2000.L).
+    /// Legacy extension hook; unsupported in strict 9P2000 core mode unless overridden.
     /// </summary>
     /// <param name="tsetattr">The setattr request message.</param>
     /// <returns>A setattr response message.</returns>
-    Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr);
+    Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => Task.FromException<Rsetattr>(new NinePNotSupportedException("Message type not implemented or supported"));
 
     // Default implementations for missing 9P2000 messages
     /// <summary>

@@ -1,3 +1,4 @@
+using NinePSharp.Constants;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -10,7 +11,6 @@ using Amazon.S3.Model;
 using Amazon.SecretsManager;
 using Amazon.SecretsManager.Model;
 using Moq;
-using NinePSharp.Constants;
 using NinePSharp.Messages;
 using NinePSharp.Server.Backends.Cloud;
 using NinePSharp.Server.Configuration.Models;

@@ -52,7 +52,7 @@ module Generators =
             genU32
             genU64
 
-    let genStat (dotu: bool) =
+    let genStat (dialect: NinePDialect) =
         gen {
             let! name = genValidString
             let! uid = genValidString
@@ -64,7 +64,7 @@ module Generators =
             let! mtime = genU32
             let! length = genU64
             
-            return Stat(0us, 0us, 0u, qid, mode, atime, mtime, length, name.Value, uid.Value, gid.Value, muid.Value, dotu)
+            return Stat(0us, 0us, 0u, qid, mode, atime, mtime, length, name.Value, uid.Value, gid.Value, muid.Value, dialect)
         }
 
     /// Helper to compute 9P string wire size: 2-byte length prefix + UTF-8 bytes
@@ -192,7 +192,7 @@ module Generators =
         gen {
             let! tag = genTag
             let! fid = genFid
-            let! stat = genStat false
+            let! stat = genStat NinePDialect.NineP2000
             return MsgTwstat(Twstat(tag, fid, stat))
         }
 
@@ -249,7 +249,7 @@ module Generators =
     let genRstat =
         gen {
             let! tag = genTag
-            let! stat = genStat false
+            let! stat = genStat NinePDialect.NineP2000
             return MsgRstat(Rstat(tag, stat))
         }
 
@@ -846,7 +846,7 @@ module Generators =
     /// Aggressive Stat generator testing variable-length fields and 9P2000.u extensions
     let genAggressiveStat : Gen<Stat> =
         gen {
-            let! dotu = Gen.elements [true; false]
+            let! dialect = Gen.elements [NinePDialect.NineP2000; NinePDialect.NineP2000U; NinePDialect.NineP2000L]
             let! testCase = Gen.elements [
                 "empty_strings"
                 "long_strings"
@@ -892,12 +892,13 @@ module Generators =
 
             // Test both correct and incorrect size calculations
             let! useCorrectSize = Gen.elements [true; false]
-            let extStr = if dotu then extension else null
-            let correctSize = Stat.CalculateSize(name, uid, gid, muid, dotu, extStr)
+            let is9u = dialect = NinePDialect.NineP2000U || dialect = NinePDialect.NineP2000L
+            let extStr = if is9u then extension else null
+            let correctSize = Stat.CalculateSize(name, uid, gid, muid, dialect, extStr)
             let! sizeOffset = Gen.choose(-10, 10) |> Gen.map uint16
             let size = if useCorrectSize then correctSize else (uint16)(int correctSize + int sizeOffset)
 
-            return Stat(size, typ, dev, qid, mode, atime, mtime, length, name, uid, gid, muid, dotu,
+            return Stat(size, typ, dev, qid, mode, atime, mtime, length, name, uid, gid, muid, dialect,
                        extStr, nuid, ngid, nmuid)
         }
 
@@ -1151,7 +1152,7 @@ module Generators =
             // Create Stat with potentially null strings
             return Stat(0us, 0us, 0u, qid, 0u, 0u, 0u, 0uL,
                        name, uid, gid, muid,
-                       false, null, Nullable(), Nullable(), Nullable())
+                       NinePDialect.NineP2000, null, Nullable(), Nullable(), Nullable())
         }
 
     /// Generator for Tattach with null vs empty string variations
@@ -1466,7 +1467,7 @@ module Generators =
 
     type NinePArb =
         static member Qid() = Arb.fromGen genQid
-        static member Stat() = Arb.fromGen (genStat true)
+        static member Stat() = Arb.fromGen (genStat NinePDialect.NineP2000U)
         static member MaliciousTwalk() = Arb.fromGen genMaliciousTwalk
         static member BoundaryTread() = Arb.fromGen genBoundaryTread
         static member BoundaryTwrite() = Arb.fromGen genBoundaryTwrite

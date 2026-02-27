@@ -150,8 +150,9 @@ public class NinePServer : BackgroundService
 
     private class ClientSession
     {
+        public string SessionId { get; } = Guid.NewGuid().ToString("N");
         public uint MSize { get; set; } = DefaultMSize;
-        public bool DotU { get; set; } = false;
+        public NinePDialect Dialect { get; set; } = NinePDialect.NineP2000;
         public X509Certificate2? ClientCertificate { get; set; }
         public SemaphoreSlim WriteLock { get; } = new(1, 1);
     }
@@ -221,13 +222,12 @@ public class NinePServer : BackgroundService
                     int payloadRead = await stream.ReadAtLeastAsync(fullMessageBuffer.AsMemory(NinePConstants.HeaderSize, (int)payloadSize), (int)payloadSize, throwOnEndOfStream: false, ct);
                     if (payloadRead < payloadSize) 
                     {
-                        ArrayPool<byte>.Shared.Return(fullMessageBuffer);
+                        ArrayPool<byte>.Shared.Return(fullMessageBuffer, clearArray: true);
                         break;
                     }
                 }
 
                 _logger.LogInformation("Incoming: size={Size}, type={Type}, tag={Tag}", size, type, tag);
-                _logger.LogInformation("Raw Hex: {Hex}", BitConverter.ToString(fullMessageBuffer, 0, (int)size));
 
                 // Fire and forget handling of the message to allow pipelining
                 _ = Task.Run(async () => {
@@ -237,8 +237,8 @@ public class NinePServer : BackgroundService
                         if (response is Rversion rv)
                         {
                             session.MSize = rv.MSize;
-                            session.DotU = rv.Version == "9P2000.u";
-                            _logger.LogInformation("Negotiated MSize: {MSize}, DotU: {DotU}, Version: {Version}", session.MSize, session.DotU, rv.Version);
+                            session.Dialect = Dialect.fromString(rv.Version);
+                            _logger.LogInformation("Negotiated MSize: {MSize}, Dialect: {Dialect}, Version: {Version}", session.MSize, session.Dialect, rv.Version);
                         }
 
                         await SendResponseAsync(stream, response, session.WriteLock);
@@ -249,7 +249,7 @@ public class NinePServer : BackgroundService
                         await SendResponseAsync(stream, new Rerror(tag, ex.Message), session.WriteLock);
                     }
                     finally {
-                        ArrayPool<byte>.Shared.Return(fullMessageBuffer);
+                        ArrayPool<byte>.Shared.Return(fullMessageBuffer, clearArray: true);
                     }
                 }, ct);
             }
@@ -266,14 +266,15 @@ public class NinePServer : BackgroundService
 
     private async Task<object> DispatchMessageAsync(ReadOnlyMemory<byte> fullMessageBuffer, MessageTypes type, ushort tag, ClientSession session)
     {
-        var result = NinePSharp.Parser.NinePParser.parse(session.DotU, fullMessageBuffer);
+        var result = NinePSharp.Parser.NinePParser.parse(session.Dialect, fullMessageBuffer);
         if (result.IsError)
         {
             _logger.LogError("Failed to parse message: {Error}", result.ErrorValue);
             return new Rerror(tag, result.ErrorValue);
         }
 
-        return await _dispatcher.DispatchAsync(result.ResultValue, session.DotU, session.ClientCertificate);
+        using var _ = NinePFSDispatcherSessionScope.Enter(session.SessionId);
+        return await _dispatcher.DispatchAsync(result.ResultValue, session.Dialect, session.ClientCertificate);
     }
 
     private async Task SendResponseAsync(Stream stream, object response, SemaphoreSlim writeLock)
@@ -285,7 +286,6 @@ public class NinePServer : BackgroundService
 
         await writeLock.WaitAsync();
         try {
-            _logger.LogInformation("Outgoing: {Hex}", BitConverter.ToString(outBuffer));
             await stream.WriteAsync(outBuffer);
         }
         finally {

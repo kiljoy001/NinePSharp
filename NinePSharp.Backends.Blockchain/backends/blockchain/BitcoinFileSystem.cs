@@ -30,8 +30,6 @@ public class BitcoinFileSystem : INinePFileSystem
     private List<string> _mockTransactions = new();
     private long _mockTxCounter;
 
-    public bool DotU { get; set; }
-
     public BitcoinFileSystem(BitcoinBackendConfig config, JsonRpcClient? rpcClient, ILuxVaultService vault, IEmercoinAuthService? authService = null, X509Certificate2? certificate = null)
     {
         _config = config;
@@ -182,69 +180,86 @@ public class BitcoinFileSystem : INinePFileSystem
     public async Task<Rwrite> WriteAsync(Twrite twrite)
     {
         await EnsureAuthorizedAsync();
-        if (_currentPath.Count == 2 && _currentPath[0] == "wallets")
-        {
-            if (_currentPath[1] == "use")
-            {
-                var bytes = twrite.Data.Span;
-                if (bytes.Length == 0) throw new NinePProtocolException("Account name/address required.");
-                _proxyAccount = Encoding.UTF8.GetString(bytes).Trim();
-                return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
-            }
-        }
+        var bytes = twrite.Data.Span;
+        int maxChars = Encoding.UTF8.GetMaxCharCount(bytes.Length);
+        char[] chars = System.Buffers.ArrayPool<char>.Shared.Rent(maxChars);
+        try {
+            int charsDecoded = Encoding.UTF8.GetChars(bytes, chars);
+            var charSpan = chars.AsSpan(0, charsDecoded).Trim();
 
-        if (_currentPath.Count == 1 && _currentPath[0] == "send")
-        {
-            if (_proxyAccount == null && _rpcClient != null)
+            if (_currentPath.Count == 2 && _currentPath[0] == "wallets")
             {
-                throw new InvalidOperationException("No proxy account selected. Write name to /wallets/use first.");
+                if (_currentPath[1] == "use")
+                {
+                    if (charSpan.Length == 0) throw new NinePProtocolException("Account name/address required.");
+                    _proxyAccount = charSpan.ToString();
+                    return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                }
             }
 
-            var transfer = ParseTransferCommand(twrite.Data, "address:amount");
-            if (_rpcClient != null)
+            if (_currentPath.Count == 1 && _currentPath[0] == "send")
             {
-                EnsureMethodAllowed("sendtoaddress");
-                // Bitcoin RPC sendtoaddress usually takes [address, amount]
-                var txHashNode = await _rpcClient.CallAsync("sendtoaddress", new object[] { transfer.To, transfer.Amount });
-                var txHash = txHashNode?.ToString() ?? "unknown";
+                if (_proxyAccount == null && _rpcClient != null)
+                {
+                    throw new InvalidOperationException("No proxy account selected. Write name to /wallets/use first.");
+                }
+
+                var (to, amount) = ParseTransferCommand(charSpan, "address:amount");
+                if (_rpcClient != null)
+                {
+                    EnsureMethodAllowed("sendtoaddress");
+                    // Bitcoin RPC sendtoaddress usually takes [address, amount]
+                    var txHashNode = await _rpcClient.CallAsync("sendtoaddress", new object[] { to, amount });
+                    var txHash = txHashNode?.ToString() ?? "unknown";
+                    _mockTxCounter++;
+                    _mockTransactions.Insert(
+                        0,
+                        $"{txHash} to={to} amount={amount.ToString("0.00000000", CultureInfo.InvariantCulture)} status=submitted");
+                    return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                }
+
+                if (_mockBalanceBtc < amount)
+                {
+                    throw new NinePProtocolException("Insufficient funds.");
+                }
+
+                _mockBalanceBtc -= amount;
                 _mockTxCounter++;
                 _mockTransactions.Insert(
                     0,
-                    $"{txHash} to={transfer.To} amount={transfer.Amount.ToString("0.00000000", CultureInfo.InvariantCulture)} status=submitted");
+                    $"btc-mock-{_mockTxCounter:D6} to={to} amount={amount.ToString("0.00000000", CultureInfo.InvariantCulture)} status=confirmed");
                 return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
             }
-
-            if (_mockBalanceBtc < transfer.Amount)
-            {
-                throw new NinePProtocolException("Insufficient funds.");
-            }
-
-            _mockBalanceBtc -= transfer.Amount;
-            _mockTxCounter++;
-            _mockTransactions.Insert(
-                0,
-                $"btc-mock-{_mockTxCounter:D6} to={transfer.To} amount={transfer.Amount.ToString("0.00000000", CultureInfo.InvariantCulture)} status=confirmed");
-            return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+        }
+        finally {
+            System.Buffers.ArrayPool<char>.Shared.Return(chars, clearArray: true);
         }
         
         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
     }
 
-    private static (string To, decimal Amount) ParseTransferCommand(ReadOnlyMemory<byte> payload, string expectedFormat)
+    private static (string To, decimal Amount) ParseTransferCommand(ReadOnlySpan<char> command, string expectedFormat)
     {
-        var command = Encoding.UTF8.GetString(payload.Span).Trim();
-        var parts = command.Split(':', 2, StringSplitOptions.TrimEntries);
-        if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]))
+        int colon = command.IndexOf(':');
+        if (colon == -1)
         {
             throw new NinePProtocolException($"Invalid format. Use '{expectedFormat}'");
         }
 
-        if (!decimal.TryParse(parts[1], NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) || amount <= 0)
+        var toSpan = command.Slice(0, colon).Trim();
+        var amountSpan = command.Slice(colon + 1).Trim();
+
+        if (toSpan.Length == 0)
         {
             throw new NinePProtocolException($"Invalid format. Use '{expectedFormat}'");
         }
 
-        return (parts[0], amount);
+        if (!decimal.TryParse(amountSpan, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) || amount <= 0)
+        {
+            throw new NinePProtocolException($"Invalid format. Use '{expectedFormat}'");
+        }
+
+        return (toSpan.ToString(), amount);
     }
 
     public async Task<Rclunk> ClunkAsync(Tclunk tclunk) => new Rclunk(tclunk.Tag);
@@ -264,28 +279,6 @@ public class BitcoinFileSystem : INinePFileSystem
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePPermissionDeniedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePPermissionDeniedException();
 
-    public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
-    {
-        var name = _currentPath.LastOrDefault() ?? "bitcoin";
-        bool isDir = IsDirectory(_currentPath);
-        uint mode = 0644;
-        if (isDir) mode = (uint)NinePConstants.FileMode9P.DMDIR | 0x1ED;
-        else if (name == "send" || name == "use") mode = 0666;
-
-        var qid = GetQid(_currentPath);
-        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
-        return new NinePSharp.Messages.Rgetattr(
-            tgetattr.Tag,
-            (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC,
-            qid,
-            mode,
-            1000, 1000, 1, 0, 0, 4096, 0, now, 0, now, 0, now, 0, 0, 0, 0, 0
-        );
-    }
-
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePPermissionDeniedException();
-
     public INinePFileSystem Clone()
     {
         var clone = new BitcoinFileSystem(_config, _rpcClient, _vault, _authService, _certificate);
@@ -294,7 +287,6 @@ public class BitcoinFileSystem : INinePFileSystem
         clone._mockBalanceBtc = _mockBalanceBtc;
         clone._mockTransactions = new List<string>(_mockTransactions);
         clone._mockTxCounter = _mockTxCounter;
-        clone.DotU = DotU;
         return clone;
     }
 }

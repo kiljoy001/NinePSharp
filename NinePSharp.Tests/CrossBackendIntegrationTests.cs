@@ -1,7 +1,7 @@
+using NinePSharp.Constants;
 using Microsoft.Extensions.Logging.Abstractions;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
-using NinePSharp.Constants;
 using NinePSharp.Server;
 using NinePSharp.Server.Backends;
 using NinePSharp.Server.Configuration.Models;

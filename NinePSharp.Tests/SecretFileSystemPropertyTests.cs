@@ -1,3 +1,4 @@
+using NinePSharp.Constants;
 using FsCheck;
 using FsCheck.Xunit;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -14,6 +15,7 @@ using FluentAssertions;
 
 namespace NinePSharp.Tests;
 
+[Collection("Sequential Secret Tests")]
 public class SecretFileSystemPropertyTests
 {
     public SecretFileSystemPropertyTests()
@@ -31,10 +33,10 @@ public class SecretFileSystemPropertyTests
 
         if (walkToVault)
         {
-            fs.WalkAsync(new Twalk(1, 1, 2, new[] { "vault" })).Wait();
+            fs.WalkAsync(new Twalk(1, 1, 2, new[] { "vault" })).Sync();
         }
 
-        var statfs = fs.StatfsAsync(new Tstatfs(100, walkToVault ? (ushort)2 : (ushort)1, walkToVault ? (ushort)2 : (ushort)1)).Result;
+        var statfs = fs.StatfsAsync(new Tstatfs(100, walkToVault ? (ushort)2 : (ushort)1, walkToVault ? (ushort)2 : (ushort)1)).Sync();
 
         // BSize should always be 4096
         statfs.BSize.Should().Be(4096);
@@ -47,10 +49,10 @@ public class SecretFileSystemPropertyTests
 
         if (walkToVault)
         {
-            fs.WalkAsync(new Twalk(1, 1, 2, new[] { "vault" })).Wait();
+            fs.WalkAsync(new Twalk(1, 1, 2, new[] { "vault" })).Sync();
         }
 
-        var statfs = fs.StatfsAsync(new Tstatfs(100, walkToVault ? (ushort)2 : (ushort)1, walkToVault ? (ushort)2 : (ushort)1)).Result;
+        var statfs = fs.StatfsAsync(new Tstatfs(100, walkToVault ? (ushort)2 : (ushort)1, walkToVault ? (ushort)2 : (ushort)1)).Sync();
 
         // FsType should always be the 9P magic number
         statfs.FsType.Should().Be(0x01021997);
@@ -63,17 +65,17 @@ public class SecretFileSystemPropertyTests
 
         if (walkInOriginal)
         {
-            fs1.WalkAsync(new Twalk(1, 1, 2, new[] { "vault" })).Wait();
+            fs1.WalkAsync(new Twalk(1, 1, 2, new[] { "vault" })).Sync();
         }
 
         // Clone
         var fs2 = (SecretFileSystem)fs1.Clone();
 
         // Walk in clone
-        fs2.WalkAsync(new Twalk(1, 1, 3, new[] { "provision" })).Wait();
+        fs2.WalkAsync(new Twalk(1, 1, 3, new[] { "provision" })).Sync();
 
         // Original should still be able to stat at its current path
-        var statfs1 = fs1.StatfsAsync(new Tstatfs(100, walkInOriginal ? (ushort)2 : (ushort)1, walkInOriginal ? (ushort)2 : (ushort)1)).Result;
+        var statfs1 = fs1.StatfsAsync(new Tstatfs(100, walkInOriginal ? (ushort)2 : (ushort)1, walkInOriginal ? (ushort)2 : (ushort)1)).Sync();
 
         // Should succeed without throwing
         statfs1.BSize.Should().Be(4096);
@@ -86,10 +88,10 @@ public class SecretFileSystemPropertyTests
         var safeOffset = (ulong)(offset % 1000);
 
         // Read all
-        var resultAll = fs.ReaddirAsync(new Treaddir(100, 1, 1, 0, 8192)).Result;
+        var resultAll = fs.ReaddirAsync(new Treaddir(100, 1, 1, 0, 8192)).Sync();
 
         // Read with offset
-        var resultWithOffset = fs.ReaddirAsync(new Treaddir(100, 1, 1, safeOffset, 8192)).Result;
+        var resultWithOffset = fs.ReaddirAsync(new Treaddir(100, 1, 1, safeOffset, 8192)).Sync();
 
         // With offset should return less or equal data
         resultWithOffset.Count.Should().BeLessThanOrEqualTo(resultAll.Count);
@@ -101,7 +103,7 @@ public class SecretFileSystemPropertyTests
         var fs = new SecretFileSystem(NullLogger.Instance, _config, _vault);
         var limit = Math.Min((uint)countLimit.Get, 8192);
 
-        var result = fs.ReaddirAsync(new Treaddir(100, 1, 1, 0, limit)).Result;
+        var result = fs.ReaddirAsync(new Treaddir(100, 1, 1, 0, limit)).Sync();
 
         // Result count should not exceed limit
         result.Count.Should().BeLessThanOrEqualTo(limit);
@@ -112,7 +114,7 @@ public class SecretFileSystemPropertyTests
     {
         var fs = new SecretFileSystem(NullLogger.Instance, _config, _vault);
 
-        var statfs = fs.StatfsAsync(new Tstatfs(100, 1, 1)).Result;
+        var statfs = fs.StatfsAsync(new Tstatfs(100, 1, 1)).Sync();
 
         // Root should always have 4 files (provision, unlock, vault + root itself)
         statfs.Files.Should().Be(4);
@@ -124,16 +126,16 @@ public class SecretFileSystemPropertyTests
         var fs = new SecretFileSystem(NullLogger.Instance, _config, _vault);
 
         // Get statfs at root
-        var statfsRoot1 = fs.StatfsAsync(new Tstatfs(100, 1, 1)).Result;
+        var statfsRoot1 = fs.StatfsAsync(new Tstatfs(100, 1, 1)).Sync();
 
         // Walk to vault
-        fs.WalkAsync(new Twalk(1, 1, 2, new[] { "vault" })).Wait();
+        fs.WalkAsync(new Twalk(1, 1, 2, new[] { "vault" })).Sync();
 
         // Walk back to root
-        fs.WalkAsync(new Twalk(2, 2, 3, new[] { ".." })).Wait();
+        fs.WalkAsync(new Twalk(2, 2, 3, new[] { ".." })).Sync();
 
         // Get statfs at root again
-        var statfsRoot2 = fs.StatfsAsync(new Tstatfs(100, 3, 3)).Result;
+        var statfsRoot2 = fs.StatfsAsync(new Tstatfs(100, 3, 3)).Sync();
 
         // Should be same
         (statfsRoot1.Files == statfsRoot2.Files &&
@@ -153,12 +155,12 @@ public class SecretFileSystemPropertyTests
             var clone = (SecretFileSystem)fs.Clone();
             if (i % 2 == 0)
             {
-                clone.WalkAsync(new Twalk(1, 1, 2, new[] { "vault" })).Wait();
+                clone.WalkAsync(new Twalk(1, 1, 2, new[] { "vault" })).Sync();
             }
         }
 
         // Original should still be at root
-        var statfs = fs.StatfsAsync(new Tstatfs(100, 1, 1)).Result;
+        var statfs = fs.StatfsAsync(new Tstatfs(100, 1, 1)).Sync();
 
         statfs.Files.Should().Be(4); // Still at root
     }
@@ -170,10 +172,10 @@ public class SecretFileSystemPropertyTests
 
         if (atVault)
         {
-            fs.WalkAsync(new Twalk(1, 1, 2, new[] { "vault" })).Wait();
+            fs.WalkAsync(new Twalk(1, 1, 2, new[] { "vault" })).Sync();
         }
 
-        var result = fs.ReaddirAsync(new Treaddir(100, atVault ? (ushort)2 : (ushort)1, atVault ? (ushort)2 : (ushort)1, 0, 8192)).Result;
+        var result = fs.ReaddirAsync(new Treaddir(100, atVault ? (ushort)2 : (ushort)1, atVault ? (ushort)2 : (ushort)1, 0, 8192)).Sync();
 
         // Count should match data length
         result.Count.Should().Be((uint)result.Data.Length);

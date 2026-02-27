@@ -17,6 +17,7 @@ using NinePSharp.Server.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
+using NinePSharp.Parser;
 
 namespace NinePSharp.Server.Backends;
 
@@ -39,7 +40,7 @@ public class SecretFileSystem : INinePFileSystem
         _sessionPasswords.Clear();
     }
 
-    public bool DotU { get; set; }
+    public NinePDialect Dialect { get; set; }
 
     public SecretFileSystem(ILogger logger, SecretBackendConfig config, ILuxVaultService vault)
     {
@@ -112,7 +113,7 @@ public class SecretFileSystem : INinePFileSystem
             {
                 var qid = new Qid(f.Type, 0, (ulong)f.Name.GetHashCode());
                 var mode = f.Type == QidType.QTDIR ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0600;
-                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott", dotu: DotU);
+                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott", dialect: Dialect);
                 
                 var entryBuffer = new byte[stat.Size + 2];
                 int offset = 0;
@@ -162,33 +163,47 @@ public class SecretFileSystem : INinePFileSystem
     public async Task<Rwrite> WriteAsync(Twrite twrite)
     {
         var bytes = twrite.Data.Span;
-        char[] chars = GC.AllocateArray<char>(Encoding.UTF8.GetCharCount(bytes), pinned: true);
+        int maxChars = Encoding.UTF8.GetMaxCharCount(bytes.Length);
+        char[] chars = System.Buffers.ArrayPool<char>.Shared.Rent(maxChars);
         try {
-            Encoding.UTF8.GetChars(bytes, chars);
-            string input = new string(chars).Trim();
+            int charsDecoded = Encoding.UTF8.GetChars(bytes, chars);
+            var charSpan = chars.AsSpan(0, charsDecoded).Trim();
 
             switch ((_currentPath.Count, _currentPath.ElementAtOrDefault(0)))
             {
                 case (1, "provision"):
                 {
-                    var parts = input.Split(':').Select(p => p.Trim()).ToArray();
-                    if (parts.Length == 3)
+                    // Format: password:name:data
+                    int firstColon = charSpan.IndexOf(':');
+                    if (firstColon != -1)
                     {
-                        using var password = new SecureString();
-                        foreach (char c in parts[0]) password.AppendChar(c);
-                        password.MakeReadOnly();
-                        
-                        var name = parts[1];
-                        var payload = Encoding.UTF8.GetBytes(parts[2]);
+                        var secondColonRelative = charSpan.Slice(firstColon + 1).IndexOf(':');
+                        if (secondColonRelative != -1)
+                        {
+                            int secondColon = firstColon + 1 + secondColonRelative;
+                            var passwordSpan = charSpan.Slice(0, firstColon).Trim();
+                            var nameSpan = charSpan.Slice(firstColon + 1, secondColon - firstColon - 1).Trim();
+                            var dataSpan = charSpan.Slice(secondColon + 1).Trim();
 
-                        try
-                        {
-                            _vault.StoreSecret(name, payload, password);
-                            _logger.LogInformation("[Secret FS] Provisioned '{Name}' to physical vault.", name);
-                        }
-                        finally
-                        {
-                            Array.Clear(payload);
+                            using var password = new SecureString();
+                            foreach (char c in passwordSpan) password.AppendChar(c);
+                            password.MakeReadOnly();
+                            
+                            string name = nameSpan.ToString();
+                            
+                            // Decode dataSpan to pinned byte array
+                            int payloadByteCount = Encoding.UTF8.GetByteCount(dataSpan);
+                            byte[] payload = GC.AllocateArray<byte>(payloadByteCount, pinned: true);
+                            try
+                            {
+                                Encoding.UTF8.GetBytes(dataSpan, payload);
+                                _vault.StoreSecret(name, payload, password);
+                                _logger.LogInformation("[Secret FS] Provisioned '{Name}' to physical vault.", name);
+                            }
+                            finally
+                            {
+                                Array.Clear(payload);
+                            }
                         }
                     }
                     break;
@@ -196,14 +211,18 @@ public class SecretFileSystem : INinePFileSystem
 
                 case (1, "unlock"):
                 {
-                    var parts = input.Split(':').Select(p => p.Trim()).ToArray();
-                    if (parts.Length == 2)
+                    // Format: password:name
+                    int colon = charSpan.IndexOf(':');
+                    if (colon != -1)
                     {
-                        var name = parts[1];
+                        var passwordSpan = charSpan.Slice(0, colon).Trim();
+                        var nameSpan = charSpan.Slice(colon + 1).Trim();
+                        
                         using var password = new SecureString();
-                        foreach (char c in parts[0]) password.AppendChar(c);
+                        foreach (char c in passwordSpan) password.AppendChar(c);
                         password.MakeReadOnly();
 
+                        string name = nameSpan.ToString();
                         using var decrypted = _vault.LoadSecret(name, password);
                         if (decrypted != null)
                         {
@@ -228,6 +247,7 @@ public class SecretFileSystem : INinePFileSystem
         }
         finally {
             Array.Clear(chars);
+            System.Buffers.ArrayPool<char>.Shared.Return(chars);
         }
 
         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
@@ -239,7 +259,7 @@ public class SecretFileSystem : INinePFileSystem
     {
         var name = _currentPath.Count > 0 ? _currentPath.Last() : "secrets";
         var isDir = IsDirectory(_currentPath);
-        var stat = new Stat(0, 0, 0, new Qid(isDir ? QidType.QTDIR : QidType.QTFILE, 0, 0), 0755 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0), 0, 0, 0, name, "scott", "scott", "scott", dotu: DotU);
+        var stat = new Stat(0, 0, 0, new Qid(isDir ? QidType.QTDIR : QidType.QTFILE, 0, 0), 0755 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0), 0, 0, 0, name, "scott", "scott", "scott", dialect: Dialect);
         return new Rstat(tstat.Tag, stat);
     }
 
@@ -322,24 +342,18 @@ public class SecretFileSystem : INinePFileSystem
 
         // Serialize each directory entry
         ulong offset = 0;
+        Span<byte> qidBuffer = stackalloc byte[13];
+
         foreach (var (index, f) in files.Select((f, i) => (i, f)))
         {
-            ulong entrySize;
+            int nameByteCount = Encoding.UTF8.GetByteCount(f.Name);
+            ulong entrySize = (ulong)(13 + 8 + 1 + 2 + nameByteCount);
+
             if (offset < treaddir.Offset)
             {
-                // Skip entries before the requested offset
-                var qidTemp = new Qid(f.Type, 0, (ulong)f.Name.GetHashCode());
-                entrySize = 13 + 8 + 1 + 2 + (ulong)Encoding.UTF8.GetByteCount(f.Name);
                 offset += entrySize;
                 continue;
             }
-
-            var qid = new Qid(f.Type, 0, (ulong)f.Name.GetHashCode());
-            var type = f.Type == QidType.QTDIR ? (byte)0x80 : (byte)0;
-
-            // Calculate entry size
-            var nameBytes = Encoding.UTF8.GetBytes(f.Name);
-            entrySize = (ulong)(13 + 8 + 1 + 2 + nameBytes.Length);
 
             // Check if this entry would exceed the count limit
             if ((ulong)entries.Count + entrySize > (ulong)treaddir.Count)
@@ -348,26 +362,33 @@ public class SecretFileSystem : INinePFileSystem
             }
 
             // Write qid (13 bytes)
-            var qidBytes = new byte[13];
-            qidBytes[0] = (byte)qid.Type;
-            BitConverter.TryWriteBytes(qidBytes.AsSpan(1, 4), qid.Version);
-            BitConverter.TryWriteBytes(qidBytes.AsSpan(5, 8), qid.Path);
-            entries.AddRange(qidBytes);
+            qidBuffer[0] = (byte)f.Type;
+            BitConverter.TryWriteBytes(qidBuffer.Slice(1, 4), 0); // Version
+            BitConverter.TryWriteBytes(qidBuffer.Slice(5, 8), (ulong)f.Name.GetHashCode()); // Path
+            foreach (var b in qidBuffer) entries.Add(b);
 
             // Write offset (8 bytes) - next entry's offset
-            offset += (ulong)entrySize;
-            var offsetBytes = new byte[8];
+            offset += entrySize;
+            Span<byte> offsetBytes = stackalloc byte[8];
             BitConverter.TryWriteBytes(offsetBytes, offset);
-            entries.AddRange(offsetBytes);
+            foreach (var b in offsetBytes) entries.Add(b);
 
             // Write type (1 byte)
-            entries.Add(type);
+            entries.Add(f.Type == QidType.QTDIR ? (byte)0x80 : (byte)0);
 
             // Write name (2 byte length + string)
-            var nameLenBytes = new byte[2];
-            BitConverter.TryWriteBytes(nameLenBytes, (ushort)nameBytes.Length);
-            entries.AddRange(nameLenBytes);
-            entries.AddRange(nameBytes);
+            Span<byte> nameLenBytes = stackalloc byte[2];
+            BitConverter.TryWriteBytes(nameLenBytes, (ushort)nameByteCount);
+            foreach (var b in nameLenBytes) entries.Add(b);
+            
+            byte[] nameBytes = System.Buffers.ArrayPool<byte>.Shared.Rent(nameByteCount);
+            try {
+                Encoding.UTF8.GetBytes(f.Name, nameBytes);
+                for (int i = 0; i < nameByteCount; i++) entries.Add(nameBytes[i]);
+            }
+            finally {
+                System.Buffers.ArrayPool<byte>.Shared.Return(nameBytes);
+            }
         }
 
         var data = entries.ToArray();
@@ -383,7 +404,7 @@ public class SecretFileSystem : INinePFileSystem
     {
         var clone = new SecretFileSystem(_logger, _config, _vault);
         clone._currentPath = new List<string>(_currentPath);
-        clone.DotU = DotU;
+        clone.Dialect = Dialect;
         return clone;
     }
 }

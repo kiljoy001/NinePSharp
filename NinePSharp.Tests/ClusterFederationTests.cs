@@ -1,9 +1,9 @@
+using NinePSharp.Constants;
 using System;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Akka.Actor;
-using NinePSharp.Constants;
 using NinePSharp.Messages;
 using NinePSharp.Parser;
 using NinePSharp.Protocol;
@@ -27,7 +27,7 @@ public class ClusterFederationTests : IDisposable
 
     public void Dispose()
     {
-        _system.Terminate().GetAwaiter().GetResult();
+        _system.Terminate().Sync();
     }
 
     [Fact]
@@ -41,12 +41,12 @@ public class ClusterFederationTests : IDisposable
 
         var attach = await dispatcher.DispatchAsync(
             NinePMessage.NewMsgTattach(new Tattach(1, 100, NinePConstants.NoFid, "scott", "/")),
-            dotu: false);
+            dialect: NinePDialect.NineP2000);
         Assert.IsType<Rattach>(attach);
 
         var read = await dispatcher.DispatchAsync(
             NinePMessage.NewMsgTread(new Tread(2, 100, 0, 8192)),
-            dotu: false);
+            dialect: NinePDialect.NineP2000);
         var rread = Assert.IsType<Rread>(read);
 
         var names = ParseDirectory(rread.Data.ToArray()).Select(s => s.Name).ToArray();
@@ -64,23 +64,23 @@ public class ClusterFederationTests : IDisposable
 
         var attach = await dispatcher.DispatchAsync(
             NinePMessage.NewMsgTattach(new Tattach(1, 100, NinePConstants.NoFid, "scott", "/")),
-            dotu: false);
+            dialect: NinePDialect.NineP2000);
         Assert.IsType<Rattach>(attach);
 
         var walk = await dispatcher.DispatchAsync(
             NinePMessage.NewMsgTwalk(new Twalk(2, 100, 101, new[] { "jsonrpc", "chaininfo" })),
-            dotu: false);
+            dialect: NinePDialect.NineP2000);
         var rwalk = Assert.IsType<Rwalk>(walk);
         Assert.Equal(2, rwalk.Wqid.Length);
 
         var open = await dispatcher.DispatchAsync(
             NinePMessage.NewMsgTopen(new Topen(3, 101, NinePConstants.OREAD)),
-            dotu: false);
+            dialect: NinePDialect.NineP2000);
         Assert.IsType<Ropen>(open);
 
         var read = await dispatcher.DispatchAsync(
             NinePMessage.NewMsgTread(new Tread(4, 101, 0, 4096)),
-            dotu: false);
+            dialect: NinePDialect.NineP2000);
         var rread = Assert.IsType<Rread>(read);
         Assert.Equal("remote-ok", Encoding.UTF8.GetString(rread.Data.ToArray()));
     }
@@ -96,17 +96,17 @@ public class ClusterFederationTests : IDisposable
 
         var attach = await dispatcher.DispatchAsync(
             NinePMessage.NewMsgTattach(new Tattach(1, 100, NinePConstants.NoFid, "scott", "/")),
-            dotu: false);
+            dialect: NinePDialect.NineP2000);
         Assert.IsType<Rattach>(attach);
 
         var walk = await dispatcher.DispatchAsync(
             NinePMessage.NewMsgTwalk(new Twalk(2, 100, 101, new[] { "jsonrpc", "chaininfo" })),
-            dotu: false);
+            dialect: NinePDialect.NineP2000);
         Assert.IsType<Rwalk>(walk);
 
         var stat = await dispatcher.DispatchAsync(
             NinePMessage.NewMsgTstat(new Tstat(3, 101)),
-            dotu: false);
+            dialect: NinePDialect.NineP2000);
         var rstat = Assert.IsType<Rstat>(stat);
         Assert.Equal("chaininfo", rstat.Stat.Name);
     }
@@ -226,7 +226,7 @@ public class ClusterFederationTests : IDisposable
                 Sender.Tell(new RStatDto
                 {
                     Tag = msg.Tag,
-                    DotU = false,
+                    Dialect = NinePDialect.NineP2000,
                     StatBytes = statBytes
                 });
             });

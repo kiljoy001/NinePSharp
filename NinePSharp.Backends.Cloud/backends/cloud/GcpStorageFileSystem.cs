@@ -25,8 +25,6 @@ public class GcpStorageFileSystem : INinePFileSystem
     private List<string> _currentPath = new();
     private byte[]? _lastReadData;
 
-    public bool DotU { get; set; }
-
     public GcpStorageFileSystem(GcpBackendConfig config, StorageClient storageClient, ILuxVaultService vault)
     {
         _config = config;
@@ -96,7 +94,7 @@ public class GcpStorageFileSystem : INinePFileSystem
             {
                 var qid = new Qid(f.Type, 0, (ulong)f.Name.GetHashCode());
                 var mode = f.Type == QidType.QTDIR ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0644;
-                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott", dotu: DotU);
+                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott");
                 
                 var entryBuffer = new byte[stat.Size];
                 int offset = 0;
@@ -151,7 +149,7 @@ public class GcpStorageFileSystem : INinePFileSystem
     {
         var name = _currentPath.LastOrDefault() ?? "storage";
         bool isDir = IsDirectory(_currentPath);
-        var stat = new Stat(0, 0, 0, GetQid(_currentPath), 0755 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0), 0, 0, 0, name, "scott", "scott", "scott", dotu: DotU);
+        var stat = new Stat(0, 0, 0, GetQid(_currentPath), 0755 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0), 0, 0, 0, name, "scott", "scott", "scott");
         return new Rstat(tstat.Tag, stat);
     }
 
@@ -174,21 +172,10 @@ public class GcpStorageFileSystem : INinePFileSystem
         return new Rremove(tremove.Tag);
     }
 
-    public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
-    {
-        bool isDir = IsDirectory(_currentPath);
-        var qid = GetQid(_currentPath);
-        uint mode = isDir ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0644;
-        return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode));
-    }
-
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
-
     public INinePFileSystem Clone()
     {
         var clone = new GcpStorageFileSystem(_config, _storageClient, _vault);
         clone._currentPath = new List<string>(_currentPath);
-        clone.DotU = DotU;
         return clone;
     }
 }

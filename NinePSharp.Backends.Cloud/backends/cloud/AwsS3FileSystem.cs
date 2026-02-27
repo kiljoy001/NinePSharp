@@ -26,8 +26,6 @@ public class AwsS3FileSystem : INinePFileSystem
     private List<string> _currentPath = new();
     private byte[]? _lastReadData;
 
-    public bool DotU { get; set; }
-
     public AwsS3FileSystem(AwsBackendConfig config, IAmazonS3 s3Client, ILuxVaultService vault)
     {
         _config = config;
@@ -99,7 +97,7 @@ public class AwsS3FileSystem : INinePFileSystem
             {
                 var qid = new Qid(f.Type, 0, (ulong)f.Name.GetHashCode());
                 var mode = f.Type == QidType.QTDIR ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0644;
-                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott", dotu: DotU);
+                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott");
                 
                 var entryBuffer = new byte[stat.Size];
                 int offset = 0;
@@ -157,7 +155,7 @@ public class AwsS3FileSystem : INinePFileSystem
     {
         var name = _currentPath.LastOrDefault() ?? "s3";
         bool isDir = IsDirectory(_currentPath);
-        var stat = new Stat(0, 0, 0, GetQid(_currentPath), 0755 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0), 0, 0, 0, name, "scott", "scott", "scott", dotu: DotU);
+        var stat = new Stat(0, 0, 0, GetQid(_currentPath), 0755 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0), 0, 0, 0, name, "scott", "scott", "scott");
         return new Rstat(tstat.Tag, stat);
     }
 
@@ -180,21 +178,10 @@ public class AwsS3FileSystem : INinePFileSystem
         return new Rremove(tremove.Tag);
     }
 
-    public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
-    {
-        bool isDir = IsDirectory(_currentPath);
-        var qid = GetQid(_currentPath);
-        uint mode = isDir ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0644;
-        return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode));
-    }
-
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
-
     public INinePFileSystem Clone()
     {
         var clone = new AwsS3FileSystem(_config, _s3Client, _vault);
         clone._currentPath = new List<string>(_currentPath);
-        clone.DotU = DotU;
         return clone;
     }
 }

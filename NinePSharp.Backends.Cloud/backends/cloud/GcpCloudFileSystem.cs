@@ -22,8 +22,6 @@ public class GcpCloudFileSystem : INinePFileSystem
     private List<string> _currentPath = new();
     private INinePFileSystem? _activeSubFs;
 
-    public bool DotU { get; set; }
-
     public GcpCloudFileSystem(GcpBackendConfig config, StorageClient? storage, SecretManagerServiceClient? secrets, ILuxVaultService vault)
     {
         _config = config;
@@ -40,12 +38,12 @@ public class GcpCloudFileSystem : INinePFileSystem
         var first = twalk.Wname[0];
         if (first == "storage" && _storageClient != null)
         {
-            _activeSubFs = new GcpStorageFileSystem(_config, _storageClient, _vault) { DotU = this.DotU };
+            _activeSubFs = new GcpStorageFileSystem(_config, _storageClient, _vault);
             return await _activeSubFs.WalkAsync(new Twalk(twalk.Tag, twalk.Fid, twalk.NewFid, twalk.Wname.Skip(1).ToArray()));
         }
         if (first == "secrets" && _secretsClient != null)
         {
-            _activeSubFs = new GcpSecretsFileSystem(_config, _secretsClient, _vault) { DotU = this.DotU };
+            _activeSubFs = new GcpSecretsFileSystem(_config, _secretsClient, _vault);
             return await _activeSubFs.WalkAsync(new Twalk(twalk.Tag, twalk.Fid, twalk.NewFid, twalk.Wname.Skip(1).ToArray()));
         }
 
@@ -77,7 +75,7 @@ public class GcpCloudFileSystem : INinePFileSystem
             {
                 var qid = new Qid(f.Item2, 0, (ulong)f.Item1.GetHashCode());
                 var mode = (uint)NinePConstants.FileMode9P.DMDIR | 0755;
-                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Item1, "scott", "scott", "scott", dotu: DotU);
+                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Item1, "scott", "scott", "scott");
                 
                 var entryBuffer = new byte[stat.Size];
                 int offset = 0;
@@ -102,29 +100,18 @@ public class GcpCloudFileSystem : INinePFileSystem
         if (_activeSubFs != null) return await _activeSubFs.StatAsync(tstat);
         
         var name = _currentPath.LastOrDefault() ?? "gcp";
-        var stat = new Stat(0, 0, 0, new Qid(QidType.QTDIR, 0, 0), 0755 | (uint)NinePConstants.FileMode9P.DMDIR, 0, 0, 0, name, "scott", "scott", "scott", dotu: DotU);
+        var stat = new Stat(0, 0, 0, new Qid(QidType.QTDIR, 0, 0), 0755 | (uint)NinePConstants.FileMode9P.DMDIR, 0, 0, 0, name, "scott", "scott", "scott");
         return new Rstat(tstat.Tag, stat);
     }
     
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePNotSupportedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePNotSupportedException();
 
-    public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
-    {
-        var qid = new Qid(QidType.QTDIR, 0, 0);
-        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu));
-    }
-
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
-
     public INinePFileSystem Clone()
     {
         var clone = new GcpCloudFileSystem(_config, _storageClient, _secretsClient, _vault);
         clone._currentPath = new List<string>(_currentPath);
         clone._activeSubFs = _activeSubFs?.Clone();
-        clone.DotU = DotU;
-        if (clone._activeSubFs != null) clone._activeSubFs.DotU = DotU;
         return clone;
     }
 }

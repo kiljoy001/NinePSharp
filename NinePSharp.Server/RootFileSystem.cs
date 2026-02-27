@@ -22,7 +22,7 @@ internal class RootFileSystem : INinePFileSystem
     private readonly TimeSpan _clusterTimeout = TimeSpan.FromSeconds(3);
     private INinePFileSystem? _delegatedFs;
 
-    public bool DotU { get; set; }
+    public NinePDialect Dialect { get; set; }
 
     public RootFileSystem(List<IProtocolBackend> backends, IClusterManager? clusterManager = null)
     {
@@ -32,13 +32,51 @@ internal class RootFileSystem : INinePFileSystem
 
     public async Task<Rwalk> WalkAsync(Twalk twalk)
     {
-        // If we are already delegating, pass the walk to the backend
-        if (_delegatedFs != null) return await _delegatedFs.WalkAsync(twalk);
+        if (_delegatedFs != null)
+        {
+            // ".." exits delegated backend namespace and returns to root.
+            if (twalk.Wname.Length > 0 && twalk.Wname[0] == "..")
+            {
+                _delegatedFs = null;
+                var qids = new List<Qid> { new(QidType.QTDIR, 0, 0) };
+
+                if (twalk.Wname.Length > 1)
+                {
+                    var remainderWalk = new Twalk(twalk.Tag, twalk.Fid, twalk.NewFid, twalk.Wname.Skip(1).ToArray());
+                    var remainder = await WalkAsync(remainderWalk);
+                    if (remainder.Wqid != null)
+                    {
+                        qids.AddRange(remainder.Wqid);
+                    }
+                }
+
+                return new Rwalk(twalk.Tag, qids.ToArray());
+            }
+
+            return await _delegatedFs.WalkAsync(twalk);
+        }
 
         if (twalk.Wname.Length == 0) return new Rwalk(twalk.Tag, Array.Empty<Qid>());
 
         // Try to find a backend that matches the first element of the walk
         var name = twalk.Wname[0];
+
+        if (name == "." || name == "..")
+        {
+            var qids = new List<Qid> { new(QidType.QTDIR, 0, 0) };
+            if (twalk.Wname.Length > 1)
+            {
+                var remainderWalk = new Twalk(twalk.Tag, twalk.Fid, twalk.NewFid, twalk.Wname.Skip(1).ToArray());
+                var remainder = await WalkAsync(remainderWalk);
+                if (remainder.Wqid != null)
+                {
+                    qids.AddRange(remainder.Wqid);
+                }
+            }
+
+            return new Rwalk(twalk.Tag, qids.ToArray());
+        }
+
         var backend = _backends.FirstOrDefault(b => b.MountPath.Trim('/') == name);
 
         if (backend == null && _clusterManager?.Registry != null)
@@ -50,7 +88,7 @@ internal class RootFileSystem : INinePFileSystem
                 var sessionResponse = await found.Actor.Ask<object>(new SpawnSession(), _clusterTimeout);
                 if (sessionResponse is SessionSpawned session)
                 {
-                    _delegatedFs = new RemoteFileSystem(session.Session) { DotU = DotU };
+                    _delegatedFs = new RemoteFileSystem(session.Session) { Dialect = Dialect };
 
                     var qid = new Qid(QidType.QTDIR, 0, (ulong)name.GetHashCode());
                     var qids = new List<Qid> { qid };
@@ -74,7 +112,7 @@ internal class RootFileSystem : INinePFileSystem
         {
             // Enter the backend
             _delegatedFs = backend.GetFileSystem(null);
-            _delegatedFs.DotU = this.DotU;
+            _delegatedFs.Dialect = this.Dialect;
 
             var qid = new Qid(QidType.QTDIR, 0, (ulong)name.GetHashCode());
             var qids = new List<Qid> { qid };
@@ -137,7 +175,7 @@ internal class RootFileSystem : INinePFileSystem
         var entries = new List<byte>();
         foreach (var name in mountNames.OrderBy(n => n, StringComparer.Ordinal))
         {
-            var stat = new Stat(0, 0, 0, new Qid(QidType.QTDIR, 0, (ulong)name.GetHashCode()), 0755 | (uint)NinePConstants.FileMode9P.DMDIR, 0, 0, 0, name, "scott", "scott", "scott", dotu: DotU);
+            var stat = new Stat(0, 0, 0, new Qid(QidType.QTDIR, 0, (ulong)name.GetHashCode()), 0755 | (uint)NinePConstants.FileMode9P.DMDIR, 0, 0, 0, name, "scott", "scott", "scott", dialect: Dialect);
 
             var entryBuffer = new byte[stat.Size];
             int offset = 0;
@@ -166,7 +204,7 @@ internal class RootFileSystem : INinePFileSystem
     public async Task<Rstat> StatAsync(Tstat tstat)
     {
         if (_delegatedFs != null) return await _delegatedFs.StatAsync(tstat);
-        var stat = new Stat(0, 0, 0, new Qid(QidType.QTDIR, 0, 0), 0755 | (uint)NinePConstants.FileMode9P.DMDIR, 0, 0, 0, "/", "scott", "scott", "scott", dotu: DotU);
+        var stat = new Stat(0, 0, 0, new Qid(QidType.QTDIR, 0, 0), 0755 | (uint)NinePConstants.FileMode9P.DMDIR, 0, 0, 0, "/", "scott", "scott", "scott", dialect: Dialect);
         return new Rstat(tstat.Tag, stat);
     }
 
@@ -236,7 +274,7 @@ internal class RootFileSystem : INinePFileSystem
             }
         }
 
-        var entries = new List<byte>();
+        var encodedEntries = new List<(ulong NextOffset, byte[] Data)>();
         ulong currentCountOffset = 0;
 
         foreach (var name in mountNames.OrderBy(n => n, StringComparer.Ordinal))
@@ -267,31 +305,42 @@ internal class RootFileSystem : INinePFileSystem
             System.Text.Encoding.UTF8.GetBytes(name).CopyTo(entryBuffer.AsSpan(writeOffset, nameLen));
             writeOffset += nameLen;
             
-            entries.AddRange(entryBuffer);
+            encodedEntries.Add((currentCountOffset, entryBuffer));
         }
 
-        var allData = entries.ToArray();
-        
-        // Note: 9P2000.L Readdir uses an abstract 'offset'. Our offset happens to be identical to the array index of the entries list.
-        // We will just return the block of entries starting from the requested offset index.
-        // For simplicity in this dummy root FS, if offset > 0, we'll try to slice chunks.
-        
-        if (treaddir.Offset == 0)
+        int startIndex = 0;
+        if (treaddir.Offset != 0)
         {
-             var chunk = allData.AsSpan(0, (int)Math.Min((long)treaddir.Count, (long)allData.Length)).ToArray();
-             return new Rreaddir((uint)(chunk.Length + NinePConstants.HeaderSize + 4), treaddir.Tag, (uint)chunk.Length, chunk);
+            startIndex = encodedEntries.FindIndex(e => e.NextOffset > treaddir.Offset);
+            if (startIndex < 0)
+            {
+                return new Rreaddir(NinePConstants.HeaderSize + 4, treaddir.Tag, 0, Array.Empty<byte>());
+            }
         }
-        else
+
+        var page = new List<byte>();
+        for (int i = startIndex; i < encodedEntries.Count; i++)
         {
-            // If offset > 0, we'd need to parse our generated list to find the element.
-            // Since Root FS is so small, we can re-generate it every time, but here we just return empty for subsequent reads for simplicity,
-            // assuming the first read (offset 0) fetched all mounts (they fit in a standard 8k buffer easily).
+            var entryData = encodedEntries[i].Data;
+            if ((long)page.Count + entryData.Length > treaddir.Count)
+            {
+                break;
+            }
+
+            page.AddRange(entryData);
+        }
+
+        if (page.Count == 0)
+        {
             return new Rreaddir(NinePConstants.HeaderSize + 4, treaddir.Tag, 0, Array.Empty<byte>());
         }
+
+        var chunk = page.ToArray();
+        return new Rreaddir((uint)(chunk.Length + NinePConstants.HeaderSize + 4), treaddir.Tag, (uint)chunk.Length, chunk);
     }
     public INinePFileSystem Clone()
     {
-        var clone = new RootFileSystem(_backends, _clusterManager) { DotU = this.DotU };
+        var clone = new RootFileSystem(_backends, _clusterManager) { Dialect = this.Dialect };
         if (_delegatedFs != null) clone._delegatedFs = _delegatedFs.Clone();
         return clone;
     }

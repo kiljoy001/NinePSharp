@@ -1,3 +1,4 @@
+using NinePSharp.Constants;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -10,7 +11,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using NinePSharp.Constants;
 using NinePSharp.Messages;
 using NinePSharp.Server;
 using NinePSharp.Server.Cluster;

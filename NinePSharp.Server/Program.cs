@@ -12,11 +12,8 @@ using Microsoft.Extensions.Options;
 using NinePSharp.Server;
 using NinePSharp.Server.Backends;
 using NinePSharp.Server.Backends.Cloud;
-using NinePSharp.Server.Backends.JsonRpc;
-using NinePSharp.Server.Backends.REST;
-using NinePSharp.Server.Backends.SOAP;
-using NinePSharp.Server.Backends.gRPC;
-using NinePSharp.Server.Backends.Websockets;
+using NinePSharp.Backends.PowerShell;
+using NinePSharp.Backends.Pipes;
 using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Configuration;
 using NinePSharp.Server.Configuration.Models;
@@ -29,9 +26,9 @@ public class Program
     internal static void CleanupVaultsOnStartup() => LuxVault.CleanupVaults();
     internal static void CleanupVaultsOnShutdown() => LuxVault.CleanupVaults();
 
-    private static SecureString Generate64BitSecureSeed()
+    private static SecureString Generate4096BitSecureSeed()
     {
-        byte[] seedBytes = new byte[8]; // 64 bits
+        byte[] seedBytes = new byte[512]; // 4096 bits
         RandomNumberGenerator.Fill(seedBytes);
         
         var secure = new SecureString();
@@ -76,8 +73,8 @@ public class Program
         // 0. Cleanup vaults on startup
         CleanupVaultsOnStartup();
 
-        // 1. Generate 64-bit seed and wrap in SecureString
-        using SecureString secureSeed = Generate64BitSecureSeed();
+        // 1. Generate 4096-bit seed and wrap in SecureString
+        using SecureString secureSeed = Generate4096BitSecureSeed();
         
         // 2. Derive the 256-bit session key
         byte[] sessionKey = DeriveSessionKeyFromSecureSeed(secureSeed);
@@ -102,22 +99,13 @@ public class Program
                 serverConfigSection.Bind(serverConfig);
                 
                 services.AddSingleton(serverConfig);
-                if (serverConfig.Rest != null) services.AddSingleton(serverConfig.Rest);
-                if (serverConfig.Grpc != null) services.AddSingleton(serverConfig.Grpc);
-                if (serverConfig.Mqtt != null) services.AddSingleton(serverConfig.Mqtt);
-                if (serverConfig.Soap != null) services.AddSingleton(serverConfig.Soap);
-                if (serverConfig.JsonRpc != null) services.AddSingleton(serverConfig.JsonRpc);
-                if (serverConfig.Database != null) services.AddSingleton(serverConfig.Database);
-                if (serverConfig.Ethereum != null) services.AddSingleton(serverConfig.Ethereum);
-                if (serverConfig.Bitcoin != null) services.AddSingleton(serverConfig.Bitcoin);
-                if (serverConfig.Solana != null) services.AddSingleton(serverConfig.Solana);
-                if (serverConfig.Stellar != null) services.AddSingleton(serverConfig.Stellar);
-                if (serverConfig.Cardano != null) services.AddSingleton(serverConfig.Cardano);
                 if (serverConfig.Secret != null) services.AddSingleton(serverConfig.Secret);
                 if (serverConfig.Aws != null) services.AddSingleton(serverConfig.Aws);
                 if (serverConfig.Azure != null) services.AddSingleton(serverConfig.Azure);
                 if (serverConfig.Gcp != null) services.AddSingleton(serverConfig.Gcp);
-                if (serverConfig.Websocket != null) services.AddSingleton(serverConfig.Websocket);
+                if (serverConfig.Cardano != null) services.AddSingleton(serverConfig.Cardano);
+                if (serverConfig.PowerShell != null) services.AddSingleton(serverConfig.PowerShell);
+                if (serverConfig.Pipes != null) services.AddSingleton(serverConfig.Pipes);
                 if (serverConfig.Emercoin != null) 
                 {
                     services.AddSingleton(serverConfig.Emercoin);
@@ -133,25 +121,13 @@ public class Program
                 services.AddSingleton<ILuxVaultService, LuxVaultService>();
                 services.AddSingleton<IParser, ConfigParser>();
                 
-                services.AddHttpClient();
-                services.AddSingleton<IEmercoinNvsClient, EmercoinNvsClient>();
-                services.AddSingleton<IEmercoinAuthService, EmercoinAuthService>();
-                
-                if (serverConfig.Database != null) services.AddSingleton<IProtocolBackend, DatabaseBackend>();
-                if (serverConfig.Ethereum != null) services.AddSingleton<IProtocolBackend, EthereumBackend>();
-                if (serverConfig.Bitcoin != null) services.AddSingleton<IProtocolBackend, BitcoinBackend>();
-                if (serverConfig.Solana != null) services.AddSingleton<IProtocolBackend, SolanaBackend>();
-                if (serverConfig.Stellar != null) services.AddSingleton<IProtocolBackend, StellarBackend>();
-                if (serverConfig.Cardano != null) services.AddSingleton<IProtocolBackend, CardanoBackend>();
                 if (serverConfig.Secret != null) services.AddSingleton<IProtocolBackend, SecretBackend>();
                 if (serverConfig.Aws != null) services.AddSingleton<IProtocolBackend, AwsBackend>();
                 if (serverConfig.Azure != null) services.AddSingleton<IProtocolBackend, AzureBackend>();
                 if (serverConfig.Gcp != null) services.AddSingleton<IProtocolBackend, GcpBackend>();
-                if (serverConfig.Websocket != null) services.AddSingleton<IProtocolBackend, WebsocketBackend>();
-                if (serverConfig.JsonRpc != null) services.AddSingleton<IProtocolBackend, JsonRpcBackend>();
-                if (serverConfig.Rest != null) services.AddSingleton<IProtocolBackend, RestBackend>();
-                if (serverConfig.Soap != null) services.AddSingleton<IProtocolBackend, SoapBackend>();
-                if (serverConfig.Grpc != null) services.AddSingleton<IProtocolBackend, GrpcBackend>();
+                if (serverConfig.Cardano != null) services.AddSingleton<IProtocolBackend, CardanoBackend>();
+                if (serverConfig.PowerShell != null) services.AddSingleton<IProtocolBackend, PowerShellBackend>();
+                if (serverConfig.Pipes != null) services.AddSingleton<IProtocolBackend, PipeBackend>();
                 services.AddSingleton<IProtocolBackend, SrvBackend>();
 
                 services.AddSingleton<INinePFSDispatcher, NinePFSDispatcher>();

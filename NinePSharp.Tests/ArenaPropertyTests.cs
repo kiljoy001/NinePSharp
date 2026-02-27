@@ -1,3 +1,4 @@
+using NinePSharp.Constants;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -24,12 +25,12 @@ public class ArenaPropertyTests
         
         foreach (var size in validSizes)
         {
-            var span = arena.Allocate(size);
+            var span = arena.Allocate(size, out long handle);
             if (span.Length != size) return false;
             
             // Write some data to ensure it's writable
             span.Fill(0xAA);
-            arena.Free(span);
+            arena.Free(handle);
         }
         
         return true;
@@ -49,13 +50,13 @@ public class ArenaPropertyTests
             for (int i = 0; i < iterationsPerTask; i++)
             {
                 int size = rand.Next(1, 512);
-                var span = arena.Allocate(size);
+                var span = arena.Allocate(size, out long handle);
                 
                 // Assertions inside parallel tasks can be noisy, but let's check basic validity
                 if (span.Length != size) throw new Exception("Invalid span length");
                 
                 span.Fill((byte)(i % 255));
-                arena.Free(span);
+                arena.Free(handle);
             }
         });
     }
@@ -70,8 +71,8 @@ public class ArenaPropertyTests
         // This should exercise the ConcurrentStack pool
         for (int i = 0; i < 10; i++)
         {
-            var span = arena.Allocate(size);
-            arena.Free(span);
+            var span = arena.Allocate(size, out long handle);
+            arena.Free(handle);
         }
         
         return true;

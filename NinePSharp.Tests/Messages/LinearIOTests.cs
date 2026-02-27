@@ -1,5 +1,5 @@
-using System.Text;
 using NinePSharp.Constants;
+using System.Text;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
 using NinePSharp.Tests.Helpers;

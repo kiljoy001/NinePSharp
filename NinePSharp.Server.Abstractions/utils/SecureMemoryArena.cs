@@ -40,8 +40,42 @@ public sealed class SecureMemoryArena : IDisposable
     // ── Global active allocation tracking ───────────────────────────────
     private int _activeAllocations;
 
+    // ── Double-free prevention ──────────────────────────────────────────
+    // Track freed pointers to prevent double-free attacks (legacy - being phased out)
+    private readonly ConcurrentDictionary<IntPtr, byte> _freedPointers = new();
+
+    // ── Allocation handle system (replaces pointer-based tracking) ──
+    private long _nextHandleId;
+
+    private struct AllocationMetadata
+    {
+        public IntPtr Pointer;
+        public int OriginalSize;
+        public bool IsFreed;
+    }
+
+    private readonly ConcurrentDictionary<long, AllocationMetadata> _allocations = new();
+
     /// <summary>Number of currently outstanding (un-freed) allocations.</summary>
     public int ActiveAllocations => Volatile.Read(ref _activeAllocations);
+
+    /// <summary>
+    /// Checks if a pointer has been freed (for double-free prevention).
+    /// </summary>
+    /// <param name="ptr">The pointer to check.</param>
+    /// <returns>True if the pointer has been freed, false otherwise.</returns>
+    public bool IsFreed(IntPtr ptr)
+    {
+        return _freedPointers.ContainsKey(ptr);
+    }
+
+    /// <summary>
+    /// Checks if an allocation handle is still active (not freed).
+    /// </summary>
+    public bool IsAllocated(long handle)
+    {
+        return _allocations.TryGetValue(handle, out var meta) && !meta.IsFreed;
+    }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SecureMemoryArena"/> class.
@@ -99,11 +133,12 @@ public sealed class SecureMemoryArena : IDisposable
     }
 
     /// <summary>
-    /// Allocates a RAM-locked buffer of the specified size.
+    /// Allocates a RAM-locked buffer and returns an allocation handle for lifecycle tracking.
     /// </summary>
     /// <param name="size">The number of bytes to allocate.</param>
+    /// <param name="handle">Output handle for tracking this allocation.</param>
     /// <returns>A span pointing to the allocated memory.</returns>
-    public unsafe Span<byte> Allocate(int size)
+    public unsafe Span<byte> Allocate(int size, out long handle)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
@@ -111,40 +146,67 @@ public sealed class SecureMemoryArena : IDisposable
             throw new ArgumentOutOfRangeException(nameof(size),
                 $"Allocation size must be between 0 and {_totalSize}.");
 
-        if (size == 0) return new Span<byte>((void*)_baseAddress, 0);
+        if (size == 0)
+        {
+            handle = 0;
+            return new Span<byte>((void*)_baseAddress, 0);
+        }
+
+        // Generate unique handle FIRST
+        handle = Interlocked.Increment(ref _nextHandleId);
+
+        IntPtr allocPtr;
 
         // Try slab pool first
         int slabSize = FindSlabSize(size);
-        if (slabSize > 0 && _slabPools.TryGetValue(slabSize, out var stack) && stack.TryPop(out var ptr))
+        if (slabSize > 0 && _slabPools.TryGetValue(slabSize, out var stack) && stack.TryPop(out allocPtr))
         {
-            NativeMemory.Clear((void*)ptr, (nuint)slabSize);
+            NativeMemory.Clear((void*)allocPtr, (nuint)slabSize);
+
+            // CRITICAL: Remove from freed set if it was there
+            _freedPointers.TryRemove(allocPtr, out _);
+
+            // Track allocation
+            _allocations[handle] = new AllocationMetadata
+            {
+                Pointer = allocPtr,
+                OriginalSize = size,
+                IsFreed = false
+            };
+
             Interlocked.Increment(ref _activeAllocations);
-            return new Span<byte>((void*)ptr, size);
+            return new Span<byte>((void*)allocPtr, size);
         }
 
-        // Fall back to overflow bump region (refcounted, never blindly wiped)
+        // Fall back to overflow bump region
         lock (_overflowLock)
         {
-            // If the overflow region is full AND no active overflow allocations,
-            // we can safely reset it (all previous users have freed).
             if (_overflowOffset + size > _totalSize)
             {
                 if (Volatile.Read(ref _activeOverflowAllocations) > 0)
                 {
                     throw new OutOfMemoryException(
-                        $"SecureMemoryArena overflow region exhausted ({_activeOverflowAllocations} active allocations). " +
+                        $"SecureMemoryArena overflow region exhausted ({_activeOverflowAllocations} active). " +
                         "Cannot safely reset. Consider increasing arena size.");
                 }
 
-                // Safe to reset: zero and reset offset
                 NativeMemory.Clear(
                     (void*)IntPtr.Add(_baseAddress, _overflowStart),
                     (nuint)(_totalSize - _overflowStart));
                 _overflowOffset = _overflowStart;
             }
 
-            IntPtr allocPtr = IntPtr.Add(_baseAddress, _overflowOffset);
+            allocPtr = IntPtr.Add(_baseAddress, _overflowOffset);
             _overflowOffset += size;
+
+            // Track allocation
+            _allocations[handle] = new AllocationMetadata
+            {
+                Pointer = allocPtr,
+                OriginalSize = size,
+                IsFreed = false
+            };
+
             Interlocked.Increment(ref _activeOverflowAllocations);
             Interlocked.Increment(ref _activeAllocations);
             return new Span<byte>((void*)allocPtr, size);
@@ -152,10 +214,33 @@ public sealed class SecureMemoryArena : IDisposable
     }
 
     /// <summary>
+    /// Backward-compatible overload. Prefer Allocate(size, out handle) for new code.
+    /// </summary>
+    [Obsolete("Use Allocate(size, out handle) for proper lifecycle tracking")]
+    public Span<byte> Allocate(int size)
+    {
+        return Allocate(size, out _);
+    }
+
+    /// <summary>
     /// Frees a previously allocated buffer back to the arena.
     /// </summary>
     /// <param name="slice">The span to free.</param>
-    public unsafe void Free(Span<byte> slice)
+    private unsafe void Free(Span<byte> slice)
+    {
+        // Legacy overload for backward compatibility - uses slice length (vulnerable to sliced-free)
+        // This should only be called directly on arena, not through SecureBuffer
+        Free(slice, slice.Length);
+    }
+
+    /// <summary>
+    /// Frees a previously allocated buffer back to the arena using the original allocation size.
+    /// SECURITY: This prevents sliced-free corruption by using originalSize instead of slice.Length.
+    /// SECURITY: This prevents double-free by tracking freed pointers.
+    /// </summary>
+    /// <param name="slice">The span to free.</param>
+    /// <param name="originalSize">The original allocation size (not the current slice length).</param>
+    private unsafe void Free(Span<byte> slice, int originalSize)
     {
         if (slice.IsEmpty) return;
 
@@ -167,14 +252,26 @@ public sealed class SecureMemoryArena : IDisposable
             // Verify ptr is within arena bounds
             if (ptrOffset < 0 || ptrOffset >= _totalSize) return;
 
-            // Zero the memory immediately on free
+            // SECURITY FIX: Prevent double-free
+            if (!_freedPointers.TryAdd(ptr, 0))
+            {
+                // Pointer already freed - this is a double-free attempt!
+                return;
+            }
+
+            // [TESTING] Manual yield to encourage race detection without Coyote rewriting
+            if (Environment.GetEnvironmentVariable("NINEPSHARP_TEST_RACE") == "1") Thread.Yield();
+
+            // Zero the memory immediately on free (use slice.Length to only clear what we have)
             NativeMemory.Clear(p, (nuint)slice.Length);
 
             // Determine if this was a slab allocation or overflow
             if (ptrOffset < _slabRegionEnd)
             {
-                // Slab region: find matching slab size and return to pool
-                int slabSize = FindSlabSize(slice.Length);
+                // SECURITY FIX: Use originalSize, not slice.Length
+                // This prevents sliced-free corruption where a 1024-byte allocation
+                // sliced to 32 bytes would incorrectly return to the 32-byte pool
+                int slabSize = FindSlabSize(originalSize);
                 if (slabSize > 0 && _slabPools.TryGetValue(slabSize, out var stack))
                 {
                     stack.Push(ptr);
@@ -188,6 +285,47 @@ public sealed class SecureMemoryArena : IDisposable
 
             Interlocked.Decrement(ref _activeAllocations);
         }
+    }
+
+    /// <summary>
+    /// Frees an allocation by its handle. Provides atomic double-free protection and prevents metadata leaks.
+    /// </summary>
+    /// <param name="handle">The allocation handle to free.</param>
+    public unsafe void Free(long handle)
+    {
+        if (handle == 0) return;
+
+        // SECURITY FIX: TryRemove is atomic and prevents the metadata memory leak
+        // It returns false if the handle was already removed (double-free prevention)
+        if (!_allocations.TryRemove(handle, out var meta))
+            return; 
+
+        // Zero the memory using the original allocation size
+        long ptrOffset = meta.Pointer.ToInt64() - _baseAddress.ToInt64();
+        if (ptrOffset < 0 || ptrOffset >= _totalSize) return;
+
+        NativeMemory.Clear((void*)meta.Pointer, (nuint)meta.OriginalSize);
+
+        // Return to appropriate pool using ORIGINAL size
+        if (ptrOffset < _slabRegionEnd)
+        {
+            int slabSize = FindSlabSize(meta.OriginalSize);
+            if (slabSize > 0 && _slabPools.TryGetValue(slabSize, out var stack))
+            {
+                // Mark pointer as freed for legacy pointer-based checks
+                _freedPointers.TryAdd(meta.Pointer, 0);
+                stack.Push(meta.Pointer);
+            }
+        }
+        else
+        {
+            lock (_overflowLock)
+            {
+                Interlocked.Decrement(ref _activeOverflowAllocations);
+            }
+        }
+
+        Interlocked.Decrement(ref _activeAllocations);
     }
 
     /// <summary>

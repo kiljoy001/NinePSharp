@@ -1,3 +1,4 @@
+using NinePSharp.Constants;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -52,7 +53,7 @@ public class StateViolationTests
             Tstat v => NinePMessage.NewMsgTstat(v),
             _ => throw new ArgumentException("Unsupported message type")
         };
-        return await _dispatcher.DispatchAsync(pmsg, false);
+        return await _dispatcher.DispatchAsync(pmsg, NinePDialect.NineP2000);
     }
 
     [Fact]

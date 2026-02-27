@@ -4,16 +4,8 @@
     <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
     <ProjectReference Include="..\NinePSharp.Parser\NinePSharp.Parser.fsproj" />
     <ProjectReference Include="..\NinePSharp.Server.Abstractions\NinePSharp.Server.Abstractions.csproj" />
-    <ProjectReference Include="..\NinePSharp.Backends.Database\NinePSharp.Backends.Database.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.Cloud\NinePSharp.Backends.Cloud.csproj" />
-    <ProjectReference Include="..\NinePSharp.Backends.JsonRpc\NinePSharp.Backends.JsonRpc.csproj" />
-    <ProjectReference Include="..\NinePSharp.Backends.Websocket\NinePSharp.Backends.Websocket.csproj" />
-    <ProjectReference Include="..\NinePSharp.Backends.Mqtt\NinePSharp.Backends.Mqtt.csproj" />
-    <ProjectReference Include="..\NinePSharp.Backends.Rest\NinePSharp.Backends.Rest.csproj" />
-    <ProjectReference Include="..\NinePSharp.Backends.Soap\NinePSharp.Backends.Soap.csproj" />
-    <ProjectReference Include="..\NinePSharp.Backends.Grpc\NinePSharp.Backends.Grpc.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.Blockchain\NinePSharp.Backends.Blockchain.csproj" />
-    <ProjectReference Include="..\NinePSharp.Backends.Compute\NinePSharp.Backends.Compute.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.PowerShell\NinePSharp.Backends.PowerShell.csproj" />
   </ItemGroup>
 

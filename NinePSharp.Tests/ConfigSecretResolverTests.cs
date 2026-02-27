@@ -1,3 +1,4 @@
+using NinePSharp.Constants;
 using System.Collections.Generic;
 using System.Text;
 using NinePSharp.Server.Configuration;
@@ -14,7 +15,7 @@ namespace NinePSharp.Tests
         {
             byte[] masterKey = Encoding.UTF8.GetBytes("master_key");
             var secretValue = "real_api_key";
-            var protectedSecret = LuxVault.ProtectConfig(secretValue, masterKey);
+            var protectedSecret = LuxVault.ProtectConfig(Encoding.UTF8.GetBytes(secretValue), masterKey);
 
             var config = new ServerConfig
             {

@@ -4,7 +4,6 @@
     <ProjectReference Include="..\NinePSharp.Parser\NinePSharp.Parser.fsproj" />
     <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
     <ProjectReference Include="..\NinePSharp.Server\NinePSharp.Server.csproj" />
-    <ProjectReference Include="..\NinePSharp.Backends.Compute\NinePSharp.Backends.Compute.csproj" />
     <ProjectReference Include="..\NinePSharp.Backends.PowerShell\NinePSharp.Backends.PowerShell.csproj" />
   </ItemGroup>
 
@@ -19,6 +18,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <BuildInParallel>false</BuildInParallel>
   </PropertyGroup>
 
 </Project>

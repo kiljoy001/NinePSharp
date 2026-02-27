@@ -31,8 +31,6 @@ public class EthereumFileSystem : INinePFileSystem
     
     private string? _proxyAccount; 
     
-    public bool DotU { get; set; }
-    
     private Dictionary<string, string> _trackedTxs = new(); // txHash -> status
     private Dictionary<string, string> _contractAbis = new(); // address -> abi
 
@@ -224,54 +222,63 @@ public class EthereumFileSystem : INinePFileSystem
     public async Task<Rwrite> WriteAsync(Twrite twrite)
     {
         await EnsureAuthorizedAsync();
-        if (_currentPath.Count == 2 && _currentPath[0] == "wallets")
-        {
-            if (_currentPath[1] == "use")
-            {
-                var bytes = twrite.Data.Span;
-                if (bytes.Length == 0) throw new NinePProtocolException("Account address is required.");
+        var bytes = twrite.Data.Span;
+        int maxChars = Encoding.UTF8.GetMaxCharCount(bytes.Length);
+        char[] chars = System.Buffers.ArrayPool<char>.Shared.Rent(maxChars);
+        try {
+            int charsDecoded = Encoding.UTF8.GetChars(bytes, chars);
+            var charSpan = chars.AsSpan(0, charsDecoded).Trim();
 
-                var addr = Encoding.UTF8.GetString(bytes).Trim();
-                if (addr.StartsWith("0x") && addr.Length == 42)
+            if (_currentPath.Count == 2 && _currentPath[0] == "wallets")
+            {
+                if (_currentPath[1] == "use")
                 {
-                    _proxyAccount = addr;
+                    if (charSpan.Length == 0) throw new NinePProtocolException("Account address is required.");
+
+                    if (charSpan.StartsWith("0x") && charSpan.Length == 42)
+                    {
+                        _proxyAccount = charSpan.ToString();
+                        return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                    }
+                    throw new NinePProtocolException("Invalid Ethereum address format.");
+                }
+            }
+
+            if (_currentPath.Count == 3 && _currentPath[0] == "contracts")
+            {
+                var addr = _currentPath[1];
+                if (_currentPath[2] == "abi") {
+                    _contractAbis[addr] = charSpan.ToString();
                     return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
                 }
-                throw new NinePProtocolException("Invalid Ethereum address format.");
+                
+                if (_currentPath[2] == "call") {
+                    if (_proxyAccount == null)
+                    {
+                        throw new InvalidOperationException("No account selected. Write address to /wallets/use first.");
+                    }
+
+                    EnsureMethodAllowed("eth_sendTransaction");
+                    var contractAddr = _currentPath[1];
+                    var data = charSpan;
+                    
+                    // Simple eth_sendTransaction proxy
+                    var txParams = new JsonObject
+                    {
+                        ["from"] = _proxyAccount,
+                        ["to"] = contractAddr,
+                        ["data"] = data.StartsWith("0x") ? data.ToString() : "0x" + data.ToString()
+                    };
+
+                    var txHashNode = await _rpcClient.CallAsync("eth_sendTransaction", new object[] { txParams });
+                    var txHash = txHashNode?.ToString() ?? "unknown";
+                    _trackedTxs[txHash] = "Pending";
+                    return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                }
             }
         }
-
-        if (_currentPath.Count == 3 && _currentPath[0] == "contracts")
-        {
-            var addr = _currentPath[1];
-            if (_currentPath[2] == "abi") {
-                _contractAbis[addr] = Encoding.UTF8.GetString(twrite.Data.Span).Trim();
-                return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
-            }
-            
-            if (_currentPath[2] == "call") {
-                if (_proxyAccount == null)
-                {
-                    throw new InvalidOperationException("No account selected. Write address to /wallets/use first.");
-                }
-
-                EnsureMethodAllowed("eth_sendTransaction");
-                var contractAddr = _currentPath[1];
-                var data = Encoding.UTF8.GetString(twrite.Data.Span).Trim();
-                
-                // Simple eth_sendTransaction proxy
-                var txParams = new JsonObject
-                {
-                    ["from"] = _proxyAccount,
-                    ["to"] = contractAddr,
-                    ["data"] = data.StartsWith("0x") ? data : "0x" + data
-                };
-
-                var txHashNode = await _rpcClient.CallAsync("eth_sendTransaction", new object[] { txParams });
-                var txHash = txHashNode?.ToString() ?? "unknown";
-                _trackedTxs[txHash] = "Pending";
-                return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
-            }
+        finally {
+            System.Buffers.ArrayPool<char>.Shared.Return(chars, clearArray: true);
         }
 
         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
@@ -289,19 +296,7 @@ public class EthereumFileSystem : INinePFileSystem
 
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePPermissionDeniedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePPermissionDeniedException();
-
-    public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
-    {
-        var name = _currentPath.LastOrDefault() ?? "eth";
-        bool isDir = IsDirectory(_currentPath);
-        uint mode = isDir ? (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu : 0644;
-        if (name == "use" || name == "abi" || name == "call") mode = 0666;
-
-        var qid = new Qid(isDir ? QidType.QTDIR : QidType.QTFILE, 0, DeterministicHash.GetStableHash64(string.Join("/", _currentPath)));
-        return new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode);
-    }
-
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePPermissionDeniedException();
+    public Task<Rcreate> CreateAsync(Tcreate tcreate) => throw new NinePPermissionDeniedException();
 
     public INinePFileSystem Clone()
     {
@@ -309,6 +304,7 @@ public class EthereumFileSystem : INinePFileSystem
         clone._currentPath = new List<string>(_currentPath);
         clone._proxyAccount = _proxyAccount;
         clone._trackedTxs = _trackedTxs;
+        clone._contractAbis = _contractAbis;
         return clone;
     }
 }

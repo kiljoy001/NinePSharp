@@ -1,7 +1,7 @@
+using NinePSharp.Constants;
 using Microsoft.Extensions.Logging.Abstractions;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
-using NinePSharp.Constants;
 using NinePSharp.Server.Backends;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
@@ -15,6 +15,7 @@ using FluentAssertions;
 
 namespace NinePSharp.Tests;
 
+[Collection("Sequential Secret Tests")]
 public class SecretFileSystemTests
 {
     private readonly ILuxVaultService _vault = new LuxVaultService();
@@ -199,13 +200,16 @@ public class SecretFileSystemTests
     {
         // Arrange
         var fs = new SecretFileSystem(NullLogger.Instance, _config, _vault);
-        await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "vault" }));
+        var walk = await fs.WalkAsync(new Twalk(1, 1, 2, new[] { "vault" }));
 
         // Act
         var result = await fs.ReaddirAsync(new Treaddir(100, 2, 2, 0, 8192));
 
-        // Assert - Vault is a directory, should have QTDIR type
-        // This kills line 80 conditional mutations
+        // Assert
+        walk.Wqid.Should().HaveCount(1);
+        walk.Wqid[0].Type.Should().Be(QidType.QTDIR);
+        result.Count.Should().Be(0);
+        result.Data.Length.Should().Be(0);
     }
 
     #endregion

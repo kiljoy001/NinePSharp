@@ -1,10 +1,9 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using NinePSharp.Backends.PowerShell;
 using NinePSharp.Messages;
+using NinePSharp.Server.Utils;
 using Xunit;
 
 namespace NinePSharp.Backends.PowerShell.Tests;
@@ -12,54 +11,67 @@ namespace NinePSharp.Backends.PowerShell.Tests;
 public class PowerShellFileSystemTests
 {
     [Fact]
-    public async Task PowerShell_Job_Execution_Succeeds()
+    public async Task Create_Outside_Jobs_Root_Is_Rejected()
     {
         var fs = new PowerShellFileSystem();
-        
-        // 1. Create a job
-        var jobsFs = (PowerShellFileSystem)fs.Clone();
-        await jobsFs.WalkAsync(new Twalk(1, 1, 2, new[] { "jobs" }));
-        await jobsFs.MkdirAsync(new Tmkdir(0, 1, 1, "ps-test", 0755, 0));
 
-        // 2. Walk into the job
-        var testJobFs = (PowerShellFileSystem)jobsFs.Clone();
-        await testJobFs.WalkAsync(new Twalk(1, 2, 3, new[] { "ps-test" }));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fs.CreateAsync(PowerShellTestHelpers.BuildCreate(tag: 1, fid: 1, name: "should-fail")));
 
-        // 3. Upload script.ps1
-        string script = "Get-Date | Select-Object Year";
-        var scriptFs = (PowerShellFileSystem)testJobFs.Clone();
-        await scriptFs.WalkAsync(new Twalk(1, 3, 4, new[] { "script.ps1" }));
-        await scriptFs.WriteAsync(new Twrite(1, 4, 0, Encoding.UTF8.GetBytes(script)));
+        Assert.Contains("Cannot create", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
 
-        // 4. Wait for completion
-        int retries = 0;
-        string status = "";
-        while (retries < 20) {
-            var statusFs = (PowerShellFileSystem)testJobFs.Clone();
-            await statusFs.WalkAsync(new Twalk(1, 3, 5, new[] { "status" }));
-            var res = await statusFs.ReadAsync(new Tread(1, 5, 0, 100));
-            status = Encoding.UTF8.GetString(res.Data.ToArray()).Trim();
-            if (status == "Completed" || status == "Failed") break;
-            await Task.Delay(200);
-            retries++;
-        }
+    [Fact]
+    public async Task Whitespace_Script_Does_Not_Transition_Job_Into_Running()
+    {
+        var fs = new PowerShellFileSystem();
+        string jobName = $"ps-whitespace-{Guid.NewGuid():N}";
 
-        if (status == "Failed")
+        try
         {
-            var errorFs = (PowerShellFileSystem)testJobFs.Clone();
-            await errorFs.WalkAsync(new Twalk(1, 3, 7, new[] { "errors" }));
-            var errorRes = await errorFs.ReadAsync(new Tread(1, 7, 0, 8192));
-            throw new Exception($"Job failed with errors: {Encoding.UTF8.GetString(errorRes.Data.ToArray())}");
+            var jobs = (PowerShellFileSystem)fs.Clone();
+            await jobs.WalkAsync(new Twalk(1, 1, 1, new[] { "jobs" }));
+            await jobs.CreateAsync(PowerShellTestHelpers.BuildCreate(tag: 2, fid: 1, name: jobName));
+
+            var script = (PowerShellFileSystem)jobs.Clone();
+            await script.WalkAsync(new Twalk(3, 1, 1, new[] { jobName, "script.ps1" }));
+            await script.WriteAsync(new Twrite(4, 1, 0, Encoding.UTF8.GetBytes("   \t  \n")));
+
+            var status = (PowerShellFileSystem)jobs.Clone();
+            await status.WalkAsync(new Twalk(5, 1, 1, new[] { jobName, "status" }));
+            var statusRead = await status.ReadAsync(new Tread(6, 1, 0, 128));
+
+            string value = Encoding.UTF8.GetString(statusRead.Data.ToArray()).Trim();
+            Assert.Equal("Created", value);
         }
+        finally
+        {
+            await PowerShellTestHelpers.RemoveJobIfPresentAsync(fs, jobName);
+        }
+    }
 
-        Assert.Equal("Completed", status);
+    [Fact]
+    public async Task Write_To_Removed_Job_Script_Is_Not_Acknowledged()
+    {
+        var fs = new PowerShellFileSystem();
+        string jobName = $"ps-remove-race-{Guid.NewGuid():N}";
+        byte[] payload = Encoding.UTF8.GetBytes("Write-Output 'x'");
 
-        // 5. Read output
-        var outputFs = (PowerShellFileSystem)testJobFs.Clone();
-        await outputFs.WalkAsync(new Twalk(1, 3, 6, new[] { "output.json" }));
-        var outputRes = await outputFs.ReadAsync(new Tread(1, 6, 0, 1024));
-        string json = Encoding.UTF8.GetString(outputRes.Data.ToArray());
-        
-        Assert.Contains(DateTime.Now.Year.ToString(), json);
+        var jobs = (PowerShellFileSystem)fs.Clone();
+        await jobs.WalkAsync(new Twalk(10, 1, 1, new[] { "jobs" }));
+        await jobs.CreateAsync(PowerShellTestHelpers.BuildCreate(tag: 11, fid: 1, name: jobName));
+
+        var writer = (PowerShellFileSystem)jobs.Clone();
+        await writer.WalkAsync(new Twalk(12, 1, 1, new[] { jobName, "script.ps1" }));
+
+        var remover = (PowerShellFileSystem)jobs.Clone();
+        await remover.WalkAsync(new Twalk(13, 1, 1, new[] { jobName }));
+        await remover.RemoveAsync(new Tremove(14, 1));
+
+        await Assert.ThrowsAsync<NinePNotSupportedException>(() =>
+            writer.WriteAsync(new Twrite(15, 1, 0, payload)));
+
+        var names = await PowerShellTestHelpers.ListJobsAsync(fs);
+        Assert.DoesNotContain(jobName, names);
     }
 }

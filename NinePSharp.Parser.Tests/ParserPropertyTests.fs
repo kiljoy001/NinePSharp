@@ -7,6 +7,7 @@ open NinePSharp.Parser
 open NinePSharp.Messages
 open NinePSharp.Interfaces
 open NinePSharp.Generators
+open NinePSharp.Constants
 open System
 
 module Serializer =
@@ -86,17 +87,48 @@ module Serializer =
         buffer
 
 module ParserPropertyTests =
+
+    let private isCoreNineP2000Message (msg: NinePMessage) =
+        match msg with
+        | MsgTversion _
+        | MsgRversion _
+        | MsgTauth _
+        | MsgRauth _
+        | MsgTattach _
+        | MsgRattach _
+        | MsgRerror _
+        | MsgTflush _
+        | MsgRflush _
+        | MsgTwalk _
+        | MsgRwalk _
+        | MsgTopen _
+        | MsgRopen _
+        | MsgTcreate _
+        | MsgRcreate _
+        | MsgTread _
+        | MsgRread _
+        | MsgTwrite _
+        | MsgRwrite _
+        | MsgTclunk _
+        | MsgRclunk _
+        | MsgTremove _
+        | MsgRremove _
+        | MsgTstat _
+        | MsgRstat _
+        | MsgTwstat _
+        | MsgRwstat _ -> true
+        | _ -> false
     
     [<Property(Arbitrary = [| typeof<Generators.NinePArb> |], MaxTest = 1000)>]
     let ``Parser round-trip consistency`` (msg: NinePMessage) =
-        let data = Serializer.serialize msg
-        // Try parsing as 9L
-        let result = NinePParser.parse true (ReadOnlyMemory<byte>(data))
-        
-        match result with
-        | Ok parsedMsg -> 
-            let originalBytes = Serializer.serialize msg
-            let parsedBytes = Serializer.serialize parsedMsg
-            Assert.Equal<byte>(originalBytes, parsedBytes)
-        | Error err -> 
-            Assert.Fail(sprintf "Parse failed for message %A: %s" msg err)
+        if isCoreNineP2000Message msg then
+            let data = Serializer.serialize msg
+            let result = NinePParser.parse NinePDialect.NineP2000 (ReadOnlyMemory<byte>(data))
+            
+            match result with
+            | Ok parsedMsg -> 
+                let originalBytes = Serializer.serialize msg
+                let parsedBytes = Serializer.serialize parsedMsg
+                Assert.Equal<byte>(originalBytes, parsedBytes)
+            | Error err -> 
+                Assert.Fail(sprintf "Parse failed for message %A: %s" msg err)

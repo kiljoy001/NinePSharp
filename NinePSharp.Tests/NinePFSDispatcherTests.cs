@@ -1,3 +1,4 @@
+using NinePSharp.Constants;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Logging;
 using NinePSharp.Messages;
@@ -9,7 +10,6 @@ using NinePSharp.Server.Utils;
 using NinePSharp.Server.Backends;
 using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Configuration.Models;
-using NinePSharp.Constants;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security;
@@ -61,7 +61,7 @@ public class NinePFSDispatcherTests
         var message = NinePMessage.NewMsgTversion(tversion);
 
         // Act
-        var response = await dispatcher.DispatchAsync(message, false);
+        var response = await dispatcher.DispatchAsync(message, NinePDialect.NineP2000);
 
         // Assert
         response.Should().BeOfType<Rversion>();
@@ -82,7 +82,7 @@ public class NinePFSDispatcherTests
         var message = NinePMessage.NewMsgTattach(tattach);
 
         // Act
-        var response = await dispatcher.DispatchAsync(message, false);
+        var response = await dispatcher.DispatchAsync(message, NinePDialect.NineP2000);
 
         // Assert — no backends registered, so dispatcher returns Rerror
         response.Should().BeOfType<Rerror>();
@@ -99,13 +99,13 @@ public class NinePFSDispatcherTests
         
         // First attach to create a FID
         var tattach = new Tattach(1, 100, uint.MaxValue, "root", "");
-        await dispatcher.DispatchAsync(NinePMessage.NewMsgTattach(tattach), false);
+        await dispatcher.DispatchAsync(NinePMessage.NewMsgTattach(tattach), NinePDialect.NineP2000);
 
         var tclunk = new Tclunk(2, 100);
         var message = NinePMessage.NewMsgTclunk(tclunk);
 
         // Act
-        var response = await dispatcher.DispatchAsync(message, false);
+        var response = await dispatcher.DispatchAsync(message, NinePDialect.NineP2000);
 
         // Assert
         response.Should().BeOfType<Rclunk>();
@@ -122,7 +122,7 @@ public class NinePFSDispatcherTests
         var message = NinePMessage.NewMsgTflush(tflush);
 
         // Act
-        var response = await dispatcher.DispatchAsync(message, false);
+        var response = await dispatcher.DispatchAsync(message, NinePDialect.NineP2000);
 
         // Assert — Tflush is now handled
         response.Should().BeOfType<Rflush>();
@@ -149,17 +149,17 @@ public class NinePFSDispatcherTests
 
         // 1. Tauth to create the auth fid
         var tauth = new Tauth(tag, authFid, "user", "test");
-        await dispatcher.DispatchAsync(NinePMessage.NewMsgTauth(tauth), false);
+        await dispatcher.DispatchAsync(NinePMessage.NewMsgTauth(tauth), NinePDialect.NineP2000);
 
         // 2. Twrite to the auth fid with a secret
         string secret = "P@ssw0rd123";
         byte[] secretBytes = Encoding.UTF8.GetBytes(secret);
         var twrite = new Twrite(tag, authFid, 0, secretBytes);
-        await dispatcher.DispatchAsync(NinePMessage.NewMsgTwrite(twrite), false);
+        await dispatcher.DispatchAsync(NinePMessage.NewMsgTwrite(twrite), NinePDialect.NineP2000);
 
         // 3. Tattach to consume the secret
         var tattach = new Tattach(tag, 200, authFid, "scott", "test");
-        await dispatcher.DispatchAsync(NinePMessage.NewMsgTattach(tattach), false);
+        await dispatcher.DispatchAsync(NinePMessage.NewMsgTattach(tattach), NinePDialect.NineP2000);
 
         // Assert
         capturedCredentials.Should().NotBeNull();
@@ -223,20 +223,31 @@ public class NinePFSDispatcherTests
     }
 
     [Fact]
-    public async Task RootFileSystem_ReaddirAsync_With_Offset_Returns_Empty()
+    public async Task RootFileSystem_ReaddirAsync_With_Offset_Returns_Next_Page()
     {
         // Arrange
-        var backends = new List<IProtocolBackend>();
+        var backend1 = new Mock<IProtocolBackend>();
+        backend1.Setup(b => b.MountPath).Returns("/aaa");
+        var backend2 = new Mock<IProtocolBackend>();
+        backend2.Setup(b => b.MountPath).Returns("/bbb");
+        var backend3 = new Mock<IProtocolBackend>();
+        backend3.Setup(b => b.MountPath).Returns("/ccc");
+
+        var backends = new List<IProtocolBackend> { backend1.Object, backend2.Object, backend3.Object };
         var rootFs = new RootFileSystem(backends, CreateMockClusterManager());
 
-        // Act - Offset > 0 returns empty for simplicity in the root
-        var treaddir = new Treaddir(1, 100, 1, 1, 8192);
-        var result = await rootFs.ReaddirAsync(treaddir);
+        // First page with exactly one short entry (qid13 + offset8 + type1 + namelen2 + name3).
+        const uint oneEntryBytes = 27;
+        var first = await rootFs.ReaddirAsync(new Treaddir(1, 100, 1, 0, oneEntryBytes));
+
+        // Act - Offset > 0 should continue to the next entry.
+        var result = await rootFs.ReaddirAsync(new Treaddir(2, 100, 1, 1, oneEntryBytes));
 
         // Assert
+        first.Count.Should().BeGreaterThan(0);
         result.Should().BeOfType<Rreaddir>();
-        result.Count.Should().Be(0);
-        result.Data.Length.Should().Be(0);
+        result.Count.Should().BeGreaterThan(0);
+        result.Data.Length.Should().Be((int)result.Count);
     }
 
     [Fact]

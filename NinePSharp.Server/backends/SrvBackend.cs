@@ -12,6 +12,7 @@ using NinePSharp.Protocol;
 using NinePSharp.Constants;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
+using NinePSharp.Parser;
 
 namespace NinePSharp.Server.Backends;
 
@@ -43,7 +44,7 @@ public class SrvFileSystem : INinePFileSystem
     private static readonly ConcurrentDictionary<string, SrvEntry> _pipes = new();
     private List<string> _currentPath = new();
 
-    public bool DotU { get; set; }
+    public NinePDialect Dialect { get; set; }
 
     public async Task<Rwalk> WalkAsync(Twalk twalk)
     {
@@ -81,7 +82,7 @@ public class SrvFileSystem : INinePFileSystem
             foreach (var name in _pipes.Keys)
             {
                 var qid = new Qid(QidType.QTFILE, 0, (ulong)name.GetHashCode());
-                var stat = new Stat(0, 0, 0, qid, 0666, 0, 0, 0, name, "scott", "scott", "scott", dotu: DotU);
+                var stat = new Stat(0, 0, 0, qid, 0666, 0, 0, 0, name, "scott", "scott", "scott", dialect: Dialect);
                 
                 var entryBuffer = new byte[stat.Size];
                 int offset = 0;
@@ -153,7 +154,7 @@ public class SrvFileSystem : INinePFileSystem
     {
         var name = _currentPath.LastOrDefault() ?? "srv";
         bool isDir = _currentPath.Count == 0;
-        var stat = new Stat(0, 0, 0, new Qid(isDir ? QidType.QTDIR : QidType.QTFILE, 0, 0), 0666 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0), 0, 0, 0, name, "scott", "scott", "scott", dotu: DotU);
+        var stat = new Stat(0, 0, 0, new Qid(isDir ? QidType.QTDIR : QidType.QTFILE, 0, 0), 0666 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0), 0, 0, 0, name, "scott", "scott", "scott", dialect: Dialect);
         return new Rstat(tstat.Tag, stat);
     }
 
@@ -182,7 +183,7 @@ public class SrvFileSystem : INinePFileSystem
     {
         var clone = new SrvFileSystem();
         clone._currentPath = new List<string>(_currentPath);
-        clone.DotU = DotU;
+        clone.Dialect = Dialect;
         return clone;
     }
 }

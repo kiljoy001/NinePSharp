@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -18,15 +19,20 @@ public class PipeFileSystem : INinePFileSystem
     private static readonly ConcurrentDictionary<string, IPipeNode> _queues = new();
     private static readonly ConcurrentDictionary<string, IPipeNode> _pipes = new();
 
-    public bool DotU { get; set; }
-
     public Task<Rwalk> WalkAsync(Twalk twalk)
     {
         var qids = new List<Qid>();
         var tempPath = new List<string>(_currentPath);
+        bool failed = false;
 
         foreach (var name in twalk.Wname)
         {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                failed = true;
+                break;
+            }
+
             if (name == "..")
             {
                 if (tempPath.Count > 0) tempPath.RemoveAt(tempPath.Count - 1);
@@ -35,20 +41,38 @@ public class PipeFileSystem : INinePFileSystem
             {
                 if (tempPath.Count == 0)
                 {
-                    if (name != "queues" && name != "pipes") break;
+                    if (name != "queues" && name != "pipes")
+                    {
+                        failed = true;
+                        break;
+                    }
                 }
                 else if (tempPath.Count == 1)
                 {
-                    // Check if node exists
-                    var map = tempPath[0] == "queues" ? _queues : _pipes;
-                    if (!map.ContainsKey(name)) { /* mkdir needed */ }
+                    if (!TryGetCategoryMap(tempPath[0], out var map) || !map.ContainsKey(name))
+                    {
+                        failed = true;
+                        break;
+                    }
                 }
+                else
+                {
+                    // Leaf nodes don't have children in this backend.
+                    failed = true;
+                    break;
+                }
+
                 tempPath.Add(name);
             }
+
             qids.Add(GetQidForPath(tempPath));
         }
 
-        if (qids.Count == twalk.Wname.Length) _currentPath = tempPath;
+        if (!failed && qids.Count == twalk.Wname.Length)
+        {
+            _currentPath = tempPath;
+        }
+
         return Task.FromResult(new Rwalk(twalk.Tag, qids.ToArray()));
     }
 
@@ -59,38 +83,54 @@ public class PipeFileSystem : INinePFileSystem
         return new Qid(type, 0, DeterministicHash.GetStableHash64(string.Join("/", path)));
     }
 
-    public Task<Ropen> OpenAsync(Topen topen) => Task.FromResult(new Ropen(topen.Tag, GetQidForPath(_currentPath), 0));
-
-    public async Task<Rread> ReadAsync(Tread tread)
+    public Task<Ropen> OpenAsync(Topen topen)
     {
         if (_currentPath.Count == 2)
         {
-            var map = _currentPath[0] == "queues" ? _queues : _pipes;
-            if (map.TryGetValue(_currentPath[1], out var node))
+            if (!TryGetNodeAtCurrentPath(out _))
             {
-                var data = await node.ReadAsync(tread.Count);
-                return new Rread(tread.Tag, data.ToArray());
+                throw new NinePNotFoundException($"Node not found: {GetCurrentPathText()}");
             }
         }
-        else if (_currentPath.Count < 2)
+
+        return Task.FromResult(new Ropen(topen.Tag, GetQidForPath(_currentPath), 0));
+    }
+
+    public async Task<Rread> ReadAsync(Tread tread)
+    {
+        if (_currentPath.Count <= 1)
         {
-            // Directory listing logic...
-            return new Rread(tread.Tag, Array.Empty<byte>()); 
+            var payload = BuildDirectoryReadPayload(tread.Offset, tread.Count);
+            return new Rread(tread.Tag, payload);
         }
-        return new Rread(tread.Tag, Array.Empty<byte>());
+
+        if (_currentPath.Count == 2)
+        {
+            if (!TryGetNodeAtCurrentPath(out var node))
+            {
+                throw new NinePNotFoundException($"Node not found: {GetCurrentPathText()}");
+            }
+
+            var data = await node.ReadAsync(tread.Count);
+            return new Rread(tread.Tag, data.ToArray());
+        }
+
+        throw new NinePNotFoundException($"Invalid path: {GetCurrentPathText()}");
     }
 
     public async Task<Rwrite> WriteAsync(Twrite twrite)
     {
-        if (_currentPath.Count == 2)
+        if (_currentPath.Count != 2)
         {
-            var map = _currentPath[0] == "queues" ? _queues : _pipes;
-            if (map.TryGetValue(_currentPath[1], out var node))
-            {
-                await node.WriteAsync(twrite.Data.ToArray());
-                return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
-            }
+            throw new NinePInvalidOperationException($"Cannot write to path: {GetCurrentPathText()}");
         }
+
+        if (!TryGetNodeAtCurrentPath(out var node))
+        {
+            throw new NinePNotFoundException($"Node not found: {GetCurrentPathText()}");
+        }
+
+        await node.WriteAsync(twrite.Data.ToArray());
         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
     }
 
@@ -98,6 +138,11 @@ public class PipeFileSystem : INinePFileSystem
 
     public Task<Rstat> StatAsync(Tstat tstat)
     {
+        if (_currentPath.Count == 2 && !TryGetNodeAtCurrentPath(out _))
+        {
+            throw new NinePNotFoundException($"Node not found: {GetCurrentPathText()}");
+        }
+
         var name = _currentPath.LastOrDefault() ?? "ipc";
         var isDir = _currentPath.Count <= 1;
         var stat = new Stat(0, 0, 0, GetQidForPath(_currentPath), 
@@ -109,39 +154,37 @@ public class PipeFileSystem : INinePFileSystem
 
     public Task<Rremove> RemoveAsync(Tremove tremove)
     {
-        if (_currentPath.Count >= 2)
+        if (_currentPath.Count >= 2 && TryGetCategoryMap(_currentPath[0], out var map))
         {
-            var category = _currentPath[0];
             var name = _currentPath[1];
-            var map = category == "queues" ? _queues : _pipes;
             
             if (map.TryRemove(name, out var node))
             {
                 node.Close();
+                _currentPath = _currentPath.Take(1).ToList();
                 return Task.FromResult(new Rremove(tremove.Tag));
             }
         }
-        throw new NinePNotSupportedException($"Cannot remove path: {string.Join("/", _currentPath)}");
+        throw new NinePNotFoundException($"Cannot remove path: {GetCurrentPathText()}");
     }
 
-    public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr) => Task.FromResult(new Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, GetQidForPath(_currentPath), 0666));
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
-
-    public Task<Rmkdir> MkdirAsync(Tmkdir tmkdir)
+    public Task<Rcreate> CreateAsync(Tcreate tcreate)
     {
-        if (_currentPath.Count == 1)
+        if (_currentPath.Count == 1 && TryGetCategoryMap(_currentPath[0], out var map))
         {
             IPipeNode node = _currentPath[0] == "queues" 
-                ? new ObjectQueueNode(tmkdir.Name) 
-                : new DataPipeNode(tmkdir.Name);
+                ? new ObjectQueueNode(tcreate.Name) 
+                : new DataPipeNode(tcreate.Name);
             
-            var map = _currentPath[0] == "queues" ? _queues : _pipes;
-            if (map.TryAdd(tmkdir.Name, node))
+            if (map.TryAdd(tcreate.Name, node))
             {
-                return Task.FromResult(new Rmkdir(0, tmkdir.Tag, GetQidForPath(new List<string>(_currentPath) { tmkdir.Name })));
+                return Task.FromResult(new Rcreate(tcreate.Tag, GetQidForPath(new List<string>(_currentPath) { tcreate.Name }), 0));
             }
+
+            throw new NinePInvalidOperationException($"Node already exists: {_currentPath[0]}/{tcreate.Name}");
         }
-        throw new InvalidOperationException("Invalid path for creation");
+
+        throw new NinePInvalidOperationException($"Invalid path for creation: {GetCurrentPathText()}");
     }
 
     public INinePFileSystem Clone()
@@ -149,5 +192,124 @@ public class PipeFileSystem : INinePFileSystem
         var clone = new PipeFileSystem();
         clone._currentPath = new List<string>(_currentPath);
         return clone;
+    }
+
+    private static bool TryGetCategoryMap(string category, out ConcurrentDictionary<string, IPipeNode> map)
+    {
+        if (category == "queues")
+        {
+            map = _queues;
+            return true;
+        }
+
+        if (category == "pipes")
+        {
+            map = _pipes;
+            return true;
+        }
+
+        map = null!;
+        return false;
+    }
+
+    private bool TryGetNodeAtCurrentPath(out IPipeNode node)
+    {
+        node = null!;
+
+        if (_currentPath.Count != 2 || !TryGetCategoryMap(_currentPath[0], out var map))
+        {
+            return false;
+        }
+
+        if (!map.TryGetValue(_currentPath[1], out var found) || found is null)
+        {
+            return false;
+        }
+
+        node = found;
+        return true;
+    }
+
+    private IEnumerable<string> GetDirectoryEntries(List<string> basePath)
+    {
+        if (basePath.Count == 0)
+        {
+            return new[] { "pipes", "queues" }.OrderBy(n => n, StringComparer.Ordinal);
+        }
+
+        if (basePath.Count == 1 && TryGetCategoryMap(basePath[0], out var map))
+        {
+            return map.Keys.OrderBy(n => n, StringComparer.Ordinal);
+        }
+
+        return Array.Empty<string>();
+    }
+
+    private byte[] BuildDirectoryReadPayload(ulong offset, uint count)
+    {
+        var names = GetDirectoryEntries(_currentPath).ToList();
+        var entries = new List<byte>();
+
+        foreach (var name in names)
+        {
+            var entryPath = new List<string>(_currentPath) { name };
+            bool isDir = _currentPath.Count == 0;
+            uint mode = isDir ? 0755u | (uint)NinePConstants.FileMode9P.DMDIR : 0666u;
+            var stat = new Stat(
+                0,
+                0,
+                0,
+                GetQidForPath(entryPath),
+                mode,
+                0,
+                0,
+                0,
+                name,
+                "ipc",
+                "ipc",
+                "ipc");
+
+            var statBuffer = new byte[stat.Size];
+            int statOffset = 0;
+            stat.WriteTo(statBuffer, ref statOffset);
+            entries.AddRange(statBuffer);
+        }
+
+        var allData = entries.ToArray();
+        if (offset >= (ulong)allData.Length)
+        {
+            return Array.Empty<byte>();
+        }
+
+        int totalToSend = 0;
+        int currentOffset = (int)offset;
+        while (currentOffset + 2 <= allData.Length)
+        {
+            int entrySize = BinaryPrimitives.ReadUInt16LittleEndian(allData.AsSpan(currentOffset, 2)) + 2;
+            if (entrySize <= 0 || currentOffset + entrySize > allData.Length)
+            {
+                break;
+            }
+
+            if (totalToSend + entrySize > count)
+            {
+                break;
+            }
+
+            totalToSend += entrySize;
+            currentOffset += entrySize;
+        }
+
+        if (totalToSend == 0)
+        {
+            return Array.Empty<byte>();
+        }
+
+        return allData.AsMemory((int)offset, totalToSend).ToArray();
+    }
+
+    private string GetCurrentPathText()
+    {
+        return _currentPath.Count == 0 ? "/" : "/" + string.Join("/", _currentPath);
     }
 }

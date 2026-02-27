@@ -22,8 +22,6 @@ public class AwsCloudFileSystem : INinePFileSystem
     private List<string> _currentPath = new();
     private INinePFileSystem? _activeSubFs;
 
-    public bool DotU { get; set; }
-
     public AwsCloudFileSystem(AwsBackendConfig config, IAmazonS3 s3, IAmazonSecretsManager secrets, ILuxVaultService vault)
     {
         _config = config;
@@ -71,22 +69,11 @@ public class AwsCloudFileSystem : INinePFileSystem
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePNotSupportedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePNotSupportedException();
 
-    public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
-    {
-        var qid = new Qid(QidType.QTDIR, 0, 0);
-        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu));
-    }
-
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
-
     public INinePFileSystem Clone()
     {
         var clone = new AwsCloudFileSystem(_config, _s3Client, _secretsClient, _vault);
         clone._currentPath = new List<string>(_currentPath);
         clone._activeSubFs = _activeSubFs?.Clone();
-        clone.DotU = DotU;
-        if (clone._activeSubFs != null) clone._activeSubFs.DotU = DotU;
         return clone;
     }
 }

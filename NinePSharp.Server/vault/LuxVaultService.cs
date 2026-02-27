@@ -57,21 +57,12 @@ namespace NinePSharp.Server.Utils
         public SecureSecret? LoadSecret(string name, ReadOnlySpan<byte> passwordBytes) => LuxVault.LoadSecret(name, passwordBytes);
 
         /// <inheritdoc />
-        [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
-        public string? Decrypt(byte[] payload, string password) => LuxVault.Decrypt(payload, password);
-        
-        /// <inheritdoc />
-        [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
-        public string? Decrypt(byte[] payload, SecureString password) => LuxVault.Decrypt(payload, password);
-        
-        /// <inheritdoc />
-        [Obsolete("Use DecryptToBytes to avoid leaking secrets into the managed string pool.")]
-        public string? Decrypt(byte[] payload, ReadOnlySpan<byte> key) => LuxVault.Decrypt(payload, key);
-
-        /// <inheritdoc />
-        public string ProtectConfig(string plainText, ReadOnlySpan<byte> masterKey) => LuxVault.ProtectConfig(plainText, masterKey);
+        public string ProtectConfig(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> masterKey) => LuxVault.ProtectConfig(plaintext, masterKey);
 
         /// <inheritdoc />
         public string? UnprotectConfig(string secretUri, ReadOnlySpan<byte> masterKey) => LuxVault.UnprotectConfig(secretUri, masterKey);
+
+        /// <inheritdoc />
+        public SecureSecret? UnprotectConfigToBytes(string secretUri, ReadOnlySpan<byte> masterKey) => LuxVault.UnprotectConfigToBytes(secretUri, masterKey);
     }
 }

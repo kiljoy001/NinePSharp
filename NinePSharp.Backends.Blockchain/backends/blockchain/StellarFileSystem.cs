@@ -30,8 +30,6 @@ public class StellarFileSystem : INinePFileSystem
     private List<string> _mockTransactions = new();
     private long _mockTxCounter;
 
-    public bool DotU { get; set; }
-
     public StellarFileSystem(StellarBackendConfig config, JsonRpcClient? rpcClient, ILuxVaultService vault, IEmercoinAuthService? authService = null, X509Certificate2? certificate = null)
     {
         _config = config;
@@ -182,20 +180,30 @@ public class StellarFileSystem : INinePFileSystem
     public async Task<Rwrite> WriteAsync(Twrite twrite)
     {
         await EnsureAuthorizedAsync();
-        if (_currentPath.Count == 2 && _currentPath[0] == "wallets")
-        {
-            if (_currentPath[1] == "use")
+        var bytes = twrite.Data.Span;
+        int maxChars = Encoding.UTF8.GetMaxCharCount(bytes.Length);
+        char[] chars = System.Buffers.ArrayPool<char>.Shared.Rent(maxChars);
+        try {
+            int charsDecoded = Encoding.UTF8.GetChars(bytes, chars);
+            var charSpan = chars.AsSpan(0, charsDecoded).Trim();
+
+            if (_currentPath.Count == 2 && _currentPath[0] == "wallets")
             {
-                var bytes = twrite.Data.Span;
-                if (bytes.Length == 0) throw new NinePProtocolException("Account ID required.");
-                _proxyAccount = Encoding.UTF8.GetString(bytes).Trim();
-                return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                if (_currentPath[1] == "use")
+                {
+                    if (charSpan.Length == 0) throw new NinePProtocolException("Account ID required.");
+                    _proxyAccount = charSpan.ToString();
+                    return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
+                }
+            }
+
+            if (_currentPath.Count == 1 && _currentPath[0] == "send")
+            {
+                throw new NinePProtocolException("Node-side signing for Stellar is not supported via standard Horizon proxy. Keystore on node or specialized signer required.");
             }
         }
-
-        if (_currentPath.Count == 1 && _currentPath[0] == "send")
-        {
-            throw new NinePProtocolException("Node-side signing for Stellar is not supported via standard Horizon proxy. Keystore on node or specialized signer required.");
+        finally {
+            System.Buffers.ArrayPool<char>.Shared.Return(chars, clearArray: true);
         }
         
         return new Rwrite(twrite.Tag, (uint)twrite.Data.Length);
@@ -217,19 +225,6 @@ public class StellarFileSystem : INinePFileSystem
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePPermissionDeniedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePPermissionDeniedException();
 
-    public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
-    {
-        var name = _currentPath.LastOrDefault() ?? "stellar";
-        bool isDir = IsDirectory(_currentPath);
-        uint mode = isDir ? (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu : 0644;
-        if (name == "use" || name == "send") mode = 0666;
-
-        var qid = GetQid(_currentPath);
-        return new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, mode);
-    }
-
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePPermissionDeniedException();
-
     public INinePFileSystem Clone()
     {
         var clone = new StellarFileSystem(_config, _rpcClient, _vault, _authService, _certificate);
@@ -238,7 +233,6 @@ public class StellarFileSystem : INinePFileSystem
         clone._mockBalanceXlm = _mockBalanceXlm;
         clone._mockTransactions = new List<string>(_mockTransactions);
         clone._mockTxCounter = _mockTxCounter;
-        clone.DotU = DotU;
         return clone;
     }
 }

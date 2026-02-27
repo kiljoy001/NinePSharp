@@ -1,4 +1,6 @@
+using NinePSharp.Constants;
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
@@ -6,17 +8,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using SharpFuzz;
 using NinePSharp.Server.Backends;
-using NinePSharp.Server.Backends.MQTT;
-using NinePSharp.Server.Backends.REST;
-using NinePSharp.Server.Backends.gRPC;
-using NinePSharp.Server.Backends.SOAP;
-using NinePSharp.Server.Backends.Websockets;
-using NinePSharp.Server.Backends.JsonRpc;
-using NinePSharp.Backends.Compute;
+using NinePSharp.Backends.Pipes;
+using NinePSharp.Constants;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
 using NinePSharp.Messages;
+using NinePSharp.Protocol;
 using Moq;
 using Moq.Protected;
 using System.Linq;
@@ -29,37 +27,9 @@ namespace NinePSharp.Fuzzer
     {
         public static void Main(string[] args)
         {
-            if (args.Length > 0 && args[0] == "rest")
+            if (args.Length > 0 && args[0] == "pipes")
             {
-                FuzzRest();
-            }
-            else if (args.Length > 0 && args[0] == "soap")
-            {
-                FuzzSoap();
-            }
-            else if (args.Length > 0 && args[0] == "grpc")
-            {
-                FuzzGrpc();
-            }
-            else if (args.Length > 0 && args[0] == "db")
-            {
-                FuzzDatabase();
-            }
-            else if (args.Length > 0 && args[0] == "mqtt")
-            {
-                FuzzMqtt();
-            }
-            else if (args.Length > 0 && args[0] == "ws")
-            {
-                FuzzWebsocket();
-            }
-            else if (args.Length > 0 && args[0] == "jsonrpc")
-            {
-                FuzzJsonRpc();
-            }
-            else if (args.Length > 0 && args[0] == "compute")
-            {
-                FuzzCompute();
+                FuzzPipes();
             }
             else if (args.Length > 0 && (args[0] == "blockchain" || args[0] == "chain"))
             {
@@ -72,6 +42,14 @@ namespace NinePSharp.Fuzzer
             else if (args.Length > 0 && args[0] == "secret")
             {
                 FuzzSecretFileSystem();
+            }
+            else if (args.Length > 0 && args[0] == "securebuffer")
+            {
+                FuzzSecureBuffer();
+            }
+            else if (args.Length > 0 && args[0] == "securebuffer-race")
+            {
+                FuzzSecureBufferRaceConditions();
             }
             else
             {
@@ -89,284 +67,7 @@ namespace NinePSharp.Fuzzer
                     {
                         stream.CopyTo(ms);
                         var data = ms.ToArray();
-                        NinePSharp.Parser.NinePParser.parse(true, data.AsMemory());
-                    }
-                }
-                catch (Exception) { }
-            });
-        }
-
-        private static void FuzzCompute()
-        {
-            var config = new ComputeBackendConfig { MountPath = "/compute" };
-            SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
-            {
-                var fs = new ComputeFileSystem(config);
-                try
-                {
-                    using (var ms = new MemoryStream())
-                    {
-                        stream.CopyTo(ms);
-                        var data = ms.ToArray();
-                        var text = System.Text.Encoding.UTF8.GetString(data);
-                        var parts = text.Split(new[] { '/', '\n', ' ', ':' }, StringSplitOptions.RemoveEmptyEntries);
-                        fs.WalkAsync(new Twalk(1, 0, 1, parts)).Wait();
-                        fs.WriteAsync(new Twrite(1, 1, 0, data)).Wait();
-                    }
-                }
-                catch (Exception) { }
-            });
-        }
-
-        private static void FuzzWebsocket()
-        {
-            var config = new WebsocketBackendConfig { Url = "ws://localhost", MountPath = "/ws" };
-            var transportMock = new Mock<IWebsocketTransport>();
-            transportMock.Setup(x => x.GetNextMessageAsync()).ReturnsAsync(Array.Empty<byte>());
-
-            var vault = new LuxVaultService();
-            
-            SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
-            {
-                var fs = new WebsocketFileSystem(config, transportMock.Object, vault);
-                try
-                {
-                    using (var ms = new MemoryStream())
-                    {
-                        stream.CopyTo(ms);
-                        var data = ms.ToArray();
-                        var text = System.Text.Encoding.UTF8.GetString(data);
-                        
-                        var parts = text.Split(new[] { '/', '\n', ' ', ':' }, StringSplitOptions.RemoveEmptyEntries);
-                        fs.WalkAsync(new Twalk(1, 0, 1, parts)).Wait();
-
-                        var twrite = new Twrite(1, 1, 0, data);
-                        fs.WriteAsync(twrite).Wait();
-                        
-                        fs.ReadAsync(new Tread(1, 1, 0, 8192)).Wait();
-                    }
-                }
-                catch (Exception) { }
-            });
-        }
-
-        private static void FuzzMqtt()
-        {
-            var config = new MqttBackendConfig { BrokerUrl = "localhost", ClientId = "fuzz" };
-            var transportMock = new Mock<IMqttTransport>();
-            transportMock.Setup(x => x.GetNextMessageAsync(It.IsAny<string>())).ReturnsAsync(Array.Empty<byte>());
-
-            var vault = new LuxVaultService();
-            
-            SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
-            {
-                var fs = new MqttFileSystem(config, transportMock.Object, vault);
-                try
-                {
-                    using (var ms = new MemoryStream())
-                    {
-                        stream.CopyTo(ms);
-                        var data = ms.ToArray();
-                        var text = System.Text.Encoding.UTF8.GetString(data);
-                        
-                        var parts = text.Split(new[] { '/', '\n', ' ', ':' }, StringSplitOptions.RemoveEmptyEntries);
-                        fs.WalkAsync(new Twalk(1, 0, 1, parts)).Wait();
-
-                        var twrite = new Twrite(1, 1, 0, data);
-                        fs.WriteAsync(twrite).Wait();
-                        
-                        fs.ReadAsync(new Tread(1, 1, 0, 8192)).Wait();
-                    }
-                }
-                catch (Exception) { }
-            });
-        }
-
-        private static void FuzzDatabase()
-        {
-            var config = new DatabaseBackendConfig { MountPath = "/db", ProviderName = "Mock", ConnectionString = "None" };
-            var vault = new LuxVaultService();
-            
-            SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
-            {
-                var fs = new DatabaseFileSystem(config, vault);
-                try
-                {
-                    using (var ms = new MemoryStream())
-                    {
-                        stream.CopyTo(ms);
-                        var data = ms.ToArray();
-                        var text = System.Text.Encoding.UTF8.GetString(data);
-                        
-                        var parts = text.Split(new[] { '/', '\n', ' ', ':' }, StringSplitOptions.RemoveEmptyEntries);
-                        fs.WalkAsync(new Twalk(1, 0, 1, parts)).Wait();
-
-                        var twrite = new Twrite(1, 1, 0, data);
-                        fs.WriteAsync(twrite).Wait();
-                        
-                        fs.ReadAsync(new Tread(1, 1, 0, 8192)).Wait();
-                    }
-                }
-                catch (Exception) { }
-            });
-        }
-
-        private static void FuzzGrpc()
-        {
-            var config = new GrpcBackendConfig { Host = "localhost", Port = 50051 };
-            var transportMock = new Mock<IGrpcTransport>();
-            transportMock.Setup(x => x.CallAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<byte[]>(), It.IsAny<IDictionary<string, string>>()))
-                         .ReturnsAsync(Array.Empty<byte>());
-
-            var vault = new LuxVaultService();
-            
-            SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
-            {
-                var fs = new GrpcFileSystem(config, transportMock.Object, vault);
-                try
-                {
-                    using (var ms = new MemoryStream())
-                    {
-                        stream.CopyTo(ms);
-                        var data = ms.ToArray();
-                        var text = System.Text.Encoding.UTF8.GetString(data);
-                        
-                        var parts = text.Split(new[] { '/', '\n', ' ', ':' }, StringSplitOptions.RemoveEmptyEntries);
-                        fs.WalkAsync(new Twalk(1, 0, 1, parts)).Wait();
-
-                        var twrite = new Twrite(1, 1, 0, data);
-                        fs.WriteAsync(twrite).Wait();
-                        
-                        fs.ReadAsync(new Tread(1, 1, 0, 8192)).Wait();
-                    }
-                }
-                catch (Exception) { }
-            });
-        }
-
-        private static void FuzzSoap()
-        {
-            var config = new SoapBackendConfig { WsdlUrl = "http://localhost?wsdl" };
-            var transportMock = new Mock<ISoapTransport>();
-            transportMock.Setup(x => x.CallActionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IDictionary<string, string>>()))
-                         .ReturnsAsync("<OK/>");
-
-            var vault = new LuxVaultService();
-            
-            SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
-            {
-                var fs = new SoapFileSystem(config, transportMock.Object, vault);
-                try
-                {
-                    using (var ms = new MemoryStream())
-                    {
-                        stream.CopyTo(ms);
-                        var data = ms.ToArray();
-                        var text = System.Text.Encoding.UTF8.GetString(data);
-                        
-                        var parts = text.Split(new[] { '/', '\n', ' ', ':' }, StringSplitOptions.RemoveEmptyEntries);
-                        fs.WalkAsync(new Twalk(1, 0, 1, parts)).Wait();
-
-                        var twrite = new Twrite(1, 1, 0, data);
-                        fs.WriteAsync(twrite).Wait();
-                        
-                        fs.ReadAsync(new Tread(1, 1, 0, 8192)).Wait();
-                    }
-                }
-                catch (Exception) { }
-            });
-        }
-
-        private static void FuzzRest()
-        {
-            var config = new RestBackendConfig { BaseUrl = "http://localhost" };
-            
-            // Mock HttpClient to avoid actual network calls during fuzzing
-            var handlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
-            handlerMock
-               .Protected()
-               .Setup<Task<HttpResponseMessage>>(
-                  "SendAsync",
-                  ItExpr.IsAny<HttpRequestMessage>(),
-                  ItExpr.IsAny<CancellationToken>()
-               )
-               .ReturnsAsync(new HttpResponseMessage()
-               {
-                  StatusCode = System.Net.HttpStatusCode.OK,
-                  Content = new StringContent("{}"),
-               });
-
-            var client = new HttpClient(handlerMock.Object);
-            var vault = new LuxVaultService();
-            
-            SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
-            {
-                var fs = new RestFileSystem(config, client, vault);
-                try
-                {
-                    using (var ms = new MemoryStream())
-                    {
-                        stream.CopyTo(ms);
-                        var data = ms.ToArray();
-                        var text = System.Text.Encoding.UTF8.GetString(data);
-                        
-                        // Fuzz Walk logic with parts of the string
-                        var parts = text.Split(new[] { '/', '\n', ' ', ':' }, StringSplitOptions.RemoveEmptyEntries);
-                        fs.WalkAsync(new Twalk(1, 0, 1, parts)).Wait();
-
-                        // Fuzz Header/Param parsing and Request Execution
-                        var twrite = new Twrite(1, 1, 0, data);
-                        fs.WriteAsync(twrite).Wait();
-                        
-                        fs.ReadAsync(new Tread(1, 1, 0, 8192)).Wait();
-                    }
-                }
-                catch (Exception) { }
-            });
-        }
-
-        private static void FuzzJsonRpc()
-        {
-            var vault = new LuxVaultService();
-            var transportMock = new Mock<IJsonRpcTransport>();
-            transportMock.Setup(x => x.CallAsync(It.IsAny<string>(), It.IsAny<object?[]?>()))
-                         .ReturnsAsync(JsonValue.Create("fuzz-result"));
-
-            SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
-            {
-                try
-                {
-                    using var ms = new MemoryStream();
-                    stream.CopyTo(ms);
-                    var data = ms.ToArray();
-                    if (data.Length < 5) return;
-
-                    // Use first few bytes to seed the config
-                    int endpointCount = (data[0] % 5) + 1;
-                    var config = new JsonRpcBackendConfig { MountPath = "/rpc" };
-                    for (int i = 0; i < endpointCount; i++)
-                    {
-                        config.Endpoints.Add(new JsonRpcEndpointConfig
-                        {
-                            Name = $"e{i}",
-                            Path = (data[1] % 2 == 0) ? "a/b" : "c",
-                            Method = "m",
-                            Writable = (data[2] % 2 == 0)
-                        });
-                    }
-
-                    var fs = new JsonRpcFileSystem(config, transportMock.Object);
-                    var text = System.Text.Encoding.UTF8.GetString(data.Skip(3).ToArray());
-                    var parts = text.Split(new[] { '/', '\n', ' ', ':' }, StringSplitOptions.RemoveEmptyEntries);
-
-                    // Stress the hierarchical logic
-                    fs.WalkAsync(new Twalk(1, 0, 1, parts)).Wait();
-                    fs.ReadAsync(new Tread(1, 1, 0, 8192)).Wait();
-                    
-                    if (parts.Length > 0)
-                    {
-                        var twrite = new Twrite(1, 1, 0, data);
-                        fs.WriteAsync(twrite).Wait();
+                        NinePSharp.Parser.NinePParser.parse(NinePDialect.NineP2000U, data.AsMemory());
                     }
                 }
                 catch (Exception) { }
@@ -551,6 +252,334 @@ namespace NinePSharp.Fuzzer
                 {
                     // Fuzzing expects protocol/parser exceptions; crash-only signal is handled by SharpFuzz.
                 }
+            });
+        }
+
+        private static void FuzzSecureBuffer()
+        {
+            Console.WriteLine("=== SecureBuffer Vulnerability Fuzzer ===");
+            Console.WriteLine("Testing double-free and slab corruption vulnerabilities...");
+
+            var random = new Random();
+            var aliasDetected = 0;
+            var slabCorruptionDetected = 0;
+            var iterations = 0;
+
+            SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
+            {
+                try
+                {
+                    using (var ms = new MemoryStream())
+                    {
+                        stream.CopyTo(ms);
+                        var data = ms.ToArray();
+                        if (data.Length < 4) return;
+
+                        using var arena = new SecureMemoryArena(1024 * 1024);
+                        iterations++;
+
+                        // Extract fuzzing parameters from input
+                        int allocSize = Math.Max(16, Math.Min(4096, data[0] * 16));
+                        bool doubleFree = (data[1] % 2) == 0;
+                        bool sliceFree = (data[2] % 2) == 0;
+                        int sliceSize = Math.Max(1, Math.Min(allocSize, data[3] * 8));
+
+                        // Test 1: Double-free vulnerability
+                        if (doubleFree)
+                        {
+                            var buf1 = new SecureBuffer(allocSize, arena);
+                            IntPtr originalPtr = GetPointer(buf1.Span);
+
+                            // Dispose twice
+                            DisposeBuffer(buf1);
+                            buf1.Dispose();
+
+                            // Allocate twice - should get different pointers
+                            var buf2 = new SecureBuffer(allocSize, arena);
+                            var buf3 = new SecureBuffer(allocSize, arena);
+
+                            IntPtr ptr2 = GetPointer(buf2.Span);
+                            IntPtr ptr3 = GetPointer(buf3.Span);
+
+                            if (ptr2 == ptr3)
+                            {
+                                Interlocked.Increment(ref aliasDetected);
+                                Console.WriteLine($"[VULN] Memory aliasing detected! Size={allocSize}, Aliases={aliasDetected}");
+                            }
+
+                            buf2.Dispose();
+                            buf3.Dispose();
+                        }
+
+                        // Test 2: Sliced free vulnerability
+                        if (sliceFree && sliceSize < allocSize)
+                        {
+                            var buf = new SecureBuffer(allocSize, arena);
+                            IntPtr originalPtr = GetPointer(buf.Span);
+
+                            // Slice and free
+                            var slice = buf.Span.Slice(0, sliceSize);
+                            arena.Free(slice);
+
+                            // Allocate with slice size
+                            var bufSmall = new SecureBuffer(sliceSize, arena);
+                            IntPtr ptrSmall = GetPointer(bufSmall.Span);
+
+                            // Check if we got a mismatched pointer
+                            if (originalPtr == ptrSmall)
+                            {
+                                Interlocked.Increment(ref slabCorruptionDetected);
+                                Console.WriteLine($"[VULN] Slab corruption! AllocSize={allocSize}, SliceSize={sliceSize}, Corruptions={slabCorruptionDetected}");
+                            }
+
+                            bufSmall.Dispose();
+                        }
+
+                        // Test 3: Combined stress
+                        for (int i = 0; i < Math.Min(10, data.Length); i++)
+                        {
+                            int size = Math.Max(16, data[i] % 256);
+                            var buf = new SecureBuffer(size, arena);
+
+                            // Random vulnerability pattern
+                            switch (data[i] % 3)
+                            {
+                                case 0: // Double-free
+                                    DisposeBuffer(buf);
+                                    buf.Dispose();
+                                    break;
+                                case 1: // Sliced free
+                                    if (size > 16)
+                                    {
+                                        arena.Free(buf.Span.Slice(0, size / 2));
+                                    }
+                                    break;
+                                case 2: // Normal
+                                    buf.Dispose();
+                                    break;
+                            }
+                        }
+
+                        if (iterations % 1000 == 0)
+                        {
+                            Console.WriteLine($"Iterations: {iterations}, Aliases: {aliasDetected}, Corruptions: {slabCorruptionDetected}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[CRASH] {ex.GetType().Name}: {ex.Message}");
+                    throw; // Let SharpFuzz detect crashes
+                }
+            });
+        }
+
+        private static void FuzzSecureBufferRaceConditions()
+        {
+            Console.WriteLine("=== SecureBuffer Concurrent Race Condition Fuzzer ===");
+            Console.WriteLine("Testing for race conditions under parallel load...");
+
+            var aliasDetected = 0;
+            var totalTests = 0;
+
+            SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
+            {
+                try
+                {
+                    using (var ms = new MemoryStream())
+                    {
+                        stream.CopyTo(ms);
+                        var data = ms.ToArray();
+                        if (data.Length < 8) return;
+
+                        using var arena = new SecureMemoryArena(4 * 1024 * 1024); // 4MB
+                        Interlocked.Increment(ref totalTests);
+
+                        // Extract concurrency parameters
+                        int threadCount = Math.Max(2, Math.Min(16, (int)data[0] % 16));
+                        int opsPerThread = Math.Max(10, Math.Min(100, (int)data[1]));
+
+                        var tasks = new Task[threadCount];
+                        var detectedAliases = new System.Collections.Concurrent.ConcurrentBag<(IntPtr, IntPtr)>();
+
+                        for (int t = 0; t < threadCount; t++)
+                        {
+                            int threadId = t;
+                            tasks[t] = Task.Run(() =>
+                            {
+                                var random = new Random(threadId + data[2]);
+
+                                for (int i = 0; i < opsPerThread; i++)
+                                {
+                                    int idx = (threadId * opsPerThread + i) % data.Length;
+                                    int size = Math.Max(32, data[idx] % 256);
+
+                                    long handle;
+                                    Span<byte> span = arena.Allocate(size, out handle);
+
+                                    // Write unique pattern
+                                    for (int j = 0; j < Math.Min(size, 8); j++)
+                                    {
+                                        span[j] = (byte)(threadId + i + j);
+                                    }
+
+                                    // Random vulnerability injection
+                                    switch (data[idx] % 4)
+                                    {
+                                        case 0: // Double-dispose race
+                                            // Simulate race by calling Free on handle twice from separate tasks
+                                            Task.Run(() => arena.Free(handle));
+                                            Task.Run(() => arena.Free(handle));
+                                            Thread.Sleep(1);
+                                            break;
+
+                                        case 1: // Sliced free race
+                                            if (size > 16)
+                                            {
+                                                // arena.Free(Span) is the legacy vulnerable overload
+                                                var sliced = span.Slice(0, size / 2);
+                                                arena.Free(sliced);
+                                                arena.Free(span);
+                                            }
+                                            Thread.Sleep(1);
+                                            break;
+
+                                        case 2: // Normal dispose
+                                            arena.Free(handle);
+                                            break;
+
+                                        case 3: // Use-after-free
+                                            arena.Free(handle);
+                                            Thread.Sleep(1);
+                                            // Try to access after dispose (undefined behavior/potential crash if not RAM-locked)
+                                            try { var _ = span[0]; } catch { }
+                                            break;
+                                    }
+
+                                    // Allocate pair and check for aliasing
+                                    if (i % 10 == 0)
+                                    {
+                                        long hA, hB;
+                                        Span<byte> spanA = arena.Allocate(size, out hA);
+                                        Span<byte> spanB = arena.Allocate(size, out hB);
+
+                                        IntPtr ptrA = GetPointer(spanA);
+                                        IntPtr ptrB = GetPointer(spanB);
+
+                                        if (ptrA == ptrB)
+                                        {
+                                            detectedAliases.Add((ptrA, ptrB));
+                                            Interlocked.Increment(ref aliasDetected);
+                                        }
+
+                                        arena.Free(hA);
+                                        arena.Free(hB);
+                                    }
+                                }
+                            });
+                        }
+
+                        Task.WaitAll(tasks);
+
+                        if (!detectedAliases.IsEmpty)
+                        {
+                            Console.WriteLine($"[VULN] Race condition exposed {detectedAliases.Count} memory aliases! (Total: {aliasDetected})");
+                        }
+
+                        if (totalTests % 100 == 0)
+                        {
+                            Console.WriteLine($"Race tests: {totalTests}, Total aliases: {aliasDetected}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[CRASH] {ex.GetType().Name}: {ex.Message}");
+                    throw;
+                }
+            });
+        }
+
+        private static unsafe IntPtr GetPointer(Span<byte> span)
+        {
+            if (span.IsEmpty) return IntPtr.Zero;
+            fixed (byte* p = span)
+            {
+                return (IntPtr)p;
+            }
+        }
+
+        private static void DisposeBuffer(SecureBuffer buffer)
+        {
+            // Helper to dispose a buffer (simulates passing by value)
+            buffer.Dispose();
+        }
+
+        private static Tcreate BuildCreateMessage(ushort tag, uint fid, string name, uint perm = 0755, byte mode = NinePConstants.ORDWR)
+        {
+            byte[] nameBytes = System.Text.Encoding.UTF8.GetBytes(name);
+            uint size = (uint)(NinePConstants.HeaderSize + 4 + 2 + nameBytes.Length + 4 + 1);
+            var buffer = new byte[size];
+
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(0, 4), size);
+            buffer[4] = (byte)MessageTypes.Tcreate;
+            BinaryPrimitives.WriteUInt16LittleEndian(buffer.AsSpan(5, 2), tag);
+
+            int offset = NinePConstants.HeaderSize;
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(offset, 4), fid);
+            offset += 4;
+
+            BinaryPrimitives.WriteUInt16LittleEndian(buffer.AsSpan(offset, 2), (ushort)nameBytes.Length);
+            offset += 2;
+            nameBytes.CopyTo(buffer.AsSpan(offset));
+            offset += nameBytes.Length;
+
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(offset, 4), perm);
+            offset += 4;
+            buffer[offset] = mode;
+
+            return new Tcreate(buffer);
+        }
+
+        private static void FuzzPipes()
+        {
+            SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
+            {
+                var fs = new PipeFileSystem();
+                try
+                {
+                    using (var ms = new MemoryStream())
+                    {
+                        stream.CopyTo(ms);
+                        var data = ms.ToArray();
+                        if (data.Length < 5) return;
+
+                        // Use first byte to decide action
+                        int action = data[0] % 3;
+                        string qName = "fuzz_target";
+
+                        // Setup: Walk to queues and create a queue
+                        fs.WalkAsync(new Twalk(1, 1, 2, new[] { "queues" })).Wait();
+                        fs.CreateAsync(BuildCreateMessage(1, 2, qName)).Wait();
+                        fs.WalkAsync(new Twalk(1, 2, 3, new[] { qName })).Wait();
+
+                        switch (action)
+                        {
+                            case 0: // Heavy Writes
+                                fs.WriteAsync(new Twrite(1, 3, 0, data)).Wait();
+                                break;
+                            case 1: // Reads
+                                fs.ReadAsync(new Tread(1, 3, 0, (uint)data.Length)).Wait();
+                                break;
+                            case 2: // Concurrent-ish sequence
+                                var t1 = fs.WriteAsync(new Twrite(1, 3, 0, data.Take(data.Length/2).ToArray()));
+                                var t2 = fs.ReadAsync(new Tread(1, 3, 0, 1024));
+                                Task.WaitAll(t1, t2);
+                                break;
+                        }
+                    }
+                }
+                catch (Exception) { }
             });
         }
     }

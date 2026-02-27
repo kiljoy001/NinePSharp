@@ -22,8 +22,6 @@ public class GcpSecretsFileSystem : INinePFileSystem
     private List<string> _currentPath = new();
     private byte[]? _lastReadData;
 
-    public bool DotU { get; set; }
-
     public GcpSecretsFileSystem(GcpBackendConfig config, SecretManagerServiceClient secretsClient, ILuxVaultService vault)
     {
         _config = config;
@@ -89,7 +87,7 @@ public class GcpSecretsFileSystem : INinePFileSystem
             {
                 var qid = new Qid(f.Type, 0, (ulong)f.Name.GetHashCode());
                 var mode = f.Type == QidType.QTDIR ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0644;
-                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott", dotu: DotU);
+                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott");
                 
                 var entryBuffer = new byte[stat.Size];
                 int offset = 0;
@@ -126,7 +124,7 @@ public class GcpSecretsFileSystem : INinePFileSystem
 
         var secretId = _currentPath[0];
         var secretName = new SecretName(_config.ProjectId, secretId);
-        var payload = new SecretPayload { Data = Google.Protobuf.ByteString.CopyFrom(twrite.Data.ToArray()) };
+        var payload = new SecretPayload { Data = Google.Protobuf.ByteString.CopyFrom(twrite.Data.Span) };
 
         try {
             await _secretsClient.AddSecretVersionAsync(secretName, payload);
@@ -143,27 +141,17 @@ public class GcpSecretsFileSystem : INinePFileSystem
     {
         var name = _currentPath.LastOrDefault() ?? "secrets";
         bool isDir = IsDirectory(_currentPath);
-        var stat = new Stat(0, 0, 0, GetQid(_currentPath), 0755 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0), 0, 0, 0, name, "scott", "scott", "scott", dotu: DotU);
+        var stat = new Stat(0, 0, 0, GetQid(_currentPath), 0755 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0), 0, 0, 0, name, "scott", "scott", "scott");
         return new Rstat(tstat.Tag, stat);
     }
 
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePNotSupportedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePNotSupportedException();
 
-    public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
-    {
-        var qid = new Qid(QidType.QTDIR, 0, 0);
-        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu));
-    }
-
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
-
     public INinePFileSystem Clone()
     {
         var clone = new GcpSecretsFileSystem(_config, _secretsClient, _vault);
         clone._currentPath = new List<string>(_currentPath);
-        clone.DotU = DotU;
         return clone;
     }
 }

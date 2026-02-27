@@ -1,3 +1,4 @@
+using NinePSharp.Constants;
 using System;
 using FsCheck;
 using FsCheck.Xunit;
@@ -17,7 +18,7 @@ public class ParserPropertyTests
         {
             // Fuzzing logic: feed random bytes to the parser
             // We expect Ok or Error, but NO Exceptions.
-            var result = NinePParser.parse(false, data.AsMemory());
+            var result = NinePParser.parse(NinePDialect.NineP2000, data.AsMemory());
             
             // If it returns Ok, the data happened to be a valid message.
             // If it returns Error, it handled the malformed data correctly.
@@ -39,7 +40,7 @@ public class ParserPropertyTests
 
         try
         {
-            var result = NinePParser.parse(true, data.AsMemory());
+            var result = NinePParser.parse(NinePDialect.NineP2000U, data.AsMemory());
             return true;
         }
         catch (Exception ex)

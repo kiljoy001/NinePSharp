@@ -86,7 +86,7 @@ public class NinePSessionActor : ReceiveActor
 
         ReceiveAsync<TWstatDto>(async msg => {
             int offset = 0;
-            var stat = new Stat(msg.StatBytes, ref offset, msg.DotU);
+            var stat = new Stat(msg.StatBytes, ref offset, msg.Dialect);
             var twstat = new Twstat(msg.Tag, msg.Fid, stat);
             try {
                 var res = await _fs.WstatAsync(twstat);

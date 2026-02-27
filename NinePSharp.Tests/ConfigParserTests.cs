@@ -1,3 +1,4 @@
+using NinePSharp.Constants;
 using Microsoft.Extensions.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Configuration.Parser;
@@ -55,16 +56,15 @@ public class ConfigParserTests
     }
 
     [Property]
-    public bool Bind_Should_Roundtrip_Arbitrary_ServerConfig(string address, int port, string protocol, string restBaseUrl)
+    public bool Bind_Should_Roundtrip_Arbitrary_ServerConfig(string address, int port, string protocol)
     {
-        if (address == null || protocol == null || restBaseUrl == null) return true;
+        if (address == null || protocol == null) return true;
 
         // Arrange
         var inMemorySettings = new Dictionary<string, string?> {
             {"Server:Endpoints:0:Address", address},
             {"Server:Endpoints:0:Port", port.ToString()},
-            {"Server:Endpoints:0:Protocol", protocol},
-            {"Server:Rest:BaseUrl", restBaseUrl}
+            {"Server:Endpoints:0:Protocol", protocol}
         };
 
         IConfiguration configuration = new ConfigurationBuilder()
@@ -80,8 +80,6 @@ public class ConfigParserTests
         return config.Endpoints.Count == 1 &&
                config.Endpoints[0].Address == address &&
                config.Endpoints[0].Port == port &&
-               config.Endpoints[0].Protocol == protocol &&
-               config.Rest != null &&
-               config.Rest.BaseUrl == restBaseUrl;
+               config.Endpoints[0].Protocol == protocol;
     }
 }

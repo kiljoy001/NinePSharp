@@ -74,9 +74,17 @@ public class AzureBackend : IProtocolBackend
         if (credentials != null)
         {
             // Format: "TenantId:ClientId:ClientSecret"
-            string credsStr = SecureStringHelper.ToString(credentials);
-            var parts = credsStr.Split(':', 3);
-            if (parts.Length == 3) cred = new ClientSecretCredential(parts[0], parts[1], parts[2]);
+            SecureStringHelper.Use(credentials, span => {
+                int firstColon = span.IndexOf((byte)':');
+                int lastColon = span.LastIndexOf((byte)':');
+                if (firstColon != -1 && lastColon != -1 && firstColon != lastColon)
+                {
+                    var tenantId = Encoding.UTF8.GetString(span.Slice(0, firstColon));
+                    var clientId = Encoding.UTF8.GetString(span.Slice(firstColon + 1, lastColon - firstColon - 1));
+                    var clientSecret = Encoding.UTF8.GetString(span.Slice(lastColon + 1));
+                    cred = new ClientSecretCredential(tenantId, clientId, clientSecret);
+                }
+            });
         }
         else if (!string.IsNullOrEmpty(_config?.VaultKey))
         {
@@ -93,9 +101,16 @@ public class AzureBackend : IProtocolBackend
                 {
                     using (rawBytes)
                     {
-                        string credsStr = Encoding.UTF8.GetString(rawBytes.Span);
-                        var parts = credsStr.Split(':', 3);
-                        if (parts.Length == 3) cred = new ClientSecretCredential(parts[0], parts[1], parts[2]);
+                        var span = rawBytes.Span;
+                        int firstColon = span.IndexOf((byte)':');
+                        int lastColon = span.LastIndexOf((byte)':');
+                        if (firstColon != -1 && lastColon != -1 && firstColon != lastColon)
+                        {
+                            var tenantId = Encoding.UTF8.GetString(span.Slice(0, firstColon));
+                            var clientId = Encoding.UTF8.GetString(span.Slice(firstColon + 1, lastColon - firstColon - 1));
+                            var clientSecret = Encoding.UTF8.GetString(span.Slice(lastColon + 1));
+                            cred = new ClientSecretCredential(tenantId, clientId, clientSecret);
+                        }
                     }
                 }
             }

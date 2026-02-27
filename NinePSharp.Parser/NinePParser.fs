@@ -22,12 +22,9 @@ module NinePParser =
                     let msgData = data.Slice(0, int size)
                     
                     let result = 
-                        match Classic.parse msgType msgData dialect with
-                        | Ok msg -> Ok msg
-                        | Error _ -> 
-                            match Linux.parse msgType msgData with
-                            | Ok msg -> Ok msg
-                            | Error _ -> Error (UnknownMessageType msgType)
+                        match dialect with
+                        | NinePDialect.NineP2000L -> Linux.parse msgType msgData
+                        | _ -> Classic.parse msgType msgData dialect
                     
                     match result with
                     | Ok msg -> 
@@ -39,9 +36,8 @@ module NinePParser =
             | :? System.IndexOutOfRangeException -> Error MalformedBounds
             | ex -> Error (InternalException ex.Message)
 
-    // Original signature restored for compatibility
-    let parse (is9u: bool) (data: ReadOnlyMemory<byte>) : Result<NinePMessage, string> =
-        let dialect = if is9u then NinePDialect.NineP2000U else NinePDialect.NineP2000
+    // Public API now uses the enum for clarity
+    let parse (dialect: NinePDialect) (data: ReadOnlyMemory<byte>) : Result<NinePMessage, string> =
         match parseInternal dialect data with
         | Ok msg -> Ok msg
         | Error err -> Error err.Message

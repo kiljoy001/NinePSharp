@@ -12,13 +12,13 @@ public class ServerConfig
     public AkkaConfig? Akka { get; set; }
 
     // Translation backends
-    public RestBackendConfig? Rest { get; set; }
-    public GrpcBackendConfig? Grpc { get; set; }
-    public MqttBackendConfig? Mqtt { get; set; }
-    public SoapBackendConfig? Soap { get; set; }
-    public JsonRpcBackendConfig? JsonRpc { get; set; }
-    public WebsocketBackendConfig? Websocket { get; set; }
-    public DatabaseBackendConfig? Database { get; set; }
+    // public RestBackendConfig? Rest { get; set; }
+    // public GrpcBackendConfig? Grpc { get; set; }
+    // public MqttBackendConfig? Mqtt { get; set; }
+    // public SoapBackendConfig? Soap { get; set; }
+    // public JsonRpcBackendConfig? JsonRpc { get; set; }
+    // public WebsocketBackendConfig? Websocket { get; set; }
+    // public DatabaseBackendConfig? Database { get; set; }
     public EthereumBackendConfig? Ethereum { get; set; }
     public BitcoinBackendConfig? Bitcoin { get; set; }
     public SolanaBackendConfig? Solana { get; set; }
@@ -28,6 +28,8 @@ public class ServerConfig
     public AwsBackendConfig? Aws { get; set; }
     public AzureBackendConfig? Azure { get; set; }
     public GcpBackendConfig? Gcp { get; set; }
+    public PowerShellBackendConfig? PowerShell { get; set; }
+    public BackendConfigBase? Pipes { get; set; }
     public EmercoinConfig? Emercoin { get; set; }
 }
 

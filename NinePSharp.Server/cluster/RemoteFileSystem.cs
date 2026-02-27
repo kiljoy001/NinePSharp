@@ -9,6 +9,8 @@ using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Cluster.Actors;
 using NinePSharp.Server.Utils;
 
+using NinePSharp.Parser;
+
 namespace NinePSharp.Server.Cluster;
 
 public class RemoteFileSystem : INinePFileSystem
@@ -16,7 +18,7 @@ public class RemoteFileSystem : INinePFileSystem
     private readonly IActorRef _sessionActor;
     private readonly TimeSpan _timeout = TimeSpan.FromSeconds(5);
 
-    public bool DotU { get; set; }
+    public NinePDialect Dialect { get; set; }
 
     public RemoteFileSystem(IActorRef sessionActor)
     {
@@ -86,7 +88,7 @@ public class RemoteFileSystem : INinePFileSystem
             }
 
             int offset = 0;
-            var stat = new Stat(r.StatBytes, ref offset, r.DotU);
+            var stat = new Stat(r.StatBytes, ref offset, r.Dialect);
             return new Rstat(r.Tag, stat);
         }
         if (response is RErrorDto e) throw new NinePProtocolException(e.Ename);
@@ -148,7 +150,7 @@ public class RemoteFileSystem : INinePFileSystem
         // We must spawn a new remote actor.
         var response = _sessionActor.Ask(new SpawnClone(), _timeout).Result;
         
-        if (response is CloneSpawned c) return new RemoteFileSystem(c.Actor);
+        if (response is CloneSpawned c) return new RemoteFileSystem(c.Actor) { Dialect = this.Dialect };
         throw new Exception("Failed to clone remote filesystem session");
     }
 }

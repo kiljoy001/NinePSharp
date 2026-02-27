@@ -22,8 +22,6 @@ public class AzureCloudFileSystem : INinePFileSystem
     private List<string> _currentPath = new();
     private INinePFileSystem? _activeSubFs;
 
-    public bool DotU { get; set; }
-
     public AzureCloudFileSystem(AzureBackendConfig config, BlobServiceClient? blobs, SecretClient? secrets, ILuxVaultService vault)
     {
         _config = config;
@@ -40,12 +38,12 @@ public class AzureCloudFileSystem : INinePFileSystem
         var first = twalk.Wname[0];
         if (first == "blobs" && _blobClient != null)
         {
-            _activeSubFs = new AzureBlobsFileSystem(_config, _blobClient, _vault) { DotU = this.DotU };
+            _activeSubFs = new AzureBlobsFileSystem(_config, _blobClient, _vault);
             return await _activeSubFs.WalkAsync(new Twalk(twalk.Tag, twalk.Fid, twalk.NewFid, twalk.Wname.Skip(1).ToArray()));
         }
         if (first == "secrets" && _secretClient != null)
         {
-            _activeSubFs = new AzureSecretsFileSystem(_config, _secretClient, _vault) { DotU = this.DotU };
+            _activeSubFs = new AzureSecretsFileSystem(_config, _secretClient, _vault);
             return await _activeSubFs.WalkAsync(new Twalk(twalk.Tag, twalk.Fid, twalk.NewFid, twalk.Wname.Skip(1).ToArray()));
         }
 
@@ -87,7 +85,7 @@ public class AzureCloudFileSystem : INinePFileSystem
             {
                 var qid = new Qid(f.Item2, 0, (ulong)f.Item1.GetHashCode());
                 var mode = (uint)NinePConstants.FileMode9P.DMDIR | 0755;
-                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Item1, "scott", "scott", "scott", dotu: DotU);
+                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Item1, "scott", "scott", "scott");
                 
                 var entryBuffer = new byte[stat.Size];
                 int offset = 0;
@@ -131,29 +129,18 @@ public class AzureCloudFileSystem : INinePFileSystem
         if (_activeSubFs != null) return await _activeSubFs.StatAsync(tstat);
         
         var name = _currentPath.LastOrDefault() ?? "azure";
-        var stat = new Stat(0, 0, 0, new Qid(QidType.QTDIR, 0, 0), 0755 | (uint)NinePConstants.FileMode9P.DMDIR, 0, 0, 0, name, "scott", "scott", "scott", dotu: DotU);
+        var stat = new Stat(0, 0, 0, new Qid(QidType.QTDIR, 0, 0), 0755 | (uint)NinePConstants.FileMode9P.DMDIR, 0, 0, 0, name, "scott", "scott", "scott");
         return new Rstat(tstat.Tag, stat);
     }
     
     public Task<Rwstat> WstatAsync(Twstat twstat) => throw new NinePNotSupportedException();
     public Task<Rremove> RemoveAsync(Tremove tremove) => throw new NinePNotSupportedException();
 
-    public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
-    {
-        var qid = new Qid(QidType.QTDIR, 0, 0);
-        ulong now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        return Task.FromResult(new NinePSharp.Messages.Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0x1EDu));
-    }
-
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => throw new NinePNotSupportedException();
-
     public INinePFileSystem Clone()
     {
         var clone = new AzureCloudFileSystem(_config, _blobClient, _secretClient, _vault);
         clone._currentPath = new List<string>(_currentPath);
         clone._activeSubFs = _activeSubFs?.Clone();
-        clone.DotU = DotU;
-        if (clone._activeSubFs != null) clone._activeSubFs.DotU = DotU;
         return clone;
     }
 }

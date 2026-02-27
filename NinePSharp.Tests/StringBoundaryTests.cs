@@ -1,10 +1,10 @@
+using NinePSharp.Constants;
 using System;
 using System.Text;
 using FsCheck;
 using FsCheck.Xunit;
 using NinePSharp.Messages;
 using NinePSharp.Parser;
-using NinePSharp.Constants;
 using NinePSharp.Generators;
 using Xunit;
 
@@ -28,7 +28,7 @@ public class StringBoundaryTests
 
         var stat = new Stat(0, 0, 0, qid, 0, 0, 0, 0,
                            testString, testString, testString, testString,
-                           false, null, null, null, null);
+                           NinePDialect.NineP2000, null, null, null, null);
 
         var buffer = new byte[stat.Size];
         int offset = 0;
@@ -36,7 +36,7 @@ public class StringBoundaryTests
 
         // Parse it back
         int readOffset = 0;
-        var parsed = new Stat(buffer, ref readOffset, false);
+        var parsed = new Stat(buffer, ref readOffset, NinePDialect.NineP2000);
 
         // After roundtrip, both null and "" should become ""
         Assert.Equal("", parsed.Name);
@@ -84,8 +84,8 @@ public class StringBoundaryTests
     {
         // Verify that null strings count as 0-length (2 bytes for length prefix, 0 bytes for content)
         var qid = new Qid((QidType)0, 0, 0);
-        var statNull = new Stat(0, 0, 0, qid, 0, 0, 0, 0, null, null, null, null, false, null, null, null, null);
-        var statEmpty = new Stat(0, 0, 0, qid, 0, 0, 0, 0, "", "", "", "", false, null, null, null, null);
+        var statNull = new Stat(0, 0, 0, qid, 0, 0, 0, 0, null, null, null, null, NinePDialect.NineP2000, null, null, null, null);
+        var statEmpty = new Stat(0, 0, 0, qid, 0, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000, null, null, null, null);
 
         // Both should have identical size
         Assert.Equal(statEmpty.Size, statNull.Size);
@@ -110,8 +110,8 @@ public class StringBoundaryTests
     {
         // Whitespace is NOT the same as empty
         var qid = new Qid((QidType)0, 0, 0);
-        var statSpace = new Stat(0, 0, 0, qid, 0, 0, 0, 0, " ", " ", " ", " ", false, null, null, null, null);
-        var statEmpty = new Stat(0, 0, 0, qid, 0, 0, 0, 0, "", "", "", "", false, null, null, null, null);
+        var statSpace = new Stat(0, 0, 0, qid, 0, 0, 0, 0, " ", " ", " ", " ", NinePDialect.NineP2000, null, null, null, null);
+        var statEmpty = new Stat(0, 0, 0, qid, 0, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000, null, null, null, null);
 
         // Size should differ (1 byte per space)
         Assert.NotEqual(statEmpty.Size, statSpace.Size);
@@ -122,14 +122,14 @@ public class StringBoundaryTests
     public void Stat_Whitespace_Roundtrips_Correctly()
     {
         var qid = new Qid((QidType)0, 0, 0);
-        var stat = new Stat(0, 0, 0, qid, 0, 0, 0, 0, " ", "\t", "\n", "\r", false, null, null, null, null);
+        var stat = new Stat(0, 0, 0, qid, 0, 0, 0, 0, " ", "\t", "\n", "\r", NinePDialect.NineP2000, null, null, null, null);
 
         var buffer = new byte[stat.Size];
         int offset = 0;
         stat.WriteTo(buffer, ref offset);
 
         int readOffset = 0;
-        var parsed = new Stat(buffer, ref readOffset, false);
+        var parsed = new Stat(buffer, ref readOffset, NinePDialect.NineP2000);
 
         // Whitespace should be preserved exactly
         Assert.Equal(" ", parsed.Name);
@@ -148,7 +148,7 @@ public class StringBoundaryTests
     public void Stat_Unicode_Strings_Roundtrip_With_Correct_Byte_Count(string unicode)
     {
         var qid = new Qid((QidType)0, 0, 0);
-        var stat = new Stat(0, 0, 0, qid, 0, 0, 0, 0, unicode, unicode, unicode, unicode, false, null, null, null, null);
+        var stat = new Stat(0, 0, 0, qid, 0, 0, 0, 0, unicode, unicode, unicode, unicode, NinePDialect.NineP2000, null, null, null, null);
 
         var buffer = new byte[stat.Size];
         int offset = 0;
@@ -162,7 +162,7 @@ public class StringBoundaryTests
 
         // Roundtrip
         int readOffset = 0;
-        var parsed = new Stat(buffer, ref readOffset, false);
+        var parsed = new Stat(buffer, ref readOffset, NinePDialect.NineP2000);
 
         Assert.Equal(unicode, parsed.Name);
         Assert.Equal(unicode, parsed.Uid);
@@ -195,7 +195,7 @@ public class StringBoundaryTests
         stat.WriteTo(buffer, ref offset);
 
         int readOffset = 0;
-        var parsed = new Stat(buffer, ref readOffset, stat.DotU);
+        var parsed = new Stat(buffer, ref readOffset, stat.Dialect);
 
         // After roundtrip, no strings should be null
         Assert.NotNull(parsed.Name);
@@ -203,9 +203,9 @@ public class StringBoundaryTests
         Assert.NotNull(parsed.Gid);
         Assert.NotNull(parsed.Muid);
 
-        if (stat.DotU)
+        if (stat.Dialect != NinePDialect.NineP2000)
         {
-            // Extension can be null if not DotU, but if DotU it should roundtrip
+            // Extension can be null if not Dialect, but if Dialect it should roundtrip
             if (stat.Extension != null)
             {
                 Assert.NotNull(parsed.Extension);

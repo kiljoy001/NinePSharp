@@ -1,6 +1,6 @@
+using NinePSharp.Constants;
 using System;
 using System.Text;
-using NinePSharp.Constants;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
 using Xunit;

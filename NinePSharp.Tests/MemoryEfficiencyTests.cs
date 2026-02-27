@@ -1,9 +1,9 @@
+using NinePSharp.Constants;
 using System;
 using System.Buffers;
 using System.Linq;
 using System.Text;
 using NinePSharp.Messages;
-using NinePSharp.Constants;
 using Xunit;
 using FsCheck;
 using FsCheck.Xunit;

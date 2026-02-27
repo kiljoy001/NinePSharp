@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
@@ -47,10 +48,33 @@ public static class ConfigSecretResolver
                 var strValue = (string)value;
                 if (strValue.StartsWith("secret://") && prop.CanWrite)
                 {
-                    var decrypted = LuxVault.UnprotectConfig(strValue, masterKey);
+                    using var decrypted = LuxVault.UnprotectConfigToBytes(strValue, masterKey);
                     if (decrypted != null)
                     {
-                        prop.SetValue(obj, decrypted);
+                        // LEAK: Property is string, so we must decrypt to string.
+                        // This should be avoided by changing the property type to ProtectedSecret.
+                        prop.SetValue(obj, Encoding.UTF8.GetString(decrypted.Span));
+                    }
+                }
+            }
+            else if (prop.PropertyType == typeof(ProtectedSecret))
+            {
+                if (value is string strValue && prop.CanWrite)
+                {
+                    if (strValue.StartsWith("secret://"))
+                    {
+                        using var decrypted = LuxVault.UnprotectConfigToBytes(strValue, masterKey);
+                        if (decrypted != null)
+                        {
+                            prop.SetValue(obj, new ProtectedSecret(decrypted.Span));
+                        }
+                    }
+                    else
+                    {
+                        // Protect plain text from config in memory
+                        #pragma warning disable CS0618
+                        prop.SetValue(obj, new ProtectedSecret(strValue));
+                        #pragma warning restore CS0618
                     }
                 }
             }

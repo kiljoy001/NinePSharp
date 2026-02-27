@@ -73,13 +73,9 @@ public class EthereumBackend : IProtocolBackend
         string? rpcUrl = null;
         if (credentials != null)
         {
-            IntPtr ptr = Marshal.SecureStringToGlobalAllocUnicode(credentials);
-            try {
-                rpcUrl = Marshal.PtrToStringUni(ptr);
-            }
-            finally {
-                Marshal.ZeroFreeGlobalAllocUnicode(ptr);
-            }
+            SecureStringHelper.Use(credentials, span => {
+                rpcUrl = System.Text.Encoding.UTF8.GetString(span);
+            });
         }
 
         if (rpcUrl == null && !string.IsNullOrEmpty(_config.VaultKey))
