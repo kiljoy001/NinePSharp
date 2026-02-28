@@ -23,22 +23,59 @@ type BindFlags =
     | MCREATE = 0x0004  // Allow creation in this mount
 
 /// <summary>
+/// Namespace lookup modes modeled after Plan 9's different name-resolution intents.
+/// </summary>
+type LookupMode =
+    | Walk = 0
+    | BindSource = 1
+    | BindTarget = 2
+    | Create = 3
+
+type MountFrame =
+    { MountId: uint64
+      MountPath: string list
+      ExitPath: string list }
+
+type MountBranch =
+    { Target: BackendTargetDescriptor
+      Flags: BindFlags }
+
+type PathState =
+    { VisiblePath: string list
+      MountHistory: MountFrame list }
+
+type ChannelTarget =
+    | NamespaceNode
+    | BackendNode of BackendTargetDescriptor * string list
+
+/// <summary>
 /// A Channel (Chan) is an active pointer to a resource in the namespace.
 /// </summary>
 type Channel =
     { Qid: Qid
       Offset: uint64
-      FileSystem: INinePFileSystem
-      InternalPath: string list
+      Target: ChannelTarget
+      PathState: PathState
       IsOpened: bool }
+    member this.InternalPath = this.PathState.VisiblePath
+
+type MountChain =
+    { MountId: uint64
+      Branches: MountBranch list }
+    member this.Targets = this.Branches |> List.map (fun branch -> branch.Target)
+    member this.Flags =
+        match this.Branches with
+        | head :: _ -> head.Flags
+        | [] -> BindFlags.MREPL
 
 /// <summary>
-/// A Mount defines a binding between a virtual path and one or more backends.
+/// A Mount defines a binding between a virtual path and one or more backend targets.
 /// </summary>
 type Mount =
     { TargetPath: string list
-      Backends: INinePFileSystem list
-      Flags: BindFlags }
+      Chain: MountChain }
+    member this.Targets = this.Chain.Targets
+    member this.Flags = this.Chain.Flags
 
 /// <summary>
 /// A Namespace is an immutable collection of mounts.

@@ -13,7 +13,6 @@ using NinePSharp.Protocol;
 using NinePSharp.Server;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
-using NinePSharp.Server.Cluster;
 using Xunit;
 using Moq;
 
@@ -39,7 +38,7 @@ public class DispatcherConcurrencyStressTests
         mockBackend.Setup(b => b.GetFileSystem(It.IsAny<X509Certificate2>()))
                    .Returns(() => CreateSimpleFs());
 
-        var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, new Mock<IClusterManager>().Object);
+        var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, new Mock<IRemoteMountProvider>().Object);
 
         uint rootFid = 100;
         uint targetFid = 200;

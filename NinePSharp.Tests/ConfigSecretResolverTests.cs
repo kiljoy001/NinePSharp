@@ -1,51 +1,56 @@
-using NinePSharp.Constants;
-using System.Collections.Generic;
 using System.Text;
 using NinePSharp.Server.Configuration;
-using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Utils;
 using Xunit;
 
-namespace NinePSharp.Tests
+namespace NinePSharp.Tests;
+
+public class ConfigSecretResolverTests
 {
-    public class ConfigSecretResolverTests
+    [Fact]
+    public void ConfigSecretResolver_Resolves_Recursive_Secrets()
     {
-        [Fact]
-        public void ConfigSecretResolver_Resolves_Recursive_Secrets()
-        {
-            byte[] masterKey = Encoding.UTF8.GetBytes("master_key");
-            var secretValue = "real_api_key";
-            var protectedSecret = LuxVault.ProtectConfig(Encoding.UTF8.GetBytes(secretValue), masterKey);
+        byte[] masterKey = Encoding.UTF8.GetBytes("master_key");
+        string secretValue = "real_api_key";
+        string protectedSecret = LuxVault.ProtectConfig(Encoding.UTF8.GetBytes(secretValue), masterKey);
 
-            var config = new ServerConfig
+        var config = new TestConfig
+        {
+            Nested = new TestNestedConfig
             {
-                Ethereum = new EthereumBackendConfig
-                {
-                    RpcUrl = "http://localhost:8545",
-                    DefaultAccount = protectedSecret // Secret in Ethereum config
-                },
-                Secret = new SecretBackendConfig
-                {
-                    RootPath = protectedSecret // Secret in Secret config
-                }
-            };
+                Url = "http://localhost:8545",
+                Token = protectedSecret
+            },
+            RootPath = protectedSecret
+        };
 
-            ConfigSecretResolver.ResolveSecrets(config, masterKey);
+        ConfigSecretResolver.ResolveSecrets(config, masterKey);
 
-            Assert.Equal(secretValue, config.Ethereum.DefaultAccount);
-            Assert.Equal(secretValue, config.Secret.RootPath);
-            Assert.Equal("http://localhost:8545", config.Ethereum.RpcUrl); // Normal string unchanged
-        }
+        Assert.Equal(secretValue, config.Nested!.Token);
+        Assert.Equal(secretValue, config.RootPath);
+        Assert.Equal("http://localhost:8545", config.Nested.Url);
+    }
 
-        [Fact]
-        public void ConfigSecretResolver_Handles_Normal_Strings()
-        {
-            byte[] masterKey = Encoding.UTF8.GetBytes("master_key");
-            var config = new EthereumBackendConfig { RpcUrl = "http://normal.com" };
+    [Fact]
+    public void ConfigSecretResolver_Handles_Normal_Strings()
+    {
+        byte[] masterKey = Encoding.UTF8.GetBytes("master_key");
+        var config = new TestNestedConfig { Url = "http://normal.com" };
 
-            ConfigSecretResolver.ResolveSecrets(config, masterKey);
+        ConfigSecretResolver.ResolveSecrets(config, masterKey);
 
-            Assert.Equal("http://normal.com", config.RpcUrl);
-        }
+        Assert.Equal("http://normal.com", config.Url);
+    }
+
+    private sealed class TestConfig
+    {
+        public TestNestedConfig? Nested { get; set; }
+        public string RootPath { get; set; } = string.Empty;
+    }
+
+    private sealed class TestNestedConfig
+    {
+        public string Url { get; set; } = string.Empty;
+        public string Token { get; set; } = string.Empty;
     }
 }

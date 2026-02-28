@@ -13,7 +13,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NinePSharp.Messages;
 using NinePSharp.Server;
-using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
@@ -47,8 +46,8 @@ public class ServerOrchestrationStressTests
             }
         });
 
-        var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new List<IProtocolBackend>(), new Mock<IClusterManager>().Object);
-        var server = new NinePServer(NullLogger<NinePServer>.Instance, config, new List<IProtocolBackend>(), dispatcher, new Mock<IClusterManager>().Object, new ConfigurationBuilder().Build(), new Mock<IEmercoinAuthService>().Object);
+        var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new List<IProtocolBackend>(), new Mock<IRemoteMountProvider>().Object);
+        var server = new NinePServer(NullLogger<NinePServer>.Instance, config, new List<IProtocolBackend>(), dispatcher, new Mock<IRemoteMountProvider>().Object, new ConfigurationBuilder().Build(), new Mock<IEmercoinAuthService>().Object);
 
         var serverTask = server.StartAsync(cts.Token);
         await Task.Delay(500);

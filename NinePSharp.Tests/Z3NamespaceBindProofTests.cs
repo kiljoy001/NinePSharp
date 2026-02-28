@@ -121,11 +121,13 @@ public class Z3NamespaceBindProofTests
         int srcCount = Math.Clamp(srcSeed % 5, 1, 5);
         int dstCount = Math.Clamp(dstSeed % 5, 1, 5);
 
-        var srcBackends = Enumerable.Range(0, srcCount).Select(_ => NewFs()).ToList();
-        var dstBackends = Enumerable.Range(0, dstCount).Select(_ => NewFs()).ToList();
+        var srcBackends = Enumerable.Range(0, srcCount).Select(i => NewTarget("src" + i)).ToList();
+        var dstBackends = Enumerable.Range(0, dstCount).Select(i => NewTarget("dst" + i)).ToList();
 
-        var sourceMount = new Mount(NamespaceOps.splitPath("/src"), FsList(srcBackends), BindFlags.MREPL);
-        var targetMount = new Mount(NamespaceOps.splitPath("/dst"), FsList(dstBackends), BindFlags.MREPL);
+        var sourcePath = NamespaceOps.splitPath("/src");
+        var targetPath = NamespaceOps.splitPath("/dst");
+        var sourceMount = new Mount(sourcePath, new MountChain(MountIdForPath(sourcePath), FsBranches(BindFlags.MREPL, srcBackends)));
+        var targetMount = new Mount(targetPath, new MountChain(MountIdForPath(targetPath), FsBranches(BindFlags.MREPL, dstBackends)));
         var ns = new NinePSharp.Core.FSharp.Namespace(FsList(new[] { sourceMount, targetMount }));
 
         var bound = NamespaceOps.bind("/src", "/dst", flag, ns);
@@ -252,10 +254,8 @@ public class Z3NamespaceBindProofTests
         return solver.Check();
     }
 
-    private static INinePFileSystem NewFs()
-    {
-        return new Mock<INinePFileSystem>(MockBehavior.Loose).Object;
-    }
+    private static BackendTargetDescriptor NewTarget(string id)
+        => BackendTargetDescriptor.Local(id, "/" + id, () => new Mock<INinePFileSystem>(MockBehavior.Loose).Object);
 
     private static FSharpList<T> FsList<T>(IEnumerable<T> items)
     {
@@ -265,5 +265,29 @@ public class Z3NamespaceBindProofTests
     private static FSharpList<string> FsPath(params string[] items)
     {
         return ListModule.OfSeq(items);
+    }
+
+    private static FSharpList<MountBranch> FsBranches(BindFlags flags, IEnumerable<BackendTargetDescriptor> backends)
+    {
+        return ListModule.OfSeq(backends.Select(target => new MountBranch(target, flags)));
+    }
+
+    private static ulong MountIdForPath(IEnumerable<string> segments)
+    {
+        unchecked
+        {
+            ulong hash = 14695981039346656037UL;
+            foreach (var segment in segments)
+            {
+                foreach (var ch in segment)
+                {
+                    hash = (hash ^ ch) * 1099511628211UL;
+                }
+
+                hash = (hash ^ '/') * 1099511628211UL;
+            }
+
+            return hash == 0 ? 1UL : hash;
+        }
     }
 }

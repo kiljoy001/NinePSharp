@@ -20,6 +20,7 @@ using Moq.Protected;
 using System.Linq;
 using System.Net;
 using System.Text.Json.Nodes;
+using static NinePSharp.Fuzzer.SecureMemoryArenaUnsafeAccessors;
 
 namespace NinePSharp.Fuzzer
 {
@@ -319,7 +320,7 @@ namespace NinePSharp.Fuzzer
 
                             // Slice and free
                             var slice = buf.Span.Slice(0, sliceSize);
-                            arena.Free(slice);
+                            FreeSlice(arena, slice);
 
                             // Allocate with slice size
                             var bufSmall = new SecureBuffer(sliceSize, arena);
@@ -351,7 +352,7 @@ namespace NinePSharp.Fuzzer
                                 case 1: // Sliced free
                                     if (size > 16)
                                     {
-                                        arena.Free(buf.Span.Slice(0, size / 2));
+                                        FreeSlice(arena, buf.Span.Slice(0, size / 2));
                                     }
                                     break;
                                 case 2: // Normal
@@ -438,8 +439,8 @@ namespace NinePSharp.Fuzzer
                                             {
                                                 // arena.Free(Span) is the legacy vulnerable overload
                                                 var sliced = span.Slice(0, size / 2);
-                                                arena.Free(sliced);
-                                                arena.Free(span);
+                                                FreeSlice(arena, sliced);
+                                                FreeSlice(arena, span);
                                             }
                                             Thread.Sleep(1);
                                             break;

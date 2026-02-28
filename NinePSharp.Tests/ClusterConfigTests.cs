@@ -3,7 +3,6 @@ using System;
 using System.IO;
 using Microsoft.Extensions.Logging;
 using Moq;
-using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Configuration.Models;
 using Xunit;
 

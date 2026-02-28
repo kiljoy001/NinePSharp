@@ -17,8 +17,8 @@ public class NamespaceTests
     [Fact]
     public void Bind_Replace_Effectively_Swaps_Directory_Backends()
     {
-        var legacy = NewFs();
-        var modern = NewFs();
+        var legacy = NewTarget("legacy");
+        var modern = NewTarget("modern");
 
         var ns = BuildNamespace(
             MountAt("/old", legacy),
@@ -41,8 +41,8 @@ public class NamespaceTests
         var target = CleanPathSegment(targetRaw, "dst");
         if (source == target) target += "_t";
 
-        var oldBackend = NewFs();
-        var newBackend = NewFs();
+        var oldBackend = NewTarget("old");
+        var newBackend = NewTarget("new");
 
         var ns = BuildNamespace(
             MountAt("/" + source, newBackend),
@@ -64,8 +64,8 @@ public class NamespaceTests
         var target = CleanPathSegment(targetRaw, "dst");
         if (source == target) target += "_t";
 
-        var oldBackend = NewFs();
-        var newBackend = NewFs();
+        var oldBackend = NewTarget("old");
+        var newBackend = NewTarget("new");
 
         var ns = BuildNamespace(
             MountAt("/" + source, newBackend),
@@ -87,8 +87,8 @@ public class NamespaceTests
         var child = CleanPathSegment(childRaw, "child");
         var leaf = CleanPathSegment(leafRaw, "leaf");
 
-        var rootFs = NewFs();
-        var deepFs = NewFs();
+        var rootFs = NewTarget("root");
+        var deepFs = NewTarget("deep");
 
         var ns = BuildNamespace(
             MountAt("/" + root, rootFs),
@@ -109,12 +109,12 @@ public class NamespaceTests
         return parts.All(p => p.Length > 0 && p != "." && p != "..");
     }
 
-    private static Mount MountAt(string path, params INinePFileSystem[] backends)
+    private static Mount MountAt(string path, params BackendTargetDescriptor[] backends)
     {
+        var normalized = NamespaceOps.splitPath(path);
         return new Mount(
-            NamespaceOps.splitPath(path),
-            FsList(backends),
-            BindFlags.MREPL);
+            normalized,
+            new MountChain(MountIdForPath(normalized), FsBranches(BindFlags.MREPL, backends)));
     }
 
     private static NinePSharp.Core.FSharp.Namespace BuildNamespace(params Mount[] mounts)
@@ -122,10 +122,8 @@ public class NamespaceTests
         return new NinePSharp.Core.FSharp.Namespace(FsList(mounts));
     }
 
-    private static INinePFileSystem NewFs()
-    {
-        return new Mock<INinePFileSystem>(MockBehavior.Loose).Object;
-    }
+    private static BackendTargetDescriptor NewTarget(string id)
+        => BackendTargetDescriptor.Local(id, "/" + id, () => new Mock<INinePFileSystem>(MockBehavior.Loose).Object);
 
     private static FSharpList<T> FsList<T>(IEnumerable<T> items)
     {
@@ -137,10 +135,34 @@ public class NamespaceTests
         return ListModule.OfSeq(items);
     }
 
+    private static FSharpList<MountBranch> FsBranches(BindFlags flags, IEnumerable<BackendTargetDescriptor> backends)
+    {
+        return ListModule.OfSeq(backends.Select(target => new MountBranch(target, flags)));
+    }
+
     private static string CleanPathSegment(string? raw, string fallback)
     {
         if (string.IsNullOrWhiteSpace(raw)) return fallback;
         var chars = raw.Where(char.IsLetterOrDigit).Take(12).ToArray();
         return chars.Length == 0 ? fallback : new string(chars);
+    }
+
+    private static ulong MountIdForPath(IEnumerable<string> segments)
+    {
+        unchecked
+        {
+            ulong hash = 14695981039346656037UL;
+            foreach (var segment in segments)
+            {
+                foreach (var ch in segment)
+                {
+                    hash = (hash ^ ch) * 1099511628211UL;
+                }
+
+                hash = (hash ^ '/') * 1099511628211UL;
+            }
+
+            return hash == 0 ? 1UL : hash;
+        }
     }
 }

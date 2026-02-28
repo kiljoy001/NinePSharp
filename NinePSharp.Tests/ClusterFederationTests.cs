@@ -8,7 +8,6 @@ using NinePSharp.Messages;
 using NinePSharp.Parser;
 using NinePSharp.Protocol;
 using NinePSharp.Server;
-using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Cluster.Actors;
 using NinePSharp.Server.Cluster.Messages;
 using NinePSharp.Server.Interfaces;
@@ -130,19 +129,43 @@ public class ClusterFederationTests : IDisposable
         return result.ToArray();
     }
 
-    private sealed class FakeClusterManager : IClusterManager
+    private sealed class FakeClusterManager : IRemoteMountProvider
     {
-        public ActorSystem? System { get; }
-        public IActorRef? Registry { get; }
+        private readonly ActorSystem _system;
+        private readonly IActorRef _registry;
 
         public FakeClusterManager(ActorSystem system, IActorRef registry)
         {
-            System = system;
-            Registry = registry;
+            _system = system;
+            _registry = registry;
         }
 
         public void Start() { }
         public Task StopAsync() => Task.CompletedTask;
+        public Task RegisterMountAsync(string mountPath, Func<INinePFileSystem> createSession) => Task.CompletedTask;
+
+        public async Task<IReadOnlyList<string>> GetRemoteMountPathsAsync()
+        {
+            var response = await _registry.Ask<object>(new GetBackends(), TimeSpan.FromSeconds(2));
+            return response is BackendsSnapshot snapshot
+                ? snapshot.MountPaths
+                : Array.Empty<string>();
+        }
+
+        public async Task<INinePFileSystem?> TryCreateRemoteFileSystemAsync(string mountPath)
+        {
+            var response = await _registry.Ask<object>(new GetBackend(mountPath), TimeSpan.FromSeconds(2));
+            if (response is not BackendFound found)
+            {
+                return null;
+            }
+
+            var session = await found.Actor.Ask<object>(new SpawnSession(), TimeSpan.FromSeconds(2));
+            return session is SessionSpawned spawned
+                ? new RemoteFileSystem(spawned.Session)
+                : null;
+        }
+
         public void Dispose() { }
     }
 

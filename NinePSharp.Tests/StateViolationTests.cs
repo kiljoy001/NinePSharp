@@ -4,10 +4,6 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using NinePSharp.Messages;
 using NinePSharp.Server;
-using NinePSharp.Server.Backends;
-using NinePSharp.Server.Utils;
-using NinePSharp.Server.Cluster;
-using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Parser;
 using NinePSharp.Interfaces;
 using NinePSharp.Server.Interfaces;
@@ -28,12 +24,11 @@ public class StateViolationTests
 
     public StateViolationTests()
     {
-        var vault = new LuxVaultService();
-        var cluster = new Mock<IClusterManager>().Object;
+        var cluster = new Mock<IRemoteMountProvider>().Object;
         var mockBackend = new Mock<IProtocolBackend>();
         mockBackend.Setup(b => b.MountPath).Returns("/mock");
-        mockBackend.Setup(b => b.GetFileSystem(It.IsAny<System.Security.SecureString>(), It.IsAny<System.Security.Cryptography.X509Certificates.X509Certificate2>())).Returns(new MockFileSystem(vault));
-        mockBackend.Setup(b => b.GetFileSystem(It.IsAny<System.Security.Cryptography.X509Certificates.X509Certificate2>())).Returns(new MockFileSystem(vault));
+        mockBackend.Setup(b => b.GetFileSystem(It.IsAny<System.Security.SecureString>(), It.IsAny<System.Security.Cryptography.X509Certificates.X509Certificate2>())).Returns(new MockFileSystem());
+        mockBackend.Setup(b => b.GetFileSystem(It.IsAny<System.Security.Cryptography.X509Certificates.X509Certificate2>())).Returns(new MockFileSystem());
         
         _dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, cluster);
     }

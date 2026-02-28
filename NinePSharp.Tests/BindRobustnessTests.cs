@@ -24,8 +24,8 @@ public class BindRobustnessTests
         var target = CleanPathSegment(targetRaw, "dst");
         if (source == target) target += "_t";
 
-        var srcFs = NewFs();
-        var dstFs = NewFs();
+        var srcFs = NewTarget("src");
+        var dstFs = NewTarget("dst");
         var initial = BuildNamespace(
             MountAt("/" + source, srcFs),
             MountAt("/" + target, dstFs));
@@ -53,13 +53,13 @@ public class BindRobustnessTests
             .ToList();
         if (sources.Count == 0) return true;
 
-        var targetFs = NewFs();
+        var targetFs = NewTarget("target");
         var mounts = new List<Mount> { MountAt("/" + target, targetFs) };
-        var sourceBackends = new Dictionary<string, INinePFileSystem>(StringComparer.Ordinal);
+        var sourceBackends = new Dictionary<string, BackendTargetDescriptor>(StringComparer.Ordinal);
 
         foreach (var source in sources)
         {
-            var fs = NewFs();
+            var fs = NewTarget(source);
             mounts.Add(MountAt("/" + source, fs));
             sourceBackends[source] = fs;
         }
@@ -92,8 +92,8 @@ public class BindRobustnessTests
         var pathB = CleanPathSegment(pathBRaw, "b");
         if (pathA == pathB) pathB += "_b";
 
-        var fsA = NewFs();
-        var fsB = NewFs();
+        var fsA = NewTarget("a");
+        var fsB = NewTarget("b");
         var ns = BuildNamespace(
             MountAt("/" + pathA, fsA),
             MountAt("/" + pathB, fsB));
@@ -123,9 +123,9 @@ public class BindRobustnessTests
 
         var engine = TestingEngine.Create(configuration, async () =>
         {
-            var mountA = NewFs();
-            var mountB = NewFs();
-            var mountBin = NewFs();
+            var mountA = NewTarget("a");
+            var mountB = NewTarget("b");
+            var mountBin = NewTarget("bin");
 
             var baseNs = BuildNamespace(
                 MountAt("/a", mountA),
@@ -177,7 +177,7 @@ public class BindRobustnessTests
         };
 
         var random = new Random(271828);
-        var safe = NewFs();
+        var safe = NewTarget("safe");
         var baseNs = BuildNamespace(MountAt("/safe", safe));
 
         foreach (var attack in attacks.Concat(Enumerable.Range(0, 100).Select(_ => RandomPath(random))))
@@ -211,9 +211,10 @@ public class BindRobustnessTests
         return string.Join("/", parts);
     }
 
-    private static Mount MountAt(string path, params INinePFileSystem[] backends)
+    private static Mount MountAt(string path, params BackendTargetDescriptor[] backends)
     {
-        return new Mount(NamespaceOps.splitPath(path), FsList(backends), BindFlags.MREPL);
+        var normalized = NamespaceOps.splitPath(path);
+        return new Mount(normalized, new MountChain(MountIdForPath(normalized), FsBranches(BindFlags.MREPL, backends)));
     }
 
     private static NinePSharp.Core.FSharp.Namespace BuildNamespace(params Mount[] mounts)
@@ -221,10 +222,8 @@ public class BindRobustnessTests
         return new NinePSharp.Core.FSharp.Namespace(FsList(mounts));
     }
 
-    private static INinePFileSystem NewFs()
-    {
-        return new Mock<INinePFileSystem>(MockBehavior.Loose).Object;
-    }
+    private static BackendTargetDescriptor NewTarget(string id)
+        => BackendTargetDescriptor.Local(id, "/" + id, () => new Mock<INinePFileSystem>(MockBehavior.Loose).Object);
 
     private static FSharpList<T> FsList<T>(IEnumerable<T> items)
     {
@@ -236,10 +235,34 @@ public class BindRobustnessTests
         return ListModule.OfSeq(items);
     }
 
+    private static FSharpList<MountBranch> FsBranches(BindFlags flags, IEnumerable<BackendTargetDescriptor> backends)
+    {
+        return ListModule.OfSeq(backends.Select(target => new MountBranch(target, flags)));
+    }
+
     private static string CleanPathSegment(string? raw, string fallback)
     {
         if (string.IsNullOrWhiteSpace(raw)) return fallback;
         var chars = raw.Where(char.IsLetterOrDigit).Take(12).ToArray();
         return chars.Length == 0 ? fallback : new string(chars);
+    }
+
+    private static ulong MountIdForPath(IEnumerable<string> segments)
+    {
+        unchecked
+        {
+            ulong hash = 14695981039346656037UL;
+            foreach (var segment in segments)
+            {
+                foreach (var ch in segment)
+                {
+                    hash = (hash ^ ch) * 1099511628211UL;
+                }
+
+                hash = (hash ^ '/') * 1099511628211UL;
+            }
+
+            return hash == 0 ? 1UL : hash;
+        }
     }
 }

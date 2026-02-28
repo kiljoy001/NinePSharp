@@ -58,7 +58,11 @@ public class Z3NamespaceResolveProofTests
         }
 
         var mounts = mountPaths
-            .Select(path => new Mount(FsList(path), FsList(new[] { NewFs() }), BindFlags.MREPL))
+            .Select(path =>
+            {
+                var fsPath = FsList(path);
+                return new Mount(fsPath, new MountChain(MountIdForPath(path), FsBranches(BindFlags.MREPL, new[] { NewTarget(string.Join("_", path)) })));
+            })
             .ToList();
         var ns = new NinePSharp.Core.FSharp.Namespace(FsList(mounts));
 
@@ -93,7 +97,11 @@ public class Z3NamespaceResolveProofTests
         }
 
         var mounts = mountPaths
-            .Select(path => new Mount(FsList(path), FsList(new[] { NewFs() }), BindFlags.MREPL))
+            .Select(path =>
+            {
+                var fsPath = FsList(path);
+                return new Mount(fsPath, new MountChain(MountIdForPath(path), FsBranches(BindFlags.MREPL, new[] { NewTarget(string.Join("_", path)) })));
+            })
             .ToList();
         var ns = new NinePSharp.Core.FSharp.Namespace(FsList(mounts));
 
@@ -258,13 +266,35 @@ public class Z3NamespaceResolveProofTests
         return new string(chars);
     }
 
-    private static INinePFileSystem NewFs()
-    {
-        return new Mock<INinePFileSystem>(MockBehavior.Loose).Object;
-    }
+    private static BackendTargetDescriptor NewTarget(string id)
+        => BackendTargetDescriptor.Local(id, "/" + id, () => new Mock<INinePFileSystem>(MockBehavior.Loose).Object);
 
     private static FSharpList<T> FsList<T>(IEnumerable<T> items)
     {
         return ListModule.OfSeq(items);
+    }
+
+    private static FSharpList<MountBranch> FsBranches(BindFlags flags, IEnumerable<BackendTargetDescriptor> backends)
+    {
+        return ListModule.OfSeq(backends.Select(target => new MountBranch(target, flags)));
+    }
+
+    private static ulong MountIdForPath(IEnumerable<string> segments)
+    {
+        unchecked
+        {
+            ulong hash = 14695981039346656037UL;
+            foreach (var segment in segments)
+            {
+                foreach (var ch in segment)
+                {
+                    hash = (hash ^ ch) * 1099511628211UL;
+                }
+
+                hash = (hash ^ '/') * 1099511628211UL;
+            }
+
+            return hash == 0 ? 1UL : hash;
+        }
     }
 }

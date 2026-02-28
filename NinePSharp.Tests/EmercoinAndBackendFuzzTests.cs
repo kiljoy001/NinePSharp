@@ -15,7 +15,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
-using NinePSharp.Server.Backends;
+using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
 using Xunit;
 
@@ -26,9 +26,9 @@ public class EmercoinAndBackendFuzzTests
     private static readonly X509Certificate2 Certificate = CreateCertificate();
 
     [Property(MaxTest = 25)]
-    public void MockBackend_Initialize_Uses_Configured_MountPath_Or_Default(NonEmptyString mountSuffix, bool provideMountPath)
+    public void CustomBackend_Initialize_Uses_Configured_MountPath_Or_Default(NonEmptyString mountSuffix, bool provideMountPath)
     {
-        var backend = new MockBackend(new LuxVaultService());
+        var backend = new FuzzBackend();
         var clean = mountSuffix.Get.Replace("/", string.Empty).Replace("..", string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(clean)) clean = "mock-alt";
 
@@ -251,5 +251,21 @@ public class EmercoinAndBackendFuzzTests
         {
             throw new HttpRequestException("simulated transport failure");
         }
+    }
+
+    private sealed class FuzzBackend : IProtocolBackend
+    {
+        public string Name => "Mock";
+        public string MountPath { get; private set; } = "/mock";
+
+        public Task InitializeAsync(IConfiguration configuration)
+        {
+            MountPath = configuration["MountPath"] ?? "/mock";
+            return Task.CompletedTask;
+        }
+
+        public INinePFileSystem GetFileSystem(System.Security.SecureString? credentials, X509Certificate2? certificate = null) => new MockFileSystem();
+
+        public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null) => new MockFileSystem();
     }
 }

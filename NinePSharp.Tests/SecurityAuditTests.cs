@@ -9,8 +9,6 @@ using NinePSharp.Messages;
 using NinePSharp.Server;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
-using NinePSharp.Server.Backends;
-using NinePSharp.Server.Cluster;
 using Moq;
 using Xunit;
 using FluentAssertions;
@@ -47,7 +45,7 @@ public class SecurityAuditTests
         var dispatcher = new NinePFSDispatcher(
             NullLogger<NinePFSDispatcher>.Instance, 
             Enumerable.Empty<IProtocolBackend>(), 
-            new Mock<IClusterManager>().Object);
+            new Mock<IRemoteMountProvider>().Object);
 
         const int floodCount = 100_000;
         Console.WriteLine($"[Audit] Flooding dispatcher with {floodCount} Tattach requests...");
@@ -73,7 +71,7 @@ public class SecurityAuditTests
         var dispatcher = new NinePFSDispatcher(
             NullLogger<NinePFSDispatcher>.Instance, 
             Enumerable.Empty<IProtocolBackend>(), 
-            new Mock<IClusterManager>().Object);
+            new Mock<IRemoteMountProvider>().Object);
 
         const int floodCount = 50_000;
         

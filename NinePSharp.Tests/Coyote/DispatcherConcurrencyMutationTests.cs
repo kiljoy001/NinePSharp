@@ -15,7 +15,6 @@ using NinePSharp.Protocol;
 using NinePSharp.Server;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
-using NinePSharp.Server.Cluster;
 using Xunit;
 using Moq;
 using FluentAssertions;
@@ -57,7 +56,7 @@ public class DispatcherConcurrencyMutationTests
             mockBackend.Setup(b => b.GetFileSystem(It.IsAny<System.Security.SecureString>(), It.IsAny<X509Certificate2>()))
                        .Returns(mockFs.Object);
 
-            var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, new Mock<IClusterManager>().Object);
+            var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, new Mock<IRemoteMountProvider>().Object);
 
             uint rootFid = 100;
             uint newFid = 101;

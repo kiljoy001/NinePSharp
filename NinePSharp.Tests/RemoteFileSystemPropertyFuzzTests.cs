@@ -8,7 +8,6 @@ using FluentAssertions;
 using FsCheck;
 using FsCheck.Xunit;
 using NinePSharp.Messages;
-using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Cluster.Actors;
 using NinePSharp.Server.Cluster.Messages;
 using NinePSharp.Server.Utils;

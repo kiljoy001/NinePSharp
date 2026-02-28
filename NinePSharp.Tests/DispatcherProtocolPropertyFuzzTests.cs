@@ -16,7 +16,6 @@ using NinePSharp.Messages;
 using NinePSharp.Parser;
 using NinePSharp.Protocol;
 using NinePSharp.Server;
-using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Cluster.Actors;
 using NinePSharp.Server.Interfaces;
 using Xunit;
@@ -33,7 +32,7 @@ public class DispatcherProtocolPropertyFuzzTests : IDisposable
         uint fid = (uint)(seed.Get + 1000);
         ushort tagBase = (ushort)((seed.Get % 40000) + 1);
 
-        var dispatcher = BuildDispatcher(Array.Empty<IProtocolBackend>(), new NullClusterManager());
+        var dispatcher = BuildDispatcher(Array.Empty<IProtocolBackend>(), new NullRemoteMountProvider());
         var messages = BuildUnknownFidMessages(fid, tagBase);
 
         foreach (var msg in messages)
@@ -63,9 +62,9 @@ public class DispatcherProtocolPropertyFuzzTests : IDisposable
         backend.SetupGet(b => b.Name).Returns("secretsvc");
         backend.SetupGet(b => b.MountPath).Returns("/vaultx");
         backend.Setup(b => b.GetFileSystem(It.IsAny<SecureString?>(), It.IsAny<X509Certificate2?>()))
-            .Returns(new NinePSharp.Server.Backends.MockFileSystem(new NinePSharp.Server.Utils.LuxVaultService()));
+            .Returns(new MockFileSystem(new NinePSharp.Server.Utils.LuxVaultService()));
 
-        var dispatcher = BuildDispatcher(new[] { backend.Object }, new NullClusterManager());
+        var dispatcher = BuildDispatcher(new[] { backend.Object }, new NullRemoteMountProvider());
         var attach = new Tattach(1, 123, NinePConstants.NoFid, "user", aname);
 
         var response = dispatcher.DispatchAsync(NinePMessage.NewMsgTattach(attach), NinePDialect.NineP2000U).Sync();
@@ -83,9 +82,9 @@ public class DispatcherProtocolPropertyFuzzTests : IDisposable
         backend.SetupGet(b => b.MountPath).Returns("/mock");
         backend.Setup(b => b.GetFileSystem(It.IsAny<SecureString?>(), It.IsAny<X509Certificate2?>()))
             .Callback<SecureString?, X509Certificate2?>((c, _) => capturedCreds = c)
-            .Returns(new NinePSharp.Server.Backends.MockFileSystem(new NinePSharp.Server.Utils.LuxVaultService()));
+            .Returns(new MockFileSystem(new NinePSharp.Server.Utils.LuxVaultService()));
 
-        var dispatcher = BuildDispatcher(new[] { backend.Object }, new NullClusterManager());
+        var dispatcher = BuildDispatcher(new[] { backend.Object }, new NullRemoteMountProvider());
 
         uint authFid = 99;
         var authResp = await dispatcher.DispatchAsync(NinePMessage.NewMsgTauth(new Tauth(1, authFid, "u", "/mock")), dialect: NinePDialect.NineP2000U);
@@ -128,7 +127,7 @@ public class DispatcherProtocolPropertyFuzzTests : IDisposable
     [Fact]
     public async Task Dispatcher_Fuzz_UnknownFid_Sequence_Does_Not_Produce_NonError_Responses()
     {
-        var dispatcher = BuildDispatcher(Array.Empty<IProtocolBackend>(), new NullClusterManager());
+        var dispatcher = BuildDispatcher(Array.Empty<IProtocolBackend>(), new NullRemoteMountProvider());
         var random = new Random(20260226);
 
         for (int i = 0; i < 240; i++)
@@ -149,7 +148,7 @@ public class DispatcherProtocolPropertyFuzzTests : IDisposable
         _system.Dispose();
     }
 
-    private static NinePFSDispatcher BuildDispatcher(IEnumerable<IProtocolBackend> backends, IClusterManager clusterManager)
+    private static NinePFSDispatcher BuildDispatcher(IEnumerable<IProtocolBackend> backends, IRemoteMountProvider clusterManager)
         => new(
             NullLogger<NinePFSDispatcher>.Instance,
             backends,
@@ -199,27 +198,53 @@ public class DispatcherProtocolPropertyFuzzTests : IDisposable
         return new Tcreate(data);
     }
 
-    private sealed class NullClusterManager : IClusterManager
+    private sealed class NullRemoteMountProvider : IRemoteMountProvider
     {
-        public ActorSystem? System => null;
-        public IActorRef? Registry => null;
         public void Start() { }
         public Task StopAsync() => Task.CompletedTask;
+        public Task RegisterMountAsync(string mountPath, Func<INinePFileSystem> createSession) => Task.CompletedTask;
+        public Task<IReadOnlyList<string>> GetRemoteMountPathsAsync() => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        public Task<INinePFileSystem?> TryCreateRemoteFileSystemAsync(string mountPath) => Task.FromResult<INinePFileSystem?>(null);
         public void Dispose() { }
     }
 
-    private sealed class StaticClusterManager : IClusterManager
+    private sealed class StaticClusterManager : IRemoteMountProvider
     {
+        private readonly ActorSystem _system;
+        private readonly IActorRef _registry;
+
         public StaticClusterManager(ActorSystem system, IActorRef registry)
         {
-            System = system;
-            Registry = registry;
+            _system = system;
+            _registry = registry;
         }
 
-        public ActorSystem? System { get; }
-        public IActorRef? Registry { get; }
         public void Start() { }
         public Task StopAsync() => Task.CompletedTask;
+        public Task RegisterMountAsync(string mountPath, Func<INinePFileSystem> createSession) => Task.CompletedTask;
+
+        public async Task<IReadOnlyList<string>> GetRemoteMountPathsAsync()
+        {
+            var response = await _registry.Ask<object>(new GetBackends(), TimeSpan.FromSeconds(2));
+            return response is BackendsSnapshot snapshot
+                ? snapshot.MountPaths
+                : Array.Empty<string>();
+        }
+
+        public async Task<INinePFileSystem?> TryCreateRemoteFileSystemAsync(string mountPath)
+        {
+            var response = await _registry.Ask<object>(new GetBackend(mountPath), TimeSpan.FromSeconds(2));
+            if (response is not BackendFound found)
+            {
+                return null;
+            }
+
+            var session = await found.Actor.Ask<object>(new SpawnSession(), TimeSpan.FromSeconds(2));
+            return session is SessionSpawned spawned
+                ? new RemoteFileSystem(spawned.Session)
+                : null;
+        }
+
         public void Dispose() { }
     }
 

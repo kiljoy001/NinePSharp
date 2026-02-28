@@ -20,7 +20,6 @@ using Microsoft.Extensions.Options;
 using NinePSharp.Messages;
 using NinePSharp.Server;
 using NinePSharp.Server.Interfaces;
-using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Utils;
 using Xunit;
@@ -33,14 +32,14 @@ namespace NinePSharp.Tests
 {
     public class ServerStartupTests
     {
-        #region Unit Tests (Program.cs Logic)
+        #region Unit Tests (Bootstrap Logic)
 
         [Fact]
         public void Generate4096BitSecureSeed_ProducesUniqueSeeds()
         {
             // Act
-            using var seed1 = ReflectionHelper.InvokeStatic<SecureString>(typeof(Program), "Generate4096BitSecureSeed");
-            using var seed2 = ReflectionHelper.InvokeStatic<SecureString>(typeof(Program), "Generate4096BitSecureSeed");
+            using var seed1 = NinePServerBootstrap.Generate4096BitSecureSeed();
+            using var seed2 = NinePServerBootstrap.Generate4096BitSecureSeed();
 
             // Assert
             seed1.Length.Should().Be(512);
@@ -55,10 +54,10 @@ namespace NinePSharp.Tests
         public void DeriveSessionKey_ProducesCorrectLength()
         {
             // Arrange
-            using var seed = ReflectionHelper.InvokeStatic<SecureString>(typeof(Program), "Generate4096BitSecureSeed");
+            using var seed = NinePServerBootstrap.Generate4096BitSecureSeed();
 
             // Act
-            byte[] key = ReflectionHelper.InvokeStatic<byte[]>(typeof(Program), "DeriveSessionKeyFromSecureSeed", seed);
+            byte[] key = NinePServerBootstrap.DeriveSessionKeyFromSecureSeed(seed);
 
             // Assert
             key.Should().NotBeNull();
@@ -88,8 +87,8 @@ namespace NinePSharp.Tests
             secureSeed1.MakeReadOnly();
             secureSeed2.MakeReadOnly();
 
-            byte[] key1 = ReflectionHelper.InvokeStatic<byte[]>(typeof(Program), "DeriveSessionKeyFromSecureSeed", secureSeed1);
-            byte[] key2 = ReflectionHelper.InvokeStatic<byte[]>(typeof(Program), "DeriveSessionKeyFromSecureSeed", secureSeed2);
+            byte[] key1 = NinePServerBootstrap.DeriveSessionKeyFromSecureSeed(secureSeed1);
+            byte[] key2 = NinePServerBootstrap.DeriveSessionKeyFromSecureSeed(secureSeed2);
 
             return StructuralComparisons.StructuralEqualityComparer.Equals(key1, key2);
         }
@@ -113,30 +112,14 @@ namespace NinePSharp.Tests
                 })
                 .ConfigureServices((hostContext, services) =>
                 {
-                    var serverConfig = new ServerConfig { 
-                        Endpoints = new List<EndpointConfig> { 
-                            new EndpointConfig { Address = "127.0.0.1", Port = 9999, Protocol = "tcp" } 
-                        } 
-                    };
-                    services.AddSingleton(Options.Create(serverConfig));
-                    services.AddSingleton(serverConfig);
-                    
                     services.AddLogging();
-                    services.AddSingleton<IClusterManager, ClusterManager>();
-                    services.AddSingleton<INinePFSDispatcher, NinePFSDispatcher>();
-                    services.AddSingleton<IEmercoinAuthService, EmercoinAuthService>();
-                    services.AddSingleton<IEmercoinNvsClient, EmercoinNvsClient>();
-                    services.AddHttpClient();
-                    
-                    services.AddSingleton<IEnumerable<IProtocolBackend>>(new List<IProtocolBackend>());
-                    
-                    services.AddHostedService<NinePServer>();
+                    services.AddNinePSharpServer(hostContext.Configuration);
                 });
 
             // Act & Assert
             using var host = hostBuilder.Build();
-            var server = host.Services.GetRequiredService<IHostedService>();
-            server.Should().BeOfType<NinePServer>();
+            var hostedServices = host.Services.GetServices<IHostedService>().ToArray();
+            hostedServices.Should().ContainSingle(service => service is NinePServer);
         }
 
         #endregion
@@ -157,7 +140,7 @@ namespace NinePSharp.Tests
             });
             
             var dispatcher = new Mock<INinePFSDispatcher>();
-            var cluster = new Mock<IClusterManager>();
+            var cluster = new Mock<IRemoteMountProvider>();
             var configuration = new ConfigurationBuilder().Build();
             var auth = new Mock<IEmercoinAuthService>();
 
@@ -215,17 +198,6 @@ namespace NinePSharp.Tests
             listener.Stop();
             return port;
         }
-
-        private static class ReflectionHelper
-        {
-            public static T InvokeStatic<T>(Type type, string methodName, params object[] args)
-            {
-                var method = type.GetMethod(methodName, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-                if (method == null) throw new Exception($"Method {methodName} not found on {type.Name}");
-                return (T)method.Invoke(null, args)!;
-            }
-        }
-
         #endregion
     }
 }

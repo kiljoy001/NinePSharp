@@ -11,7 +11,6 @@ using NinePSharp.Messages;
 using NinePSharp.Parser;
 using NinePSharp.Protocol;
 using NinePSharp.Server;
-using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Interfaces;
 using Xunit;
 using CoyoteTask = Microsoft.Coyote.Rewriting.Types.Threading.Tasks.Task;
@@ -32,7 +31,7 @@ public class DispatcherUnknownFidCoyoteTests
             var dispatcher = new NinePFSDispatcher(
                 NullLogger<NinePFSDispatcher>.Instance,
                 Array.Empty<IProtocolBackend>(),
-                new Mock<IClusterManager>().Object);
+                new Mock<IRemoteMountProvider>().Object);
 
             const uint fid = 424242;
             var messages = BuildUnknownFidMessages(fid, 100);

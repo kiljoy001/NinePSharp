@@ -10,7 +10,6 @@ using Moq;
 using NinePSharp.Messages;
 using NinePSharp.Parser;
 using NinePSharp.Server;
-using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Interfaces;
 using Xunit;
 using CoyoteTask = Microsoft.Coyote.Rewriting.Types.Threading.Tasks.Task;
@@ -46,7 +45,7 @@ public class DispatcherRaceInvariantCoyoteTests
             var dispatcher = new NinePFSDispatcher(
                 NullLogger<NinePFSDispatcher>.Instance,
                 new[] { backend.Object },
-                new Mock<IClusterManager>().Object);
+                new Mock<IRemoteMountProvider>().Object);
 
             await dispatcher.DispatchAsync(
                 NinePMessage.NewMsgTattach(new Tattach(1, 100, NinePConstants.NoFid, "user", "/mock")),

@@ -110,17 +110,38 @@ namespace NinePSharp.Server.Utils
         private interface ICpuMonitor { float GetUsage(); }
 
         [SupportedOSPlatform("windows")]
-        private class WindowsCpuMonitor : ICpuMonitor
+        private sealed class WindowsCpuMonitor : ICpuMonitor
         {
-            private readonly PerformanceCounter? _counter;
-            public WindowsCpuMonitor()
+            private readonly Process _process = Process.GetCurrentProcess();
+            private TimeSpan _lastCpu = Process.GetCurrentProcess().TotalProcessorTime;
+            private DateTime _lastWallClock = DateTime.UtcNow;
+
+            public float GetUsage()
             {
-                try {
-                    _counter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
-                    _counter.NextValue();
-                } catch { _counter = null; }
+                try
+                {
+                    TimeSpan currentCpu = _process.TotalProcessorTime;
+                    DateTime currentWallClock = DateTime.UtcNow;
+
+                    double cpuDeltaMs = (currentCpu - _lastCpu).TotalMilliseconds;
+                    double wallDeltaMs = (currentWallClock - _lastWallClock).TotalMilliseconds;
+
+                    _lastCpu = currentCpu;
+                    _lastWallClock = currentWallClock;
+
+                    if (wallDeltaMs <= 0)
+                    {
+                        return 0f;
+                    }
+
+                    double normalized = cpuDeltaMs / (wallDeltaMs * Environment.ProcessorCount);
+                    return (float)Math.Clamp(normalized * 100d, 0d, 100d);
+                }
+                catch
+                {
+                    return 0f;
+                }
             }
-            public float GetUsage() => _counter?.NextValue() ?? 0f;
         }
 
         private class LinuxCpuMonitor : ICpuMonitor

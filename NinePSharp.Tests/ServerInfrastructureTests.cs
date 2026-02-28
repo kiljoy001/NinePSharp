@@ -18,7 +18,6 @@ using NinePSharp.Parser;
 using NinePSharp.Server;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
-using NinePSharp.Server.Cluster;
 using Xunit;
 using FsCheck;
 using FsCheck.Xunit;
@@ -29,7 +28,7 @@ namespace NinePSharp.Tests
     public class ServerInfrastructureTests
     {
         private readonly Mock<INinePFSDispatcher> _mockDispatcher;
-        private readonly Mock<IClusterManager> _mockClusterManager;
+        private readonly Mock<IRemoteMountProvider> _mockClusterManager;
         private readonly Mock<IConfiguration> _mockConfig;
         private readonly Mock<IEmercoinAuthService> _mockAuth;
         private readonly ServerConfig _serverConfig;
@@ -37,7 +36,7 @@ namespace NinePSharp.Tests
         public ServerInfrastructureTests()
         {
             _mockDispatcher = new Mock<INinePFSDispatcher>();
-            _mockClusterManager = new Mock<IClusterManager>();
+            _mockClusterManager = new Mock<IRemoteMountProvider>();
             _mockConfig = new Mock<IConfiguration>();
             _mockAuth = new Mock<IEmercoinAuthService>();
             _serverConfig = new ServerConfig 

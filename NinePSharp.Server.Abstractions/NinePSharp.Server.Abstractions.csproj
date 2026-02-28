@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
+    <ProjectReference Include="..\NinePSharp.Parser\NinePSharp.Parser.fsproj" />
   </ItemGroup>
 
   <ItemGroup>

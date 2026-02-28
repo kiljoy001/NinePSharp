@@ -45,11 +45,9 @@ public class ClusterTests : TestKit
     [Fact]
     public void Supervisor_Should_Spawn_Session()
     {
-        var backendMock = new Mock<IProtocolBackend>();
         var fsMock = new Mock<INinePFileSystem>();
-        backendMock.Setup(x => x.GetFileSystem(null)).Returns(fsMock.Object);
 
-        var supervisor = Sys.ActorOf(Props.Create(() => new BackendSupervisorActor(backendMock.Object)));
+        var supervisor = Sys.ActorOf(Props.Create(() => new BackendSupervisorActor(() => fsMock.Object)));
 
         supervisor.Tell(new SpawnSession());
         var response = ExpectMsg<SessionSpawned>();

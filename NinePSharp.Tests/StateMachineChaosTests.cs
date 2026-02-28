@@ -9,7 +9,6 @@ using System.Threading.Tasks;
 using NinePSharp.Messages;
 using NinePSharp.Server;
 using NinePSharp.Server.Interfaces;
-using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Utils;
 using NinePSharp.Server.Configuration.Models;
 using Xunit;
@@ -21,13 +20,13 @@ namespace NinePSharp.Tests;
 
 public class StateMachineChaosTests
 {
-    private readonly IClusterManager _clusterManager;
+    private readonly IRemoteMountProvider _clusterManager;
     private readonly Mock<IProtocolBackend> _mockBackend;
     private readonly Mock<INinePFileSystem> _mockFs;
 
     public StateMachineChaosTests()
     {
-        _clusterManager = new Mock<IClusterManager>().Object;
+        _clusterManager = new Mock<IRemoteMountProvider>().Object;
         _mockBackend = new Mock<IProtocolBackend>();
         _mockFs = new Mock<INinePFileSystem>();
         

@@ -70,6 +70,34 @@ public class DispatcherIntegrationPropertyFuzzTests
         entries2.Select(e => e.Name).Should().OnlyContain(name => backendNames.Contains(name));
     }
 
+    [Fact]
+    public async Task Dispatcher_Namespace_Readdir_Returns_And_Paginates_Mounts()
+    {
+        var backendNames = Enumerable.Range(0, 24).Select(i => $"r{i:000}").ToList();
+        var backends = backendNames
+            .Select(name => (IProtocolBackend)new StubBackend("/" + name, () => new MarkerFileSystem(name)))
+            .ToArray();
+
+        var dispatcher = DispatcherIntegrationTestKit.CreateDispatcher(backends);
+
+        const uint rootFid = 225;
+        const uint pageBytes = 180;
+
+        await DispatcherIntegrationTestKit.AttachRootAsync(dispatcher, tag: 1, fid: rootFid);
+
+        var page1 = await DispatcherIntegrationTestKit.ReaddirAsync(dispatcher, tag: 2, fid: rootFid, offset: 0, count: pageBytes);
+        var entries1 = DispatcherIntegrationTestKit.ParseReaddirEntries(page1.Data.Span);
+        entries1.Should().NotBeEmpty();
+
+        ulong nextOffset = entries1[^1].NextOffset;
+        var page2 = await DispatcherIntegrationTestKit.ReaddirAsync(dispatcher, tag: 3, fid: rootFid, offset: nextOffset, count: pageBytes);
+        var entries2 = DispatcherIntegrationTestKit.ParseReaddirEntries(page2.Data.Span);
+
+        entries2.Should().NotBeEmpty();
+        entries1.Select(e => e.Name).Intersect(entries2.Select(e => e.Name)).Should().BeEmpty();
+        entries1.Concat(entries2).Select(e => e.Name).Should().OnlyContain(name => backendNames.Contains(name));
+    }
+
     [Property(MaxTest = 40)]
     public bool Dispatcher_Namespace_BackendSwitch_Property(string rawAlpha, string rawBeta)
     {
@@ -263,6 +291,45 @@ public class DispatcherIntegrationPropertyFuzzTests
             }
 
             seen.Should().BeEquivalentTo(backendNames, $"fuzz iteration {iteration} should enumerate full namespace listing");
+        }
+    }
+
+    [Fact]
+    public async Task Dispatcher_Root_Read_Tolerates_Broken_RemoteMountProvider()
+    {
+        var dispatcher = new NinePSharp.Server.NinePFSDispatcher(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<NinePSharp.Server.NinePFSDispatcher>.Instance,
+            new[] { (IProtocolBackend)new StubBackend("/alpha", () => new MarkerFileSystem("alpha")) },
+            new BrokenRemoteMountProvider());
+
+        const uint rootFid = 750;
+
+        await DispatcherIntegrationTestKit.AttachRootAsync(dispatcher, tag: 1, fid: rootFid);
+        var page = await DispatcherIntegrationTestKit.ReadAsync(dispatcher, tag: 2, fid: rootFid, offset: 0, count: 320);
+
+        DispatcherIntegrationTestKit.ParseStatsTable(page.Data.Span)
+            .Select(entry => entry.Name)
+            .Should()
+            .Contain("alpha");
+    }
+
+    private sealed class BrokenRemoteMountProvider : IRemoteMountProvider
+    {
+        public void Start()
+        {
+        }
+
+        public Task StopAsync() => Task.CompletedTask;
+
+        public Task RegisterMountAsync(string mountPath, Func<INinePFileSystem> createSession) => Task.CompletedTask;
+
+#pragma warning disable CS8603
+        public Task<IReadOnlyList<string>> GetRemoteMountPathsAsync() => null;
+
+        public Task<INinePFileSystem?> TryCreateRemoteFileSystemAsync(string mountPath) => null;
+#pragma warning restore CS8603
+        public void Dispose()
+        {
         }
     }
 }

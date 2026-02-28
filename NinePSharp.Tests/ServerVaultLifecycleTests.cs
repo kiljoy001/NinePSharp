@@ -1,6 +1,7 @@
 using NinePSharp.Constants;
 using System;
 using System.IO;
+using NinePSharp.Server;
 using NinePSharp.Server.Utils;
 using Xunit;
 
@@ -14,7 +15,7 @@ public class ServerVaultLifecycleTests
     {
         string marker = CreateMarkerFile("startup");
 
-        Program.CleanupVaultsOnStartup();
+        NinePServerBootstrap.CleanupVaultsOnStartup();
 
         Assert.False(File.Exists(marker));
         Assert.True(Directory.Exists(LuxVault.VaultDirectory));
@@ -25,7 +26,7 @@ public class ServerVaultLifecycleTests
     {
         string marker = CreateMarkerFile("shutdown");
 
-        Program.CleanupVaultsOnShutdown();
+        NinePServerBootstrap.CleanupVaultsOnShutdown();
 
         Assert.False(File.Exists(marker));
         Assert.True(Directory.Exists(LuxVault.VaultDirectory));

@@ -17,13 +17,13 @@ public class Plan9ProcessTests
     [Fact]
     public void Channel_Walk_Returns_New_Channel_Without_Mutating_Source()
     {
-        var fs = NewFs();
-        var source = new Channel(
+        var target = NewTarget("eth");
+        var source = ChannelOps.createBackendNode(
             new NinePSharp.Core.FSharp.Qid(QidType.QTDIR, 1, 42),
-            77UL,
-            fs,
-            FsList("eth"),
-            true);
+            target,
+            Array.Empty<string>(),
+            FsList("eth"));
+        source = new Channel(source.Qid, 77UL, source.Target, source.PathState, true);
 
         var walked = ChannelOps.walk(FsList("wallet"), source);
 
@@ -34,7 +34,7 @@ public class Plan9ProcessTests
         walked.InternalPath.ToList().Should().Equal("eth", "wallet");
         walked.Offset.Should().Be(0UL);
         walked.IsOpened.Should().BeFalse();
-        walked.FileSystem.Should().BeSameAs(fs);
+        walked.Target.Should().Be(source.Target);
     }
 
     [Property(MaxTest = 100)]
@@ -42,14 +42,13 @@ public class Plan9ProcessTests
     {
         if (rawSegments == null) return true;
 
-        var fs = NewFs();
         var originalPath = FsList("root");
-        var source = new Channel(
+        var source = ChannelOps.createBackendNode(
             new NinePSharp.Core.FSharp.Qid(QidType.QTDIR, 0, 7),
-            5UL,
-            fs,
-            originalPath,
-            true);
+            NewTarget("root"),
+            Array.Empty<string>(),
+            originalPath);
+        source = new Channel(source.Qid, 5UL, source.Target, source.PathState, true);
 
         var segments = rawSegments
             .Where(s => s != null)
@@ -68,8 +67,7 @@ public class Plan9ProcessTests
     [Fact]
     public void Process_AddFd_Maps_Channel_Without_Mutating_Original_Process()
     {
-        var fs = NewFs();
-        var channel = new Channel(new NinePSharp.Core.FSharp.Qid(QidType.QTFILE, 0, 99), 0UL, fs, FsList("bin", "tool"), false);
+        var channel = ChannelOps.createBackendNode(new NinePSharp.Core.FSharp.Qid(QidType.QTFILE, 0, 99), NewTarget("bin"), Array.Empty<string>(), FsList("bin", "tool"));
         var proc = Process.create(1, EmptyNamespace());
 
         var mutated = Process.addFd(3, channel, proc);
@@ -87,13 +85,13 @@ public class Plan9ProcessTests
         var target = CleanPathSegment(targetRaw, "old");
         if (source == target) target += "_t";
 
-        var sourceFs = NewFs();
-        var targetFs = NewFs();
+        var sourceFs = NewTarget("source");
+        var targetFs = NewTarget("target");
         var ns = BuildNamespace(
             MountAt("/" + source, sourceFs),
             MountAt("/" + target, targetFs));
 
-        var channel = new Channel(new NinePSharp.Core.FSharp.Qid(QidType.QTDIR, 0, 11), 0UL, targetFs, FsList(target), false);
+        var channel = ChannelOps.createBackendNode(new NinePSharp.Core.FSharp.Qid(QidType.QTDIR, 0, 11), targetFs, Array.Empty<string>(), FsList(target));
         var parent = Process.addFd(10, channel, Process.create(100, ns));
 
         var child = Process.fork(101, parent);
@@ -119,9 +117,10 @@ public class Plan9ProcessTests
         return NamespaceOps.empty;
     }
 
-    private static Mount MountAt(string path, params INinePFileSystem[] backends)
+    private static Mount MountAt(string path, params BackendTargetDescriptor[] backends)
     {
-        return new Mount(NamespaceOps.splitPath(path), FsList(backends), BindFlags.MREPL);
+        var normalized = NamespaceOps.splitPath(path);
+        return new Mount(normalized, new MountChain(MountIdForPath(normalized), FsBranches(BindFlags.MREPL, backends)));
     }
 
     private static NinePSharp.Core.FSharp.Namespace BuildNamespace(params Mount[] mounts)
@@ -129,14 +128,17 @@ public class Plan9ProcessTests
         return new NinePSharp.Core.FSharp.Namespace(FsList(mounts));
     }
 
-    private static INinePFileSystem NewFs()
-    {
-        return new Mock<INinePFileSystem>(MockBehavior.Loose).Object;
-    }
+    private static BackendTargetDescriptor NewTarget(string id)
+        => BackendTargetDescriptor.Local(id, "/" + id, () => new Mock<INinePFileSystem>(MockBehavior.Loose).Object);
 
     private static FSharpList<T> FsList<T>(IEnumerable<T> items)
     {
         return ListModule.OfSeq(items);
+    }
+
+    private static FSharpList<MountBranch> FsBranches(BindFlags flags, IEnumerable<BackendTargetDescriptor> backends)
+    {
+        return ListModule.OfSeq(backends.Select(target => new MountBranch(target, flags)));
     }
 
     private static FSharpList<string> FsList(params string[] items)
@@ -149,5 +151,24 @@ public class Plan9ProcessTests
         if (string.IsNullOrWhiteSpace(raw)) return fallback;
         var chars = raw.Where(char.IsLetterOrDigit).Take(12).ToArray();
         return chars.Length == 0 ? fallback : new string(chars);
+    }
+
+    private static ulong MountIdForPath(IEnumerable<string> segments)
+    {
+        unchecked
+        {
+            ulong hash = 14695981039346656037UL;
+            foreach (var segment in segments)
+            {
+                foreach (var ch in segment)
+                {
+                    hash = (hash ^ ch) * 1099511628211UL;
+                }
+
+                hash = (hash ^ '/') * 1099511628211UL;
+            }
+
+            return hash == 0 ? 1UL : hash;
+        }
     }
 }

@@ -10,10 +10,13 @@
     <Compile Include="Channel.fs" />
     <Compile Include="Namespace.fs" />
     <Compile Include="Process.fs" />
+    <Compile Include="Session.fs" />
+    <Compile Include="Transport.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
+    <ProjectReference Include="..\NinePSharp.Parser\NinePSharp.Parser.fsproj" />
     <ProjectReference Include="..\NinePSharp.Server.Abstractions\NinePSharp.Server.Abstractions.csproj" />
   </ItemGroup>
 

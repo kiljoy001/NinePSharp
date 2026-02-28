@@ -14,8 +14,6 @@ using NinePSharp.Parser;
 using NinePSharp.Protocol;
 using NinePSharp.Server;
 using NinePSharp.Server.Interfaces;
-using NinePSharp.Server.Utils;
-using NinePSharp.Server.Cluster;
 using Xunit;
 using Moq;
 using FluentAssertions;
@@ -54,9 +52,9 @@ public class NinePFSDispatcherConcurrencyTests
             var mockBackend = new Mock<IProtocolBackend>();
             mockBackend.Setup(b => b.MountPath).Returns("/mock");
             mockBackend.Setup(b => b.GetFileSystem(It.IsAny<X509Certificate2>()))
-                       .Returns(() => new NinePSharp.Server.Backends.MockFileSystem(new LuxVaultService()));
+                       .Returns(() => new MockFileSystem());
 
-            var mockClusterManager = new Mock<IClusterManager>();
+            var mockClusterManager = new Mock<IRemoteMountProvider>();
             var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, mockClusterManager.Object);
 
             uint rootFid = 100;
@@ -104,9 +102,9 @@ public class NinePFSDispatcherConcurrencyTests
             var mockBackend = new Mock<IProtocolBackend>();
             mockBackend.Setup(b => b.MountPath).Returns("/mock");
             mockBackend.Setup(b => b.GetFileSystem(It.IsAny<X509Certificate2>()))
-                       .Returns(() => new NinePSharp.Server.Backends.MockFileSystem(new LuxVaultService()));
+                       .Returns(() => new MockFileSystem());
 
-            var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, new Mock<IClusterManager>().Object);
+            var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, new Mock<IRemoteMountProvider>().Object);
 
             uint fid = 100;
             await dispatcher.DispatchAsync(NinePMessage.NewMsgTattach(new Tattach(0, fid, NinePConstants.NoFid, "user", "mock")), NinePDialect.NineP2000U);

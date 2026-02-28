@@ -10,7 +10,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NinePSharp.Server.Cluster;
-using NinePSharp.Server.Configuration.Models;
 using Xunit;
 
 namespace NinePSharp.Tests;
@@ -23,7 +22,7 @@ public class ClusterManagerRuntimePropertyFuzzTests
     [Fact]
     public async Task ClusterManager_Start_Without_Akka_Config_Stays_Standalone()
     {
-        var sut = CreateManager(new ServerConfig { Akka = null });
+        var sut = CreateManager(null);
 
         sut.Start();
 
@@ -39,18 +38,15 @@ public class ClusterManagerRuntimePropertyFuzzTests
     public async Task ClusterManager_Start_Uses_cluster_conf_Overrides_When_File_Present()
     {
         var systemName = "FileOverride" + Guid.NewGuid().ToString("N")[..8];
-        var serverConfig = new ServerConfig
+        var akkaConfig = new AkkaConfig
         {
-            Akka = new AkkaConfig
-            {
-                SystemName = "JsonConfigSystem",
-                Hostname = "localhost",
-                Port = 8081,
-                Role = "backend"
-            }
+            SystemName = "JsonConfigSystem",
+            Hostname = "localhost",
+            Port = 8081,
+            Role = "backend"
         };
 
-        var sut = CreateManager(serverConfig);
+        var sut = CreateManager(akkaConfig);
 
         lock (ClusterConfGate)
         {
@@ -78,15 +74,12 @@ public class ClusterManagerRuntimePropertyFuzzTests
     public async Task ClusterManager_Start_With_Akka_Config_Creates_And_Terminates_ActorSystem()
     {
         var systemName = "AkkaRuntime" + Guid.NewGuid().ToString("N")[..8];
-        var sut = CreateManager(new ServerConfig
+        var sut = CreateManager(new AkkaConfig
         {
-            Akka = new AkkaConfig
-            {
-                SystemName = systemName,
-                Hostname = "127.0.0.1",
-                Port = 0,
-                Role = "backend"
-            }
+            SystemName = systemName,
+            Hostname = "127.0.0.1",
+            Port = 0,
+            Role = "backend"
         });
 
         sut.Start();
@@ -153,7 +146,7 @@ public class ClusterManagerRuntimePropertyFuzzTests
         resolved.Should().BeNull();
     }
 
-    private static ClusterManager CreateManager(ServerConfig config)
+    private static ClusterManager CreateManager(AkkaConfig? config)
     {
         var loggerFactory = new Mock<ILoggerFactory>();
         loggerFactory.Setup(x => x.CreateLogger(It.IsAny<string>()))

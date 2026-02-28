@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Dispatcher.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
+    <ProjectReference Include="..\NinePSharp.Parser\NinePSharp.Parser.fsproj" />
+    <ProjectReference Include="..\NinePSharp.Core.FSharp\NinePSharp.Core.FSharp.fsproj" />
+    <ProjectReference Include="..\NinePSharp.Server.Abstractions\NinePSharp.Server.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>

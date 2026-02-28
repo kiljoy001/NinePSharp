@@ -13,7 +13,6 @@ using NinePSharp.Protocol;
 using NinePSharp.Server;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
-using NinePSharp.Server.Cluster;
 using Xunit;
 using Moq;
 
@@ -44,7 +43,7 @@ public class DispatcherRaceReproductionTests
         // to expose the race between ContainsKey and assignment in a loop.
         
         var mockBackend = new Mock<IProtocolBackend>();
-        var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, new Mock<IClusterManager>().Object);
+        var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, new Mock<IRemoteMountProvider>().Object);
 
         uint rootFid = 100;
         uint newFid = 101;

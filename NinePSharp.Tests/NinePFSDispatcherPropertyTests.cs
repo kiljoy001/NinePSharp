@@ -13,7 +13,6 @@ using NinePSharp.Protocol;
 using NinePSharp.Server;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
-using NinePSharp.Server.Cluster;
 using Xunit;
 using Moq;
 using NinePSharp.Generators;
@@ -24,7 +23,7 @@ public class NinePFSDispatcherPropertyTests
 {
     private readonly NinePFSDispatcher _dispatcher;
     private readonly Mock<IProtocolBackend> _mockBackend;
-    private readonly Mock<IClusterManager> _mockClusterManager;
+    private readonly Mock<IRemoteMountProvider> _mockClusterManager;
 
     public NinePFSDispatcherPropertyTests()
     {
@@ -32,11 +31,11 @@ public class NinePFSDispatcherPropertyTests
         _mockBackend.Setup(b => b.Name).Returns("Mock");
         _mockBackend.Setup(b => b.MountPath).Returns("/mock");
         _mockBackend.Setup(b => b.GetFileSystem(It.IsAny<System.Security.SecureString>(), It.IsAny<X509Certificate2>()))
-                    .Returns(() => new NinePSharp.Server.Backends.MockFileSystem(new LuxVaultService()));
+                    .Returns(() => new MockFileSystem(new LuxVaultService()));
         _mockBackend.Setup(b => b.GetFileSystem(It.IsAny<X509Certificate2>()))
-                    .Returns(() => new NinePSharp.Server.Backends.MockFileSystem(new LuxVaultService()));
+                    .Returns(() => new MockFileSystem(new LuxVaultService()));
 
-        _mockClusterManager = new Mock<IClusterManager>();
+        _mockClusterManager = new Mock<IRemoteMountProvider>();
         
         _dispatcher = new NinePFSDispatcher(
             NullLogger<NinePFSDispatcher>.Instance,

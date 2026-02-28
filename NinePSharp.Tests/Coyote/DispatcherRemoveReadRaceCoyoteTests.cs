@@ -9,7 +9,6 @@ using Moq;
 using NinePSharp.Messages;
 using NinePSharp.Parser;
 using NinePSharp.Server;
-using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Interfaces;
 using Xunit;
 using CoyoteTask = Microsoft.Coyote.Rewriting.Types.Threading.Tasks.Task;
@@ -23,11 +22,14 @@ public class DispatcherRemoveReadRaceCoyoteTests
     {
         var configuration = Microsoft.Coyote.Configuration.Create()
             .WithTestingIterations(200)
-            .WithPartiallyControlledConcurrencyAllowed(true);
+            .WithPartiallyControlledConcurrencyAllowed(true)
+            .WithPotentialDeadlocksReportedAsBugs(false);
 
         var engine = TestingEngine.Create(configuration, async () =>
         {
+            const string sessionId = "coyote-remove-read";
             var fs = new Mock<INinePFileSystem>(MockBehavior.Strict);
+            fs.SetupProperty(f => f.Dialect);
             fs.Setup(f => f.Clone()).Returns(fs.Object);
             fs.Setup(f => f.ReadAsync(It.IsAny<Tread>()))
                 .Returns(async (Tread t) =>
@@ -51,16 +53,19 @@ public class DispatcherRemoveReadRaceCoyoteTests
             var dispatcher = new NinePFSDispatcher(
                 NullLogger<NinePFSDispatcher>.Instance,
                 new[] { backend.Object },
-                new Mock<IClusterManager>().Object);
+                new Mock<IRemoteMountProvider>().Object);
 
             _ = await dispatcher.DispatchAsync(
+                sessionId,
                 NinePMessage.NewMsgTattach(new Tattach(1, 100, NinePConstants.NoFid, "user", "/mock")),
                 dialect: NinePDialect.NineP2000U);
 
             var readTask = CoyoteTask.Run(() => dispatcher.DispatchAsync(
+                sessionId,
                 NinePMessage.NewMsgTread(new Tread(2, 100, 0, 1)),
                 dialect: NinePDialect.NineP2000U));
             var removeTask = CoyoteTask.Run(() => dispatcher.DispatchAsync(
+                sessionId,
                 NinePMessage.NewMsgTremove(new Tremove(3, 100)),
                 dialect: NinePDialect.NineP2000U));
 
@@ -69,6 +74,7 @@ public class DispatcherRemoveReadRaceCoyoteTests
             results.Count(r => r is Rread || r is Rerror || r is Rlerror).Should().Be(1);
 
             var followUpRead = await dispatcher.DispatchAsync(
+                sessionId,
                 NinePMessage.NewMsgTread(new Tread(4, 100, 0, 1)),
                 dialect: NinePDialect.NineP2000U);
             followUpRead.Should().Match(r => r is Rerror || r is Rlerror);

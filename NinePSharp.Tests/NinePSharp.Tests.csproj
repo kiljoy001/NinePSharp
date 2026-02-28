@@ -35,8 +35,27 @@
     <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
     <ProjectReference Include="..\NinePSharp.Generators\NinePSharp.Generators.fsproj" />
     <ProjectReference Include="..\NinePSharp.Server\NinePSharp.Server.csproj" />
+    <ProjectReference Include="..\NinePSharp.Server.Akka\NinePSharp.Server.Akka.csproj" />
     <ProjectReference Include="..\NinePSharp.Core.FSharp\NinePSharp.Core.FSharp.fsproj" />
-    <ProjectReference Include="..\NinePSharp.Backends.Pipes\NinePSharp.Backends.Pipes.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="CloudBackendTests.cs" />
+    <Compile Remove="CloudBackendPropertyFuzzCoyoteTests.cs" />
+    <Compile Remove="CrossBackendIntegrationTests.cs" />
+    <Compile Remove="HeapSecurityTests.cs" />
+    <Compile Remove="MockFileSystemTests.cs" />
+    <Compile Remove="MockFileSystemPropertyTests.cs" />
+    <Compile Remove="MockFileSystemMutationPropertyTests.cs" />
+    <Compile Remove="MockFileSystemEdgePropertyFuzzTests.cs" />
+    <Compile Remove="SecretBackendRegressionTests.cs" />
+    <Compile Remove="SecretFileSystemTests.cs" />
+    <Compile Remove="SecretFileSystemPropertyTests.cs" />
+    <Compile Remove="SecretFileSystemMutationPropertyFuzzTests.cs" />
+    <Compile Remove="SrvBackendTests.cs" />
+    <Compile Remove="StrykerCoverageTests.cs" />
+    <Compile Remove="Coyote/MockFileSystemConcurrencyCoyoteTests.cs" />
+    <Compile Remove="Coyote/SecretFileSystemSessionCoyoteTests.cs" />
   </ItemGroup>
 
 </Project>

@@ -13,7 +13,6 @@ using NinePSharp.Server;
 using NinePSharp.Server.Backends;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
-using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Configuration.Models;
 using Moq;
 using Xunit;
@@ -32,7 +31,7 @@ public class HeapSecurityTests
         if (secretData == null || secretData.Length == 0) return true;
 
         var mockBackend = new Mock<IProtocolBackend>();
-        var cluster = new Mock<IClusterManager>().Object;
+        var cluster = new Mock<IRemoteMountProvider>().Object;
         var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, cluster);
 
         // 1. Setup an auth fid

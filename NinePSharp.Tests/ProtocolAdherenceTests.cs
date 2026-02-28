@@ -10,11 +10,7 @@ using System.Threading.Tasks;
 using NinePSharp.Messages;
 using NinePSharp.Parser;
 using NinePSharp.Server;
-using NinePSharp.Server.Backends;
-using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
-using NinePSharp.Server.Utils;
-using NinePSharp.Server.Cluster;
 using Moq;
 using Xunit;
 
@@ -22,8 +18,6 @@ namespace NinePSharp.Tests
 {
     public class ProtocolAdherenceTests
     {
-        private readonly ILuxVaultService _vault = new LuxVaultService();
-
         private List<Stat> ParseDir(byte[] data)
         {
             var stats = new List<Stat>();
@@ -41,7 +35,7 @@ namespace NinePSharp.Tests
             var logger = new Moq.Mock<Microsoft.Extensions.Logging.ILogger<NinePFSDispatcher>>();
             var mockBackend = new Moq.Mock<IProtocolBackend>();
             var mockFs = new Moq.Mock<INinePFileSystem>();
-            var mockCluster = new Mock<IClusterManager>();
+            var mockCluster = new Mock<IRemoteMountProvider>();
             
             mockBackend.Setup(b => b.MountPath).Returns("/test");
             mockBackend.Setup(b => b.GetFileSystem(It.IsAny<SecureString>(), It.IsAny<X509Certificate2>())).Returns(mockFs.Object);
@@ -70,7 +64,7 @@ namespace NinePSharp.Tests
             var logger = new Moq.Mock<Microsoft.Extensions.Logging.ILogger<NinePFSDispatcher>>();
             var mockBackend = new Moq.Mock<IProtocolBackend>();
             var mockFs = new Moq.Mock<INinePFileSystem>();
-            var mockCluster = new Mock<IClusterManager>();
+            var mockCluster = new Mock<IRemoteMountProvider>();
             
             mockBackend.Setup(b => b.MountPath).Returns("/test");
             mockBackend.Setup(b => b.GetFileSystem(It.IsAny<SecureString>(), It.IsAny<X509Certificate2>())).Returns(mockFs.Object);

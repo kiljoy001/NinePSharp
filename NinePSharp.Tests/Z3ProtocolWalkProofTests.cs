@@ -91,13 +91,11 @@ public class Z3ProtocolWalkProofTests
         int initialDepth = depthSeed.Get % 12;
         var initialPath = Enumerable.Range(0, initialDepth).Select(i => $"p{i}");
 
-        var fs = new Mock<INinePFileSystem>(MockBehavior.Loose).Object;
-        var channel = new Channel(
+        var channel = ChannelOps.createBackendNode(
             new NinePSharp.Core.FSharp.Qid(QidType.QTDIR, 0, 1),
-            0UL,
-            fs,
-            FsList(initialPath),
-            false);
+            BackendTargetDescriptor.Local("walk", "/walk", () => new Mock<INinePFileSystem>(MockBehavior.Loose).Object),
+            Array.Empty<string>(),
+            FsList(initialPath));
 
         var segments = rawSegments
             .Select(NormalizeSegment)

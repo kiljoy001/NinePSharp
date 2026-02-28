@@ -12,8 +12,6 @@ using NinePSharp.Messages;
 using NinePSharp.Parser;
 using NinePSharp.Protocol;
 using NinePSharp.Server;
-using NinePSharp.Server.Backends;
-using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
 using Moq;
@@ -36,7 +34,6 @@ internal class NullLoggerAuth : ILogger<NinePFSDispatcher>
 /// </summary>
 internal class SpyBackend : IProtocolBackend
 {
-    private readonly ILuxVaultService _vault = new LuxVaultService();
     public string? LastCredentials { get; private set; } = "NOT_CALLED";
     public int GetFileSystemCallCount { get; private set; }
 
@@ -49,7 +46,7 @@ internal class SpyBackend : IProtocolBackend
     {
         GetFileSystemCallCount++;
         LastCredentials = null;
-        return new MockFileSystem(_vault);
+        return new MockFileSystem();
     }
 
     public INinePFileSystem GetFileSystem(System.Security.SecureString? credentials, X509Certificate2? certificate = null)
@@ -67,7 +64,7 @@ internal class SpyBackend : IProtocolBackend
         else {
             LastCredentials = null;
         }
-        return new MockFileSystem(_vault);
+        return new MockFileSystem();
     }
 }
 
@@ -76,9 +73,9 @@ internal class SpyBackend : IProtocolBackend
 
 internal static class Auth
 {
-    private static IClusterManager CreateMockClusterManager()
+    private static IRemoteMountProvider CreateMockClusterManager()
     {
-        return new Mock<IClusterManager>().Object;
+        return new Mock<IRemoteMountProvider>().Object;
     }
 
     public static INinePFSDispatcher Dispatcher(SpyBackend backend)
@@ -297,9 +294,9 @@ public class AuthPassThroughPropertyTests
 {
     private static readonly ILuxVaultService _vault = new LuxVaultService();
 
-    private static IClusterManager CreateMockClusterManager()
+    private static IRemoteMountProvider CreateMockClusterManager()
     {
-        return new Mock<IClusterManager>().Object;
+        return new Mock<IRemoteMountProvider>().Object;
     }
 
     private static INinePFSDispatcher MakeDispatcher(out SpyBackend spy)
