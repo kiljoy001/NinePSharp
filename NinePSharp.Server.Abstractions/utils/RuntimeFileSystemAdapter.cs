@@ -100,11 +100,12 @@ public sealed class RuntimeFileSystemAdapter : INinePFileSystem, IBackendRuntime
     public Task<Rcreate> CreateAsync(string[] parentRelativePath, Tcreate tcreate, NinePDialect dialect)
         => _runtime != null ? _runtime.CreateAsync(parentRelativePath, tcreate, dialect) : WithPreparedFileSystemAsync(parentRelativePath, dialect, fs => fs.CreateAsync(tcreate));
 
-    public Task<Rreaddir> ReaddirAsync(string[] relativePath, Treaddir treaddir, NinePDialect dialect)
+    public Task<Rreaddir> ReaddirAsync(string[] relativePath, Treaddir treaddir, NinePDialect dialect, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         if (_runtime is IReaddirCapableBackendRuntime runtimeReaddir)
         {
-            return runtimeReaddir.ReaddirAsync(relativePath, treaddir, dialect);
+            return runtimeReaddir.ReaddirAsync(relativePath, treaddir, dialect, ct);
         }
 
         if (_fs is IReaddirCapableFileSystem fsReaddir)
@@ -112,7 +113,7 @@ public sealed class RuntimeFileSystemAdapter : INinePFileSystem, IBackendRuntime
             return WithPreparedFileSystemAsync(relativePath, dialect, fs => ((IReaddirCapableFileSystem)fs).ReaddirAsync(treaddir));
         }
 
-        return ReaddirViaReadFallbackAsync(relativePath, treaddir, dialect);
+        return ReaddirViaReadFallbackAsync(relativePath, treaddir, dialect, ct);
     }
 
     public INinePFileSystem Clone() 
@@ -120,10 +121,11 @@ public sealed class RuntimeFileSystemAdapter : INinePFileSystem, IBackendRuntime
 
     public static IBackendRuntime ToRuntime(INinePFileSystem fs) => new RuntimeFileSystemAdapter(fs);
 
-    private async Task<Rreaddir> ReaddirViaReadFallbackAsync(string[] relativePath, Treaddir treaddir, NinePDialect dialect)
+    private async Task<Rreaddir> ReaddirViaReadFallbackAsync(string[] relativePath, Treaddir treaddir, NinePDialect dialect, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         var read = await (_runtime != null
-            ? _runtime.ReadAsync(relativePath, new Tread(treaddir.Tag, treaddir.Fid, treaddir.Offset, treaddir.Count), dialect)
+            ? _runtime.ReadAsync(relativePath, new Tread(treaddir.Tag, treaddir.Fid, treaddir.Offset, treaddir.Count), dialect, ct)
             : WithPreparedFileSystemAsync(relativePath, dialect, fs => fs.ReadAsync(new Tread(treaddir.Tag, treaddir.Fid, treaddir.Offset, treaddir.Count))));
 
         return new Rreaddir((uint)(NinePConstants.HeaderSize + 4 + read.Data.Length), treaddir.Tag, read.Count, read.Data);

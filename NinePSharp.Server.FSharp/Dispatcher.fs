@@ -308,14 +308,16 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
                 |> Seq.exists (fun candidate -> normalizeMountPathString candidate = normalized)
         }
 
-    let getMountDirectoryEntriesAsync (dialect: NinePDialect) (branches: MountBranch list) =
+    let getMountDirectoryEntriesAsync (dialect: NinePDialect) (branches: MountBranch list) (ct: CancellationToken) =
         task {
+            ct.ThrowIfCancellationRequested()
             let seen = System.Collections.Generic.HashSet<string>(StringComparer.Ordinal)
             let entries = ResizeArray<VirtualDirEntry>()
 
             for branch in branches do
+                ct.ThrowIfCancellationRequested()
                 let! runtime = materializeBackendRuntimeAsync branch.Target
-                let! page = runtime.ReadAsync([||], Tread(0us, 0u, 0UL, UInt32.MaxValue), dialect)
+                let! page = runtime.ReadAsync([||], Tread(0us, 0u, 0UL, UInt32.MaxValue), dialect, ct)
                 for entry in parseBackendReadEntries page.Data do
                     if seen.Add(entry.Name) then
                         entries.Add(entry)
@@ -331,15 +333,16 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
         |> List.exists (fun chain ->
             hasPrefix chain.MountPath currentPath && chain.MountPath.Length > currentPath.Length)
 
-    let getVirtualChildEntriesAsync (dialect: NinePDialect) (ns: Namespace) (currentPath: string list) =
+    let getVirtualChildEntriesAsync (dialect: NinePDialect) (ns: Namespace) (currentPath: string list) (ct: CancellationToken) =
         task {
+            ct.ThrowIfCancellationRequested()
             let seen = System.Collections.Generic.HashSet<string>(StringComparer.Ordinal)
             let entries = ResizeArray<VirtualDirEntry>()
 
             let key = NamespaceOps.mountKeyForPath currentPath
             match NamespaceOps.findMount key ns with
             | Some chain ->
-                let! mountEntries = getMountDirectoryEntriesAsync dialect chain.Branches
+                let! mountEntries = getMountDirectoryEntriesAsync dialect chain.Branches ct
                 for entry in mountEntries do
                     if seen.Add(entry.Name) then
                         entries.Add(entry)
@@ -620,26 +623,29 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
 
         Rreaddir((uint)(NinePConstants.HeaderSize + 4 + page.Count), tag, uint32 page.Count, page.ToArray()) :> obj
 
-    let handleVirtualRead (tag: uint16) (dialect: NinePDialect) (currentPath: string list) (offset: uint64) (count: uint32) (session: SessionBox) =
+    let handleVirtualRead (tag: uint16) (dialect: NinePDialect) (currentPath: string list) (offset: uint64) (count: uint32) (ct: CancellationToken) (session: SessionBox) =
         task {
+            ct.ThrowIfCancellationRequested()
             let state = getSessionStateOrThrow session
-            let! entries = getVirtualChildEntriesAsync dialect state.Process.Namespace currentPath
+            let! entries = getVirtualChildEntriesAsync dialect state.Process.Namespace currentPath ct
             let allVirtualData = encodeVirtualReadEntries dialect currentPath state.UserName entries
             return sliceVirtualReadData tag offset count allVirtualData
         }
 
-    let handleVirtualReaddir (tag: uint16) (dialect: NinePDialect) (currentPath: string list) (offset: uint64) (count: uint32) (session: SessionBox) =
+    let handleVirtualReaddir (tag: uint16) (dialect: NinePDialect) (currentPath: string list) (offset: uint64) (count: uint32) (ct: CancellationToken) (session: SessionBox) =
         task {
+            ct.ThrowIfCancellationRequested()
             let state = getSessionStateOrThrow session
-            let! entries = getVirtualChildEntriesAsync dialect state.Process.Namespace currentPath
+            let! entries = getVirtualChildEntriesAsync dialect state.Process.Namespace currentPath ct
             let allVirtualData = encodeVirtualReaddirEntries currentPath entries
             return sliceVirtualReaddirData tag offset count allVirtualData
         }
 
     /// Handle readdir for union mounts - iterates through all backends and dedupes
-    let handleUnionReaddir (tag: uint16) (dialect: NinePDialect) (chain: MountChain) (offset: uint64) (count: uint32) =
+    let handleUnionReaddir (tag: uint16) (dialect: NinePDialect) (chain: MountChain) (offset: uint64) (count: uint32) (ct: CancellationToken) =
         task {
-            let! entries = getMountDirectoryEntriesAsync dialect chain.Branches
+            ct.ThrowIfCancellationRequested()
+            let! entries = getMountDirectoryEntriesAsync dialect chain.Branches ct
             let allVirtualData = encodeVirtualReaddirEntries chain.MountPath entries
             return sliceVirtualReaddirData tag offset count allVirtualData
         }
@@ -1088,7 +1094,7 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
                                     let channel = getChannelOrThrow t.Fid session
                                     requireOpened "read" channel
                                     if isNamespaceChannel channel then
-                                        return! handleVirtualRead t.Tag dialect channel.InternalPath t.Offset t.Count session
+                                        return! handleVirtualRead t.Tag dialect channel.InternalPath t.Offset t.Count ct session
                                     else
                                         return! dispatchWithChannelAsync dialect channel (fun (runtime, relativePath) ->
                                             task {
@@ -1103,26 +1109,27 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
                             withFidLocks session [ t.Fid ] (fun () -> handleWrite t dialect ct session))
 
                     | NinePMessage.MsgTreaddir t ->
-                        return! withFidLocks session [ t.Fid ] (fun () ->
-                            task {
-                                let channel = getChannelOrThrow t.Fid session
-                                requireOpened "readdir" channel
-                                if isNamespaceChannel channel then
-                                    return! handleVirtualReaddir t.Tag dialect channel.InternalPath t.Offset t.Count session
-                                else
-                                    // Check for union mount (multiple backends)
-                                    match channel.Umh with
-                                    | Some chain ->
-                                        // Union readdir - iterate through all backends
-                                        return! handleUnionReaddir t.Tag dialect chain t.Offset t.Count
-                                    | None ->
-                                        // Single backend - dispatch directly
-                                        return! dispatchWithChannelAsync dialect channel (fun (runtime, relativePath) ->
-                                            task {
-                                                let! response = runtime.ReaddirCompatAsync(relativePath, t, dialect)
-                                                return response :> obj
-                                            })
-                            })
+                        return! withInFlightTracking t.Tag session (fun ct ->
+                            withFidLocks session [ t.Fid ] (fun () ->
+                                task {
+                                    let channel = getChannelOrThrow t.Fid session
+                                    requireOpened "readdir" channel
+                                    if isNamespaceChannel channel then
+                                        return! handleVirtualReaddir t.Tag dialect channel.InternalPath t.Offset t.Count ct session
+                                    else
+                                        // Check for union mount (multiple backends)
+                                        match channel.Umh with
+                                        | Some chain ->
+                                            // Union readdir - iterate through all backends
+                                            return! handleUnionReaddir t.Tag dialect chain t.Offset t.Count ct
+                                        | None ->
+                                            // Single backend - dispatch directly
+                                            return! dispatchWithChannelAsync dialect channel (fun (runtime, relativePath) ->
+                                                task {
+                                                    let! response = runtime.ReaddirCompatAsync(relativePath, t, dialect, ct)
+                                                    return response :> obj
+                                                })
+                                }))
 
                     | _ ->
                         return raise (NinePProtocolException("Message type not implemented or supported"))

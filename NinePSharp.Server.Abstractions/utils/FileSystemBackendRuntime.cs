@@ -61,8 +61,10 @@ public sealed class FileSystemBackendRuntime : IBackendRuntime, IReaddirCapableB
     public Task<Rcreate> CreateAsync(string[] parentRelativePath, Tcreate tcreate, NinePDialect dialect)
         => WithFileSystemAsync(parentRelativePath, dialect, fs => fs.CreateAsync(tcreate));
 
-    public Task<Rreaddir> ReaddirAsync(string[] relativePath, Treaddir treaddir, NinePDialect dialect)
-        => WithFileSystemAsync(relativePath, dialect, async fs =>
+    public Task<Rreaddir> ReaddirAsync(string[] relativePath, Treaddir treaddir, NinePDialect dialect, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return WithFileSystemAsync(relativePath, dialect, async fs =>
         {
             if (fs is IReaddirCapableFileSystem readdirFileSystem)
             {
@@ -72,6 +74,7 @@ public sealed class FileSystemBackendRuntime : IBackendRuntime, IReaddirCapableB
             var read = await fs.ReadAsync(new Tread(treaddir.Tag, treaddir.Fid, treaddir.Offset, treaddir.Count));
             return new Rreaddir((uint)(NinePConstants.HeaderSize + 4 + read.Data.Length), treaddir.Tag, read.Count, read.Data);
         });
+    }
 
     private async Task<T> WithFileSystemAsync<T>(string[] relativePath, NinePDialect dialect, Func<INinePFileSystem, Task<T>> action)
     {

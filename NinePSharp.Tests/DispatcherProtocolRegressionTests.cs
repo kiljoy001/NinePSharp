@@ -191,8 +191,9 @@ public sealed class DispatcherProtocolRegressionTests
             return Task.FromResult(new Rread(tread.Tag, Array.Empty<byte>()));
         }
 
-        public Task<Rreaddir> ReaddirAsync(string[] relativePath, Treaddir treaddir, NinePDialect dialect)
+        public Task<Rreaddir> ReaddirAsync(string[] relativePath, Treaddir treaddir, NinePDialect dialect, CancellationToken ct = default)
         {
+            ct.ThrowIfCancellationRequested();
             ReaddirCalls++;
             return Task.FromResult(new Rreaddir((uint)(NinePConstants.HeaderSize + 4), treaddir.Tag, 0, Array.Empty<byte>()));
         }

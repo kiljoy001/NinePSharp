@@ -263,7 +263,7 @@ public class MockFileSystem : IBackendRuntime, IReaddirCapableBackendRuntime
         return Task.FromResult(new Rcreate(tcreate.Tag, new Qid(qidType, 0, qid), 8192));
     }
 
-    public Task<Rreaddir> ReaddirAsync(string[] relativePath, Treaddir treaddir, NinePDialect dialect)
+    public Task<Rreaddir> ReaddirAsync(string[] relativePath, Treaddir treaddir, NinePDialect dialect, CancellationToken ct = default)
     {
         var path = PathFromSegments(relativePath);
 
