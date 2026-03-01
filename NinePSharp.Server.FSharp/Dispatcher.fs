@@ -741,9 +741,9 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
 
             match tentative.Target with
             | NamespaceNode ->
-                // Virtual namespace node - check if there's a mount at this path
-                // For namespace nodes, we use path-based keys since walk doesn't update qid
-                let key = NamespaceOps.mountKeyForPath tentative.InternalPath
+                // Virtual namespace node - check if there's a mount at this channel
+                // Use channel identity (Type, Dev, Qid) not path per 9front semantics
+                let key = MountKeyModule.fromChannel tentative
                 match NamespaceOps.findMount key ns with
                 | Some chain when not (List.isEmpty chain.Branches) ->
                     // Mount found - cross into it

@@ -1,5 +1,7 @@
 namespace NinePSharp.Core.FSharp
 
+open System.Text
+open NinePSharp.Constants
 open NinePSharp.Server.Interfaces
 
 module ChannelOps =
@@ -16,9 +18,19 @@ module ChannelOps =
         | [] -> []
         | _ -> path |> List.take (path.Length - 1)
 
+    /// Generate stable Type/Dev for namespace nodes to match mountKeyForPath
+    let private namespaceTypeDevForPath (path: string list) =
+        let typeValue = uint16 '#'
+        let devValue =
+            if List.isEmpty path then 0u
+            else uint32 (int64 (PathHash.stableHash 'D' path) &&& 0xFFFFFFFFL)
+        (typeValue, devValue)
+
     let createNamespaceNode qid visiblePath =
-        { Type = 0us
-          Dev = 0u
+        let path = visiblePath |> List.ofSeq
+        let (typeValue, devValue) = namespaceTypeDevForPath path
+        { Type = typeValue
+          Dev = devValue
           Qid = qid
           Offset = 0UL
           Target = NamespaceNode
@@ -29,8 +41,9 @@ module ChannelOps =
           Uri = 0 }
 
     let createNamespaceNodeWithPathState qid pathState =
-        { Type = 0us
-          Dev = 0u
+        let (typeValue, devValue) = namespaceTypeDevForPath pathState.VisiblePath
+        { Type = typeValue
+          Dev = devValue
           Qid = qid
           Offset = 0UL
           Target = NamespaceNode
@@ -91,11 +104,31 @@ module ChannelOps =
     /// <summary>
     /// Walk returns a new immutable channel rooted at the updated internal path.
     /// Handles mount boundary crossing with ".." by restoring previous channel's target.
+    /// Updates Type/Dev/Qid for namespace nodes to match path (channel identity semantics).
     /// </summary>
     let walk (segments: string list) (channel: Channel) =
         let initial = { Target = channel.Target; PathState = channel.PathState }
         let final = segments |> List.fold applySegmentFull initial
+        // Update Type/Dev/Qid for namespace nodes to maintain channel identity
+        let (newType, newDev, newQid) =
+            match final.Target with
+            | NamespaceNode ->
+                // Recompute Type/Dev/Qid to match new path (matches mountKeyForPath logic)
+                let path = final.PathState.VisiblePath
+                let (typeVal, devVal) = namespaceTypeDevForPath path
+                let qidVal =
+                    if List.isEmpty path then
+                        { Type = QidType.QTDIR; Version = 0u; Path = 0UL }
+                    else
+                        { Type = QidType.QTDIR; Version = 0u; Path = PathHash.stableHash 'd' path }
+                (typeVal, devVal, qidVal)
+            | BackendNode _ ->
+                // Backend walks update identity via backend response
+                (channel.Type, channel.Dev, channel.Qid)
         { channel with
+            Type = newType
+            Dev = newDev
+            Qid = newQid
             Target = final.Target
             PathState = final.PathState
             Offset = 0UL

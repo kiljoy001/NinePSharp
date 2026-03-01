@@ -26,30 +26,23 @@ module NamespaceOps =
         |> List.ofArray
         |> normalizeComponents
 
-    let private stableSyntheticQidPath (kind: char) (path: string list) =
-        let normalized =
-            match splitPath ("/" + String.Join("/", path)) with
-            | [] -> "/"
-            | segments -> "/" + String.Join("/", segments)
-
-        let key = String.Concat(kind, ":", normalized)
-        let bytes = Text.Encoding.UTF8.GetBytes(key)
-        let mutable hash = 14695981039346656037UL
-
-        for b in bytes do
-            hash <- (hash ^^^ uint64 b) * 1099511628211UL
-
-        hash
-
     let mountQidForPath (path: string list) =
         if List.isEmpty path then
             { Type = QidType.QTDIR; Version = 0u; Path = 0UL }
         else
-            { Type = QidType.QTDIR; Version = 0u; Path = stableSyntheticQidPath 'd' path }
+            { Type = QidType.QTDIR; Version = 0u; Path = PathHash.stableHash 'd' path }
 
+    /// Path-based mount key for initialization. Generates stable Type/Dev from path.
+    /// Prefer MountKeyModule.fromChannel for runtime channel-based lookups.
     let mountKeyForPath (path: string list) =
-        { Type = 0us
-          Dev = 0u
+        // Use '#' (0x23) as Type for namespace-synthetic channels
+        let typeValue = uint16 '#'
+        // Generate stable Dev from path hash (9front uses device instance numbers)
+        let devValue =
+            if List.isEmpty path then 0u
+            else uint32 (int64 (PathHash.stableHash 'D' path) &&& 0xFFFFFFFFL)
+        { Type = typeValue
+          Dev = devValue
           Qid = mountQidForPath path }
 
     let findMount (key: MountKey) (ns: Namespace) =

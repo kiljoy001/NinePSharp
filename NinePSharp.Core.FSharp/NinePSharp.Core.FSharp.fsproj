@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <Compile Include="Types.fs" />
+    <Compile Include="PathHash.fs" />
     <Compile Include="Channel.fs" />
     <Compile Include="Namespace.fs" />
     <Compile Include="Process.fs" />
