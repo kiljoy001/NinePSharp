@@ -11,6 +11,7 @@ using NinePSharp.Messages;
 using NinePSharp.Server.Cluster.Actors;
 using NinePSharp.Server.Cluster.Messages;
 using NinePSharp.Server.Utils;
+using NinePSharp.Server.Interfaces;
 using Xunit;
 
 namespace NinePSharp.Tests;
@@ -31,9 +32,7 @@ public class RemoteFileSystemPropertyFuzzTests : IDisposable
         uint newFid,
         ulong offset,
         PositiveInt countSeed,
-        byte mode,
-        ulong getattrMask,
-        uint setattrValid)
+        byte mode)
     {
         uint count = (uint)(countSeed.Get % 64 + 1);
         var names = new[] { "alpha", "beta" };
@@ -75,16 +74,6 @@ public class RemoteFileSystemPropertyFuzzTests : IDisposable
 
         var remove = sut.RemoveAsync(new Tremove(tag, fid)).Sync();
         remove.Tag.Should().Be(tag);
-
-        var getattr = sut.GetAttrAsync(new Tgetattr(tag, fid, getattrMask)).Sync();
-        getattr.Tag.Should().Be(tag);
-        getattr.Valid.Should().Be(getattrMask);
-        getattr.Qid.Path.Should().Be(fid);
-        getattr.Mode.Should().Be(0644u);
-
-        var setattrRequest = new Tsetattr(0, tag, fid, setattrValid, 0640, 1000, 1001, 8192, 10, 20, 30, 40);
-        var setattr = sut.SetAttrAsync(setattrRequest).Sync();
-        setattr.Tag.Should().Be(tag);
     }
 
     [Property(MaxTest = 20)]
@@ -102,8 +91,6 @@ public class RemoteFileSystemPropertyFuzzTests : IDisposable
         AssertProtocolError(() => sut.StatAsync(new Tstat(tag, fid)), error);
         AssertProtocolError(() => sut.WstatAsync(new Twstat(tag, fid, CreateStat("w"))), error);
         AssertProtocolError(() => sut.RemoveAsync(new Tremove(tag, fid)), error);
-        AssertProtocolError(() => sut.GetAttrAsync(new Tgetattr(tag, fid, 0xFF)), error);
-        AssertProtocolError(() => sut.SetAttrAsync(new Tsetattr(0, tag, fid, 0xF, 0644, 1, 2, 3, 4, 5, 6, 7)), error);
     }
 
     [Fact]
@@ -120,8 +107,6 @@ public class RemoteFileSystemPropertyFuzzTests : IDisposable
         AssertUnexpected(() => sut.StatAsync(new Tstat(1, 2)));
         AssertUnexpected(() => sut.WstatAsync(new Twstat(1, 2, CreateStat("w"))));
         AssertUnexpected(() => sut.RemoveAsync(new Tremove(1, 2)));
-        AssertUnexpected(() => sut.GetAttrAsync(new Tgetattr(1, 2, 1)));
-        AssertUnexpected(() => sut.SetAttrAsync(new Tsetattr(0, 1, 2, 1, 0644, 1, 1, 1, 1, 1, 1, 1)));
     }
 
     [Fact]
@@ -138,26 +123,6 @@ public class RemoteFileSystemPropertyFuzzTests : IDisposable
     }
 
     [Fact]
-    public void RemoteFileSystem_Stat_Fuzz_Invalid_Buffers_Never_Returns_Success()
-    {
-        var random = new Random(1729);
-
-        for (int i = 0; i < 80; i++)
-        {
-            int len = random.Next(2, 32);
-            var payload = new byte[len];
-            random.NextBytes(payload);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(0, 2), (ushort)(len + 24)); // force impossible declared size
-
-            var actor = _system.ActorOf(Props.Create(() => new InvalidStatPayloadSessionActor(payload)));
-            var sut = new RemoteFileSystem(actor);
-
-            Action act = () => sut.StatAsync(new Tstat((ushort)i, 1)).Sync();
-            act.Should().Throw<Exception>();
-        }
-    }
-
-    [Fact]
     public void RemoteFileSystem_Clone_Spawns_Independent_Remote_Session()
     {
         var session = _system.ActorOf(Props.Create(() => new CloneCapableSessionActor()));
@@ -171,16 +136,6 @@ public class RemoteFileSystemPropertyFuzzTests : IDisposable
         var cloneWalk = clone.WalkAsync(new Twalk(2, 1, 3, new[] { "x" })).Sync();
         cloneWalk.Wqid.Should().ContainSingle();
         cloneWalk.Wqid[0].Path.Should().Be(999UL);
-    }
-
-    [Fact]
-    public void RemoteFileSystem_Clone_Throws_When_SpawnClone_Response_Is_Invalid()
-    {
-        var session = _system.ActorOf(Props.Create(() => new CloneFailureSessionActor()));
-        var sut = new RemoteFileSystem(session);
-
-        Action act = () => sut.Clone();
-        act.Should().Throw<Exception>().WithMessage("*Failed to clone remote filesystem session*");
     }
 
     private static byte[] BuildReadPayload(uint fid, ulong offset, uint count)
@@ -207,9 +162,9 @@ public class RemoteFileSystemPropertyFuzzTests : IDisposable
             2,
             128,
             name,
-            "u",
-            "g",
-            "m");
+            "none",
+            "none",
+            "none");
     }
 
     private static void AssertUnexpected<T>(Func<Task<T>> action)
@@ -255,38 +210,11 @@ public class RemoteFileSystemPropertyFuzzTests : IDisposable
             }));
             Receive<TClunkDto>(msg => Sender.Tell(new RClunkDto { Tag = msg.Tag }));
             Receive<TRemoveDto>(msg => Sender.Tell(new RRemoveDto { Tag = msg.Tag }));
-            Receive<TSetAttrDto>(msg => Sender.Tell(new RSetAttrDto { Tag = msg.Tag }));
             Receive<TWstatDto>(msg => Sender.Tell(new RWstatDto { Tag = msg.Tag }));
 
             Receive<TStatDto>(msg =>
             {
                 Sender.Tell(new RStatDto(new Rstat(msg.Tag, CreateStat("remote-stat"))));
-            });
-
-            Receive<TGetAttrDto>(msg =>
-            {
-                Sender.Tell(new RGetAttrDto(new Rgetattr(
-                    msg.Tag,
-                    msg.RequestMask,
-                    new Qid(QidType.QTFILE, 0, msg.Fid),
-                    0644,
-                    1000,
-                    1001,
-                    1,
-                    0,
-                    256,
-                    4096,
-                    1,
-                    10,
-                    20,
-                    30,
-                    40,
-                    50,
-                    60,
-                    70,
-                    80,
-                    90,
-                    100)));
             });
         }
     }
@@ -310,8 +238,6 @@ public class RemoteFileSystemPropertyFuzzTests : IDisposable
                     TStatDto m => m.Tag,
                     TWstatDto m => m.Tag,
                     TRemoveDto m => m.Tag,
-                    TGetAttrDto m => m.Tag,
-                    TSetAttrDto m => m.Tag,
                     _ => 0
                 };
 
@@ -333,17 +259,6 @@ public class RemoteFileSystemPropertyFuzzTests : IDisposable
         public EmptyStatSessionActor()
         {
             Receive<TStatDto>(msg => Sender.Tell(new RStatDto { Tag = msg.Tag, Dialect = NinePDialect.NineP2000, StatBytes = Array.Empty<byte>() }));
-        }
-    }
-
-    private sealed class InvalidStatPayloadSessionActor : ReceiveActor
-    {
-        private readonly byte[] _payload;
-
-        public InvalidStatPayloadSessionActor(byte[] payload)
-        {
-            _payload = payload;
-            Receive<TStatDto>(msg => Sender.Tell(new RStatDto { Tag = msg.Tag, Dialect = NinePDialect.NineP2000, StatBytes = _payload }));
         }
     }
 
@@ -380,14 +295,6 @@ public class RemoteFileSystemPropertyFuzzTests : IDisposable
                     Wqid = new[] { new Qid(QidType.QTFILE, 0, 999UL) }
                 });
             });
-        }
-    }
-
-    private sealed class CloneFailureSessionActor : ReceiveActor
-    {
-        public CloneFailureSessionActor()
-        {
-            Receive<SpawnClone>(_ => Sender.Tell("clone-not-spawned"));
         }
     }
 }

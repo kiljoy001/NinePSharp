@@ -55,7 +55,7 @@ public class NinePServerReflectionPropertyFuzzTests
         }
 
         dispatcher.Verify(
-            d => d.DispatchAsync(It.IsAny<string?>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), It.IsAny<X509Certificate2?>()),
+            d => d.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), It.IsAny<X509Certificate2?>()),
             Times.Never);
 
         return true;
@@ -65,7 +65,7 @@ public class NinePServerReflectionPropertyFuzzTests
     public async Task DispatchMessageAsync_Valid_Message_Forwards_To_Dispatcher_With_Session_Dotu()
     {
         var dispatcher = new Mock<INinePFSDispatcher>(MockBehavior.Strict);
-        dispatcher.Setup(d => d.DispatchAsync(It.IsAny<string?>(), It.IsAny<NinePMessage>(), NinePDialect.NineP2000U, null))
+        dispatcher.Setup(d => d.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), NinePDialect.NineP2000U, null))
             .ReturnsAsync(new Rflush(77));
 
         var processor = CreateProcessor(dispatcher);

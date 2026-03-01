@@ -15,37 +15,31 @@ namespace NinePSharp.Tests.Architecture;
 public class Z3NamespaceResolveProofTests
 {
     [Fact]
-    public void Z3_Resolve_Prefers_LongestPrefix_Contradiction_Is_Unsat_Bounded()
+    public void Z3_Resolve_ExactMatch_Only_Contradiction_Is_Unsat_Bounded()
     {
+        // Per 9front semantics: resolve does exact qid matching, not prefix matching.
+        // This test proves that exact-match is deterministic: if path matches mount exactly,
+        // we get that mount; otherwise we get nothing.
         using var ctx = new Context();
         using var solver = ctx.MkSolver();
 
-        IntExpr shortLen = ctx.MkIntConst("shortLen");
-        IntExpr longLen = ctx.MkIntConst("longLen");
-        IntExpr pathLen = ctx.MkIntConst("pathLen");
-        IntExpr selectedLen = ctx.MkIntConst("selectedLen");
+        BoolExpr exactMatch = ctx.MkBoolConst("exactMatch");
+        BoolExpr resolved = ctx.MkBoolConst("resolved");
 
-        solver.Assert(ctx.MkGe(shortLen, ctx.MkInt(1)));
-        solver.Assert(ctx.MkLe(shortLen, ctx.MkInt(4)));
-        solver.Assert(ctx.MkGe(longLen, ctx.MkInt(2)));
-        solver.Assert(ctx.MkLe(longLen, ctx.MkInt(5)));
-        solver.Assert(ctx.MkLt(shortLen, longLen));
+        // Property: resolve succeeds iff there's an exact match
+        solver.Assert(ctx.MkIff(exactMatch, resolved));
 
-        solver.Assert(ctx.MkGe(pathLen, longLen));
-        solver.Assert(ctx.MkLe(pathLen, ctx.MkInt(8)));
-
-        // Resolve must pick the longest matching prefix.
-        solver.Assert(ctx.MkEq(selectedLen, longLen));
-
-        // Negated property: resolve picked the shorter prefix instead.
-        solver.Assert(ctx.MkEq(selectedLen, shortLen));
+        // Negated property: resolve succeeds without exact match (or vice versa)
+        solver.Assert(ctx.MkNot(ctx.MkIff(exactMatch, resolved)));
 
         Assert.Equal(Status.UNSATISFIABLE, solver.Check());
     }
 
     [Property(MaxTest = 70)]
-    public bool Z3_Model_Matches_NamespaceOps_Resolve_LongestPrefix(string[] rawMounts, string[] rawPath)
+    public bool Z3_Model_Matches_NamespaceOps_Resolve_ExactMatch(string[] rawMounts, string[] rawPath)
     {
+        // Per 9front semantics: resolve does exact qid matching, not prefix matching.
+        // A path resolves iff there's an exact mount at that path.
         if (rawMounts == null || rawPath == null)
         {
             return true;
@@ -60,31 +54,35 @@ public class Z3NamespaceResolveProofTests
         var mounts = mountPaths
             .Select(path =>
             {
-                var fsPath = FsList(path);
-                return new Mount(fsPath, new MountChain(MountIdForPath(path), FsBranches(BindFlags.MREPL, new[] { NewTarget(string.Join("_", path)) })));
+                var fsPath = NamespaceOps.splitPath("/" + string.Join("/", path));
+                return new MountChain(
+                    MountIdForPath(path),
+                    NamespaceOps.mountKeyForPath(fsPath),
+                    fsPath,
+                    FsBranches(BindFlags.MREPL, new[] { NewTarget(string.Join("_", path)) }));
             })
             .ToList();
-        var ns = new NinePSharp.Core.FSharp.Namespace(FsList(mounts));
+        var ns = BuildNamespace(mounts);
 
         var pathSegments = BuildPathSegments(rawPath, mountPaths);
         var resolved = NamespaceOps.resolve(FsList(pathSegments), ns);
 
         var normalizedPath = NamespaceOps.splitPath("/" + string.Join("/", pathSegments)).ToList();
-        var remainder = resolved.Item2.ToList();
-        int selectedLen = normalizedPath.Count - remainder.Count;
+        bool hasResolvedBackend = resolved.Item1.Any();
 
-        int[] matchLens = mounts
-            .Select(m => m.TargetPath.ToList())
-            .Where(tp => IsPrefix(tp, normalizedPath))
-            .Select(tp => tp.Count)
-            .ToArray();
+        // Check if there's an exact mount at this path
+        bool hasExactMount = mounts
+            .Select(m => m.MountPath.ToList())
+            .Any(mp => mp.SequenceEqual(normalizedPath));
 
-        return ProveSelectedLengthIsMax(selectedLen, matchLens);
+        return ProveExactMatchConsistency(hasResolvedBackend, hasExactMount);
     }
 
     [Property(MaxTest = 70)]
-    public bool Z3_Model_Matches_NamespaceOps_Resolve_HitMiss_Consistency(string[] rawMounts, string[] rawPath)
+    public bool Z3_Model_Matches_NamespaceOps_Resolve_ExactMatch_HitMiss_Consistency(string[] rawMounts, string[] rawPath)
     {
+        // Per 9front semantics: resolve succeeds iff there's an exact mount at the path.
+        // No prefix matching - only exact qid-based lookup.
         if (rawMounts == null || rawPath == null)
         {
             return true;
@@ -99,63 +97,55 @@ public class Z3NamespaceResolveProofTests
         var mounts = mountPaths
             .Select(path =>
             {
-                var fsPath = FsList(path);
-                return new Mount(fsPath, new MountChain(MountIdForPath(path), FsBranches(BindFlags.MREPL, new[] { NewTarget(string.Join("_", path)) })));
+                var fsPath = NamespaceOps.splitPath("/" + string.Join("/", path));
+                return new MountChain(
+                    MountIdForPath(path),
+                    NamespaceOps.mountKeyForPath(fsPath),
+                    fsPath,
+                    FsBranches(BindFlags.MREPL, new[] { NewTarget(string.Join("_", path)) }));
             })
             .ToList();
-        var ns = new NinePSharp.Core.FSharp.Namespace(FsList(mounts));
+        var ns = BuildNamespace(mounts);
 
         var pathSegments = BuildPathSegments(rawPath, mountPaths);
         var resolved = NamespaceOps.resolve(FsList(pathSegments), ns);
 
         var normalizedPath = NamespaceOps.splitPath("/" + string.Join("/", pathSegments)).ToList();
-        bool hasPrefixMatch = mounts
-            .Select(m => m.TargetPath.ToList())
-            .Any(tp => IsPrefix(tp, normalizedPath));
+        // 9front: exact match only, not prefix
+        bool hasExactMatch = mounts
+            .Select(m => m.MountPath.ToList())
+            .Any(mp => mp.SequenceEqual(normalizedPath));
         bool hasResolvedBackend = resolved.Item1.Any();
 
         using var ctx = new Context();
         using var solver = ctx.MkSolver();
 
         BoolExpr backendHit = ctx.MkBoolConst("backendHit");
-        BoolExpr prefixHit = ctx.MkBoolConst("prefixHit");
+        BoolExpr exactHit = ctx.MkBoolConst("exactHit");
 
         solver.Assert(ctx.MkEq(backendHit, ctx.MkBool(hasResolvedBackend)));
-        solver.Assert(ctx.MkEq(prefixHit, ctx.MkBool(hasPrefixMatch)));
+        solver.Assert(ctx.MkEq(exactHit, ctx.MkBool(hasExactMatch)));
 
-        // Negated property: resolve result disagrees with prefix existence.
-        solver.Assert(ctx.MkNot(ctx.MkIff(backendHit, prefixHit)));
+        // Negated property: resolve result disagrees with exact mount existence.
+        solver.Assert(ctx.MkNot(ctx.MkIff(backendHit, exactHit)));
 
         return solver.Check() == Status.UNSATISFIABLE;
     }
 
-    private static bool ProveSelectedLengthIsMax(int selectedLen, IReadOnlyList<int> matchLens)
+    private static bool ProveExactMatchConsistency(bool hasResolvedBackend, bool hasExactMount)
     {
+        // Z3 proof: resolve succeeds iff exact mount exists (9front semantics).
         using var ctx = new Context();
         using var solver = ctx.MkSolver();
 
-        IntExpr selected = ctx.MkIntConst("selected");
-        IntExpr max = ctx.MkIntConst("max");
+        BoolExpr resolved = ctx.MkBoolConst("resolved");
+        BoolExpr exactMount = ctx.MkBoolConst("exactMount");
 
-        solver.Assert(ctx.MkEq(selected, ctx.MkInt(selectedLen)));
-        solver.Assert(ctx.MkGe(max, ctx.MkInt(0)));
+        solver.Assert(ctx.MkEq(resolved, ctx.MkBool(hasResolvedBackend)));
+        solver.Assert(ctx.MkEq(exactMount, ctx.MkBool(hasExactMount)));
 
-        foreach (int len in matchLens)
-        {
-            solver.Assert(ctx.MkGe(max, ctx.MkInt(len)));
-        }
-
-        if (matchLens.Count == 0)
-        {
-            solver.Assert(ctx.MkEq(max, ctx.MkInt(0)));
-        }
-        else
-        {
-            solver.Assert(ctx.MkOr(matchLens.Select(len => ctx.MkEq(max, ctx.MkInt(len))).ToArray()));
-        }
-
-        // Negated property: implementation-selected length is not the longest prefix length.
-        solver.Assert(ctx.MkNot(ctx.MkEq(selected, max)));
+        // Negated property: resolve succeeds without exact mount (or fails with exact mount).
+        solver.Assert(ctx.MkNot(ctx.MkIff(resolved, exactMount)));
 
         return solver.Check() == Status.UNSATISFIABLE;
     }
@@ -268,6 +258,17 @@ public class Z3NamespaceResolveProofTests
 
     private static BackendTargetDescriptor NewTarget(string id)
         => BackendTargetDescriptor.Local(id, "/" + id, () => new Mock<INinePFileSystem>(MockBehavior.Loose).Object);
+
+    private static NinePSharp.Core.FSharp.Namespace BuildNamespace(IEnumerable<MountChain> mounts)
+    {
+        var ns = NamespaceOps.empty;
+        foreach (var mount in mounts)
+        {
+            ns = NamespaceOps.mount(mount.From, mount, ns);
+        }
+
+        return ns;
+    }
 
     private static FSharpList<T> FsList<T>(IEnumerable<T> items)
     {

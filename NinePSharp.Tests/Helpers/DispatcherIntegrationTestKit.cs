@@ -21,7 +21,7 @@ namespace NinePSharp.Tests.Helpers;
 
 internal static class DispatcherIntegrationTestKit
 {
-    internal readonly record struct ReaddirEntry(QidType QidType, ulong NextOffset, byte TypeByte, string Name);
+    internal readonly record struct ReaddirEntry(QidType QidType, ulong NextOffset, string Name);
 
     internal static NinePFSDispatcher CreateDispatcher(IEnumerable<IProtocolBackend> backends)
     {
@@ -37,8 +37,9 @@ internal static class DispatcherIntegrationTestKit
     internal static async Task AttachAsync(NinePFSDispatcher dispatcher, ushort tag, uint fid, string aname)
     {
         var response = await dispatcher.DispatchAsync(
+            "test-session",
             NinePMessage.NewMsgTattach(new Tattach(tag, fid, NinePConstants.NoFid, "user", aname)),
-            dialect: NinePDialect.NineP2000U);
+            dialect: NinePDialect.NineP2000);
 
         if (response is not Rattach)
         {
@@ -49,8 +50,9 @@ internal static class DispatcherIntegrationTestKit
     internal static async Task<Rwalk> WalkAsync(NinePFSDispatcher dispatcher, ushort tag, uint fid, uint newFid, string[] wname)
     {
         var response = await dispatcher.DispatchAsync(
+            "test-session",
             NinePMessage.NewMsgTwalk(new Twalk(tag, fid, newFid, wname)),
-            dialect: NinePDialect.NineP2000U);
+            dialect: NinePDialect.NineP2000);
 
         if (response is not Rwalk walk)
         {
@@ -63,8 +65,9 @@ internal static class DispatcherIntegrationTestKit
     internal static async Task<Rread> ReadAsync(NinePFSDispatcher dispatcher, ushort tag, uint fid, ulong offset, uint count)
     {
         var response = await dispatcher.DispatchAsync(
+            "test-session",
             NinePMessage.NewMsgTread(new Tread(tag, fid, offset, count)),
-            dialect: NinePDialect.NineP2000U);
+            dialect: NinePDialect.NineP2000);
 
         if (response is not Rread read)
         {
@@ -74,11 +77,28 @@ internal static class DispatcherIntegrationTestKit
         return read;
     }
 
+    internal static async Task<Rreaddir> ReaddirAsync(NinePFSDispatcher dispatcher, ushort tag, uint fid, ulong offset, uint count)
+    {
+        var response = await dispatcher.DispatchAsync(
+            "test-session",
+            NinePMessage.NewMsgTreaddir(new Treaddir(24, tag, fid, offset, count)),
+            dialect: NinePDialect.NineP2000);
+
+        if (response is not Rreaddir readdir)
+        {
+            var errMsg = response is Rerror err ? $": {err.Ename}" : "";
+            throw new Xunit.Sdk.XunitException($"Expected Rreaddir, got {response.GetType().Name}{errMsg}");
+        }
+
+        return readdir;
+    }
+
     internal static async Task<Rwrite> WriteAsync(NinePFSDispatcher dispatcher, ushort tag, uint fid, ulong offset, byte[] data)
     {
         var response = await dispatcher.DispatchAsync(
+            "test-session",
             NinePMessage.NewMsgTwrite(new Twrite(tag, fid, offset, data)),
-            dialect: NinePDialect.NineP2000U);
+            dialect: NinePDialect.NineP2000);
 
         if (response is not Rwrite write)
         {
@@ -91,8 +111,9 @@ internal static class DispatcherIntegrationTestKit
     internal static async Task<Ropen> OpenAsync(NinePFSDispatcher dispatcher, ushort tag, uint fid, byte mode = 0)
     {
         var response = await dispatcher.DispatchAsync(
+            "test-session",
             NinePMessage.NewMsgTopen(new Topen(tag, fid, mode)),
-            dialect: NinePDialect.NineP2000U);
+            dialect: NinePDialect.NineP2000);
 
         if (response is not Ropen open)
         {
@@ -105,8 +126,9 @@ internal static class DispatcherIntegrationTestKit
     internal static async Task<Rcreate> CreateAsync(NinePFSDispatcher dispatcher, ushort tag, uint fid, string name, uint perm = 0644, byte mode = 0)
     {
         var response = await dispatcher.DispatchAsync(
-            NinePMessage.NewMsgTcreate(BuildTcreate(tag, fid, name, perm, mode)),
-            dialect: NinePDialect.NineP2000U);
+            "test-session",
+            NinePMessage.NewMsgTcreate(new Tcreate(tag, fid, name, perm, mode)),
+            dialect: NinePDialect.NineP2000);
 
         if (response is not Rcreate create)
         {
@@ -116,35 +138,12 @@ internal static class DispatcherIntegrationTestKit
         return create;
     }
 
-    private static Tcreate BuildTcreate(ushort tag, uint fid, string name, uint perm, byte mode)
-    {
-        int nameLen = Encoding.UTF8.GetByteCount(name);
-        uint size = (uint)(NinePConstants.HeaderSize + 4 + 2 + nameLen + 4 + 1);
-        byte[] data = new byte[size];
-
-        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0, 4), size);
-        data[4] = (byte)MessageTypes.Tcreate;
-        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(5, 2), tag);
-
-        int offset = NinePConstants.HeaderSize;
-        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(offset, 4), fid);
-        offset += 4;
-        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(offset, 2), (ushort)nameLen);
-        offset += 2;
-        Encoding.UTF8.GetBytes(name).CopyTo(data.AsSpan(offset, nameLen));
-        offset += nameLen;
-        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(offset, 4), perm);
-        offset += 4;
-        data[offset] = mode;
-
-        return new Tcreate(data);
-    }
-
     internal static async Task<Rstat> StatAsync(NinePFSDispatcher dispatcher, ushort tag, uint fid)
     {
         var response = await dispatcher.DispatchAsync(
+            "test-session",
             NinePMessage.NewMsgTstat(new Tstat(tag, fid)),
-            dialect: NinePDialect.NineP2000U);
+            dialect: NinePDialect.NineP2000);
 
         if (response is not Rstat stat)
         {
@@ -152,20 +151,6 @@ internal static class DispatcherIntegrationTestKit
         }
 
         return stat;
-    }
-
-    internal static async Task<Rreaddir> ReaddirAsync(NinePFSDispatcher dispatcher, ushort tag, uint fid, ulong offset, uint count)
-    {
-        var response = await dispatcher.DispatchAsync(
-            NinePMessage.NewMsgTreaddir(new Treaddir(0, tag, fid, offset, count)),
-            dialect: NinePDialect.NineP2000U);
-
-        if (response is not Rreaddir readdir)
-        {
-            throw new Xunit.Sdk.XunitException($"Expected Rreaddir, got {response.GetType().Name}");
-        }
-
-        return readdir;
     }
 
     internal static string ReadPayload(Rread read) => Encoding.UTF8.GetString(read.Data.Span);
@@ -197,42 +182,6 @@ internal static class DispatcherIntegrationTestKit
 
         return chars.Length == 0 ? $"m{index}" : new string(chars);
     }
-
-    internal static List<ReaddirEntry> ParseReaddirEntries(ReadOnlySpan<byte> data)
-    {
-        var result = new List<ReaddirEntry>();
-        int offset = 0;
-
-        while (offset < data.Length)
-        {
-            if (data.Length - offset < 24)
-            {
-                throw new Xunit.Sdk.XunitException($"Malformed readdir entry at byte offset {offset}");
-            }
-
-            var qidType = (QidType)data[offset];
-            offset += 1 + 4 + 8; // qid type + version + path
-
-            ulong nextOffset = BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(offset, 8));
-            offset += 8;
-
-            byte typeByte = data[offset++];
-            ushort nameLen = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(offset, 2));
-            offset += 2;
-
-            if (nameLen > data.Length - offset)
-            {
-                throw new Xunit.Sdk.XunitException($"Invalid name length {nameLen} at byte offset {offset}");
-            }
-
-            string name = Encoding.UTF8.GetString(data.Slice(offset, nameLen));
-            offset += nameLen;
-
-            result.Add(new ReaddirEntry(qidType, nextOffset, typeByte, name));
-        }
-
-        return result;
-    }
 }
 
 internal sealed class StubBackend : IProtocolBackend
@@ -250,9 +199,10 @@ internal sealed class StubBackend : IProtocolBackend
 
     public Task InitializeAsync(IConfiguration configuration) => Task.CompletedTask;
 
-    public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null) => _factory();
+    public IBackendRuntime GetRuntime(X509Certificate2? certificate = null) => 
+        BackendTargetDescriptor.LocalRuntime(Name, MountPath, () => RuntimeFileSystemAdapter.ToRuntime(_factory())).CreateRuntime();
 
-    public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null) => _factory();
+    public IBackendRuntime GetRuntime(SecureString? credentials, X509Certificate2? certificate = null) => GetRuntime(certificate);
 }
 
 internal sealed class MarkerFileSystem : INinePFileSystem
@@ -264,7 +214,7 @@ internal sealed class MarkerFileSystem : INinePFileSystem
         _marker = marker;
     }
 
-    public bool Dialect { get; set; }
+    public NinePDialect Dialect { get; set; } = NinePDialect.NineP2000;
 
     public Task<Rwalk> WalkAsync(Twalk twalk)
     {
@@ -292,45 +242,7 @@ internal sealed class MarkerFileSystem : INinePFileSystem
 
     public Task<Rremove> RemoveAsync(Tremove tremove) => NotSupported<Rremove>();
 
-    public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr) => NotSupported<Rgetattr>();
-
-    public Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr) => NotSupported<Rsetattr>();
-
     public Task<Rcreate> CreateAsync(Tcreate tcreate) => NotSupported<Rcreate>();
-
-    public Task<Rstatfs> StatfsAsync(Tstatfs tstatfs) => NotSupported<Rstatfs>();
-
-    public Task<Rlopen> LopenAsync(Tlopen tlopen) => NotSupported<Rlopen>();
-
-    public Task<Rlcreate> LcreateAsync(Tlcreate tlcreate) => NotSupported<Rlcreate>();
-
-    public Task<Rsymlink> SymlinkAsync(Tsymlink tsymlink) => NotSupported<Rsymlink>();
-
-    public Task<Rmknod> MknodAsync(Tmknod tmknod) => NotSupported<Rmknod>();
-
-    public Task<Rrename> RenameAsync(Trename trename) => NotSupported<Rrename>();
-
-    public Task<Rreadlink> ReadlinkAsync(Treadlink treadlink) => NotSupported<Rreadlink>();
-
-    public Task<Rxattrwalk> XattrwalkAsync(Txattrwalk txattrwalk) => NotSupported<Rxattrwalk>();
-
-    public Task<Rxattrcreate> XattrcreateAsync(Txattrcreate txattrcreate) => NotSupported<Rxattrcreate>();
-
-    public Task<Rreaddir> ReaddirAsync(Treaddir treaddir) => NotSupported<Rreaddir>();
-
-    public Task<Rfsync> FsyncAsync(Tfsync tfsync) => NotSupported<Rfsync>();
-
-    public Task<Rlock> LockAsync(Tlock tlock) => NotSupported<Rlock>();
-
-    public Task<Rgetlock> GetlockAsync(Tgetlock tgetlock) => NotSupported<Rgetlock>();
-
-    public Task<Rlink> LinkAsync(Tlink tlink) => NotSupported<Rlink>();
-
-    public Task<Rmkdir> MkdirAsync(Tmkdir tmkdir) => NotSupported<Rmkdir>();
-
-    public Task<Rrenameat> RenameatAsync(Trenameat trenameat) => NotSupported<Rrenameat>();
-
-    public Task<Runlinkat> UnlinkatAsync(Tunlinkat tunlinkat) => NotSupported<Runlinkat>();
 
     public INinePFileSystem Clone() => new MarkerFileSystem(_marker) { Dialect = Dialect };
 
@@ -350,7 +262,7 @@ internal sealed class CreateTrackingFileSystem : INinePFileSystem
         _marker = marker;
     }
 
-    public bool Dialect { get; set; }
+    public NinePDialect Dialect { get; set; } = NinePDialect.NineP2000;
 
     public Task<Rwalk> WalkAsync(Twalk twalk)
     {
@@ -379,8 +291,7 @@ internal sealed class CreateTrackingFileSystem : INinePFileSystem
     public Task<Rstat> StatAsync(Tstat tstat) => NotSupported<Rstat>();
     public Task<Rwstat> WstatAsync(Twstat twstat) => NotSupported<Rwstat>();
     public Task<Rremove> RemoveAsync(Tremove tremove) => Task.FromResult(new Rremove(tremove.Tag));
-    public Task<Rreaddir> ReaddirAsync(Treaddir treaddir) => NotSupported<Rreaddir>();
-    public INinePFileSystem Clone() => new CreateTrackingFileSystem(_marker);
+    public INinePFileSystem Clone() => new CreateTrackingFileSystem(_marker) { Dialect = Dialect };
 
     private static Task<T> NotSupported<T>() => Task.FromException<T>(new NinePNotSupportedException());
 }
@@ -394,7 +305,7 @@ internal sealed class DirectoryListingFileSystem : INinePFileSystem
         _entries = entries.ToArray();
     }
 
-    public bool Dialect { get; set; }
+    public NinePDialect Dialect { get; set; } = NinePDialect.NineP2000;
 
     public Task<Rwalk> WalkAsync(Twalk twalk)
     {
@@ -406,48 +317,22 @@ internal sealed class DirectoryListingFileSystem : INinePFileSystem
         => Task.FromResult(new Ropen(topen.Tag, new Qid(QidType.QTDIR, 0, 1), 8192));
 
     public Task<Rread> ReadAsync(Tread tread)
-        => Task.FromResult(new Rread(tread.Tag, Array.Empty<byte>()));
-
-    public Task<Rreaddir> ReaddirAsync(Treaddir treaddir)
     {
-        var bytes = new List<byte>();
-        ulong nextOffset = 0;
-
+        var allStats = new List<byte>();
         foreach (var name in _entries)
         {
-            nextOffset++;
-            if (nextOffset <= treaddir.Offset)
-            {
-                continue;
-            }
-
             var qid = new Qid(QidType.QTDIR, 0, (ulong)Math.Abs(name.GetHashCode()));
-            int nameLen = Encoding.UTF8.GetByteCount(name);
-            int entrySize = 13 + 8 + 1 + 2 + nameLen;
-            byte[] entry = new byte[entrySize];
-            int offset = 0;
-            entry[offset++] = (byte)qid.Type;
-            BinaryPrimitives.WriteUInt32LittleEndian(entry.AsSpan(offset, 4), qid.Version);
-            offset += 4;
-            BinaryPrimitives.WriteUInt64LittleEndian(entry.AsSpan(offset, 8), qid.Path);
-            offset += 8;
-            BinaryPrimitives.WriteUInt64LittleEndian(entry.AsSpan(offset, 8), nextOffset);
-            offset += 8;
-            entry[offset++] = (byte)qid.Type;
-            BinaryPrimitives.WriteUInt16LittleEndian(entry.AsSpan(offset, 2), (ushort)nameLen);
-            offset += 2;
-            Encoding.UTF8.GetBytes(name).CopyTo(entry.AsSpan(offset, nameLen));
-
-            if (bytes.Count + entry.Length > treaddir.Count)
-            {
-                break;
-            }
-
-            bytes.AddRange(entry);
+            var stat = new Stat(0, 0, 0, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0755, 0, 0, 0, name, "none", "none", "none", dialect: Dialect);
+            var buffer = new byte[stat.Size];
+            int off = 0;
+            stat.WriteTo(buffer, ref off);
+            allStats.AddRange(buffer);
         }
 
-        byte[] data = bytes.ToArray();
-        return Task.FromResult(new Rreaddir((uint)(data.Length + NinePConstants.HeaderSize + 4), treaddir.Tag, (uint)data.Length, data));
+        if (tread.Offset >= (ulong)allStats.Count) return Task.FromResult(new Rread(tread.Tag, Array.Empty<byte>()));
+        int start = (int)tread.Offset;
+        int len = (int)Math.Min(tread.Count, (uint)(allStats.Count - start));
+        return Task.FromResult(new Rread(tread.Tag, allStats.GetRange(start, len).ToArray()));
     }
 
     public Task<Rwrite> WriteAsync(Twrite twrite) => Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
@@ -477,7 +362,7 @@ internal sealed class ExistingPathFileSystem : INinePFileSystem
         _currentPath = currentPath;
     }
 
-    public bool Dialect { get; set; }
+    public NinePDialect Dialect { get; set; } = NinePDialect.NineP2000;
 
     public Task<Rwalk> WalkAsync(Twalk twalk)
     {
@@ -523,7 +408,6 @@ internal sealed class ExistingPathFileSystem : INinePFileSystem
     public Task<Rwstat> WstatAsync(Twstat twstat) => NotSupported<Rwstat>();
     public Task<Rremove> RemoveAsync(Tremove tremove) => Task.FromResult(new Rremove(tremove.Tag));
     public Task<Rcreate> CreateAsync(Tcreate tcreate) => NotSupported<Rcreate>();
-    public Task<Rreaddir> ReaddirAsync(Treaddir treaddir) => NotSupported<Rreaddir>();
     public INinePFileSystem Clone() => new ExistingPathFileSystem(_paths, new List<string>(_currentPath)) { Dialect = Dialect };
 
     private static string Normalize(IEnumerable<string> segments)
@@ -568,7 +452,7 @@ internal sealed class SharedMutableFileSystem : INinePFileSystem
         _state = state;
     }
 
-    public bool Dialect { get; set; }
+    public NinePDialect Dialect { get; set; } = NinePDialect.NineP2000;
 
     private string GetFullPath() => _currentPath.Count == 0 ? "/" : "/" + string.Join("/", _currentPath);
 
@@ -655,7 +539,6 @@ internal sealed class SharedMutableFileSystem : INinePFileSystem
     public Task<Rstat> StatAsync(Tstat tstat) => NotSupported<Rstat>();
     public Task<Rwstat> WstatAsync(Twstat twstat) => NotSupported<Rwstat>();
     public Task<Rremove> RemoveAsync(Tremove tremove) => Task.FromResult(new Rremove(tremove.Tag));
-    public Task<Rreaddir> ReaddirAsync(Treaddir treaddir) => NotSupported<Rreaddir>();
 
     public INinePFileSystem Clone()
     {

@@ -12,6 +12,7 @@ using Akka.Cluster;
 using Akka.Configuration;
 using Microsoft.Extensions.Logging;
 using NinePSharp.Server.Interfaces;
+using NinePSharp.Server.Abstractions.Utils;
 using NinePSharp.Server.Cluster.Messages;
 
 namespace NinePSharp.Server.Cluster;
@@ -79,9 +80,9 @@ public class ClusterManager : IRemoteMountProvider
     
     public ActorSystem? System => _actorSystem;
 
-    public Task RegisterMountAsync(string mountPath, Func<INinePFileSystem> createSession)
+    public Task RegisterMountAsync(string mountPath, Func<IBackendRuntime> createRuntime)
     {
-        ArgumentNullException.ThrowIfNull(createSession);
+        ArgumentNullException.ThrowIfNull(createRuntime);
 
         if (_actorSystem == null || Registry == null)
         {
@@ -90,7 +91,11 @@ public class ClusterManager : IRemoteMountProvider
 
         string normalizedPath = NormalizeMountPath(mountPath);
         string actorName = $"backend-{SanitizeActorName(normalizedPath)}-{Guid.NewGuid():N}";
-        var actor = _actorSystem.ActorOf(Props.Create(() => new Actors.BackendSupervisorActor(createSession)), actorName);
+        
+        // We need a way to bridge IBackendRuntime to the actor system.
+        // For now, we wrap it in a FileSystem provider if it's not already native.
+        // Better: BackendSupervisorActor should support IBackendRuntime.
+        var actor = _actorSystem.ActorOf(Props.Create(() => new Actors.BackendSupervisorActor(createRuntime)), actorName);
         _backendActors[normalizedPath] = actor;
         Registry.Tell(new BackendRegistration(normalizedPath, actor));
         return Task.CompletedTask;
@@ -116,7 +121,7 @@ public class ClusterManager : IRemoteMountProvider
         }
     }
 
-    public async Task<INinePFileSystem?> TryCreateRemoteFileSystemAsync(string mountPath)
+    public async Task<IBackendRuntime?> TryCreateRemoteRuntimeAsync(string mountPath)
     {
         if (Registry == null)
         {
@@ -136,7 +141,8 @@ public class ClusterManager : IRemoteMountProvider
             return null;
         }
 
-        return new RemoteFileSystem(spawnedSession.Session);
+        // Bridge the actor session to IBackendRuntime
+        return new FileSystemBackendRuntime(normalizedPath, normalizedPath, () => new RemoteFileSystem(spawnedSession.Session));
     }
 
     public static string BuildHocon(AkkaConfig akkaConfig)

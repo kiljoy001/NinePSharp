@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
+using System;
 
 namespace NinePSharp.Server.Backends;
 
@@ -24,28 +25,29 @@ public class StellarBackend : IProtocolBackend
     }
 
     public string Name => "Stellar";
-    public string MountPath => _config?.MountPath ?? "/stellar";
+    public string MountPath => _config?.MountPath ?? "/xlm";
 
     public Task InitializeAsync(IConfiguration configuration)
     {
         _config = configuration.GetSection("Server:Stellar").Get<StellarBackendConfig>();
         _httpClient = new HttpClient();
-        Console.WriteLine($"[Stellar Backend] Initialized with MountPath: {MountPath}");
         return Task.CompletedTask;
     }
 
     private JsonRpcClient? GetRpcClient()
     {
-        if (_config == null || _httpClient == null || string.IsNullOrEmpty(_config.HorizonUrl)) return null;
-        // Stellar Horizon is REST, but some setups use JSON-RPC bridges
-        return new JsonRpcClient(_httpClient, _config.HorizonUrl);
+        if (_config == null || _httpClient == null || string.IsNullOrEmpty(_config.RpcUrl)) return null;
+        return new JsonRpcClient(_httpClient, _config.RpcUrl);
     }
 
-    public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null)
+    public IBackendRuntime GetRuntime(X509Certificate2? certificate = null)
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
-        return new StellarFileSystem(_config, GetRpcClient(), _vault, _authService, certificate);
+        return BackendTargetDescriptor.LocalRuntime(Name, MountPath, () => new StellarFileSystem(_config, GetRpcClient(), _vault, _authService, certificate)).CreateRuntime();
     }
 
-    public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null) => GetFileSystem(certificate);
+    public IBackendRuntime GetRuntime(SecureString? credentials, X509Certificate2? certificate = null)
+    {
+        return GetRuntime(certificate);
+    }
 }

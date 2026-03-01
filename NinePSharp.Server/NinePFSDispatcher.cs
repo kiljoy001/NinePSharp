@@ -19,9 +19,6 @@ public sealed class NinePFSDispatcher : INinePFSDispatcher
         _engine = new NinePFSDispatcherEngine(new DefaultAttachResolver(backends, remoteMountProvider));
     }
 
-    public Task<object> DispatchAsync(NinePMessage message, NinePDialect dialect, X509Certificate2? certificate = null)
-        => _engine.DispatchAsync(message, dialect, certificate);
-
-    public Task<object> DispatchAsync(string? sessionId, NinePMessage message, NinePDialect dialect, X509Certificate2? certificate = null)
+    public Task<object> DispatchAsync(string sessionId, NinePMessage message, NinePDialect dialect, X509Certificate2? certificate = null)
         => _engine.DispatchAsync(sessionId, message, dialect, certificate);
 }

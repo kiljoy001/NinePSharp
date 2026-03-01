@@ -1,3 +1,4 @@
+using NinePSharp.Server.Utils;
 using NinePSharp.Constants;
 using System;
 using System.Threading.Tasks;
@@ -9,6 +10,7 @@ using NinePSharp.Messages;
 using NinePSharp.Server.Cluster.Actors;
 using NinePSharp.Server.Cluster.Messages;
 using NinePSharp.Server.Interfaces;
+using NinePSharp.Server.Utils;
 using Xunit;
 
 namespace NinePSharp.Tests;
@@ -47,7 +49,7 @@ public class ClusterTests : TestKit
     {
         var fsMock = new Mock<INinePFileSystem>();
 
-        var supervisor = Sys.ActorOf(Props.Create(() => new BackendSupervisorActor(() => fsMock.Object)));
+        var supervisor = Sys.ActorOf(Props.Create(() => new BackendSupervisorActor(() => RuntimeFileSystemAdapter.ToRuntime(fsMock.Object))));
 
         supervisor.Tell(new SpawnSession());
         var response = ExpectMsg<SessionSpawned>();

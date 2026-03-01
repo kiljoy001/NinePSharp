@@ -23,10 +23,12 @@ public class DispatcherConcurrencyStressTests
     private static INinePFileSystem CreateSimpleFs()
     {
         var mock = new Mock<INinePFileSystem>();
+        mock.SetupProperty(f => f.Dialect);
         mock.Setup(x => x.WalkAsync(It.IsAny<Twalk>()))
             .ReturnsAsync((Twalk t) => new Rwalk(t.Tag, new[] { new Qid(QidType.QTDIR, 0, 0) }));
         mock.Setup(x => x.Clone()).Returns(() => CreateSimpleFs());
         mock.Setup(x => x.ClunkAsync(It.IsAny<Tclunk>())).ReturnsAsync((Tclunk t) => new Rclunk(t.Tag));
+        mock.Setup(x => x.CreateAsync(It.IsAny<Tcreate>())).ReturnsAsync((Tcreate t) => new Rcreate(t.Tag, new Qid(QidType.QTFILE, 0, 0), 8192));
         return mock.Object;
     }
 
@@ -34,9 +36,10 @@ public class DispatcherConcurrencyStressTests
     public async Task Dispatcher_Extreme_Concurrency_Stress_Test()
     {
         var mockBackend = new Mock<IProtocolBackend>();
+        mockBackend.Setup(b => b.Name).Returns("mock");
         mockBackend.Setup(b => b.MountPath).Returns("/mock");
-        mockBackend.Setup(b => b.GetFileSystem(It.IsAny<X509Certificate2>()))
-                   .Returns(() => CreateSimpleFs());
+        mockBackend.Setup(b => b.GetRuntime(It.IsAny<X509Certificate2>()))
+                   .Returns(() => BackendTargetDescriptor.Local("mock", "/mock", () => CreateSimpleFs()).CreateRuntime());
 
         var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, new Mock<IRemoteMountProvider>().Object);
 

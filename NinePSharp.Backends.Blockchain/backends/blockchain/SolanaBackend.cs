@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
+using System;
 
 namespace NinePSharp.Server.Backends;
 
@@ -30,7 +31,6 @@ public class SolanaBackend : IProtocolBackend
     {
         _config = configuration.GetSection("Server:Solana").Get<SolanaBackendConfig>();
         _httpClient = new HttpClient();
-        Console.WriteLine($"[Solana Backend] Initialized with MountPath: {MountPath}");
         return Task.CompletedTask;
     }
 
@@ -40,11 +40,14 @@ public class SolanaBackend : IProtocolBackend
         return new JsonRpcClient(_httpClient, _config.RpcUrl);
     }
 
-    public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null)
+    public IBackendRuntime GetRuntime(X509Certificate2? certificate = null)
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
-        return new SolanaFileSystem(_config, GetRpcClient(), _vault, _authService, certificate);
+        return BackendTargetDescriptor.LocalRuntime(Name, MountPath, () => new SolanaFileSystem(_config, GetRpcClient(), _vault, _authService, certificate)).CreateRuntime();
     }
 
-    public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null) => GetFileSystem(certificate);
+    public IBackendRuntime GetRuntime(SecureString? credentials, X509Certificate2? certificate = null)
+    {
+        return GetRuntime(certificate);
+    }
 }

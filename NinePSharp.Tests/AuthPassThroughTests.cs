@@ -1,3 +1,4 @@
+using NinePSharp.Server.Utils;
 using NinePSharp.Constants;
 using System.Security.Cryptography.X509Certificates;
 using System;
@@ -30,28 +31,28 @@ internal class NullLoggerAuth : ILogger<NinePFSDispatcher>
 }
 
 /// <summary>
-/// Spy backend — records the credentials passed to GetFileSystem(credentials).
+/// Spy backend — records the credentials passed to GetRuntime(credentials).
 /// </summary>
 internal class SpyBackend : IProtocolBackend
 {
     public string? LastCredentials { get; private set; } = "NOT_CALLED";
-    public int GetFileSystemCallCount { get; private set; }
+    public int GetRuntimeCallCount { get; private set; }
 
     public string Name => "Spy";
     public string MountPath => "/spy";
 
     public Task InitializeAsync(Microsoft.Extensions.Configuration.IConfiguration c) => Task.CompletedTask;
 
-    public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null)
+    public IBackendRuntime GetRuntime(X509Certificate2? certificate = null)
     {
-        GetFileSystemCallCount++;
+        GetRuntimeCallCount++;
         LastCredentials = null;
-        return new MockFileSystem();
+        return BackendTargetDescriptor.LocalRuntime(Name, MountPath, () => RuntimeFileSystemAdapter.ToRuntime(new MockFileSystem())).CreateRuntime();
     }
 
-    public INinePFileSystem GetFileSystem(System.Security.SecureString? credentials, X509Certificate2? certificate = null)
+    public IBackendRuntime GetRuntime(System.Security.SecureString? credentials, X509Certificate2? certificate = null)
     {
-        GetFileSystemCallCount++;
+        GetRuntimeCallCount++;
         if (credentials != null)
         {
             IntPtr ptr = System.Runtime.InteropServices.Marshal.SecureStringToGlobalAllocUnicode(credentials);
@@ -64,7 +65,7 @@ internal class SpyBackend : IProtocolBackend
         else {
             LastCredentials = null;
         }
-        return new MockFileSystem();
+        return BackendTargetDescriptor.LocalRuntime(Name, MountPath, () => RuntimeFileSystemAdapter.ToRuntime(new MockFileSystem())).CreateRuntime();
     }
 }
 
@@ -84,7 +85,7 @@ internal static class Auth
     public static async Task<uint> DoTauth(INinePFSDispatcher d, uint afid = 42, ushort tag = 1)
     {
         var tauth = new Tauth(tag, afid, "root", "/spy");
-        await d.DispatchAsync(NinePMessage.NewMsgTauth(tauth), NinePDialect.NineP2000);
+        await d.DispatchAsync("test-session", NinePMessage.NewMsgTauth(tauth), NinePDialect.NineP2000);
         return afid;
     }
 
@@ -92,13 +93,19 @@ internal static class Auth
     {
         var data = Encoding.UTF8.GetBytes(creds);
         var twrite = new Twrite(tag, afid, 0, data);
-        await d.DispatchAsync(NinePMessage.NewMsgTwrite(twrite), NinePDialect.NineP2000);
+        await d.DispatchAsync("test-session", NinePMessage.NewMsgTwrite(twrite), NinePDialect.NineP2000);
     }
 
     public static async Task<object> DoTattach(INinePFSDispatcher d, uint afid, uint fid = 100, ushort tag = 3)
     {
         var tattach = new Tattach(tag, fid, afid, "root", "/spy");
-        return await d.DispatchAsync(NinePMessage.NewMsgTattach(tattach), NinePDialect.NineP2000);
+        return await d.DispatchAsync("test-session", NinePMessage.NewMsgTattach(tattach), NinePDialect.NineP2000);
+    }
+
+    public static async Task MaterializeAsync(INinePFSDispatcher d, uint fid, ushort tag = 4)
+    {
+        var response = await d.DispatchAsync("test-session", NinePMessage.NewMsgTstat(new Tstat(tag, fid)), NinePDialect.NineP2000);
+        response.Should().BeOfType<Rstat>();
     }
 }
 
@@ -139,10 +146,12 @@ public class AuthPassThroughDispatcherTests
 
         // Attach using afid=10
         await Auth.DoTattach(d, afid: 10, fid: 100);
+        await Auth.MaterializeAsync(d, 100, 11);
         spy.LastCredentials.Should().Be("user:passA");
 
         // Attach using afid=20
         await Auth.DoTattach(d, afid: 20, fid: 101);
+        await Auth.MaterializeAsync(d, 101, 12);
         spy.LastCredentials.Should().Be("user:passB");
     }
 
@@ -160,6 +169,7 @@ public class AuthPassThroughDispatcherTests
         await Auth.WriteCredentials(d, 42, "secret");
 
         await Auth.DoTattach(d, afid: 42);
+        await Auth.MaterializeAsync(d, 100, 5);
         spy.LastCredentials.Should().Be("user:secret");
     }
 
@@ -200,6 +210,7 @@ public class AuthPassThroughDispatcherTests
         await Auth.DoTauth(d, afid: 42);
         await Auth.WriteCredentials(d, 42, "rpcuser:rpcpass");
         var response = await Auth.DoTattach(d, afid: 42);
+        await Auth.MaterializeAsync(d, 100, 4);
 
         response.Should().BeOfType<Rattach>();
         spy.LastCredentials.Should().Be("rpcuser:rpcpass");
@@ -214,6 +225,7 @@ public class AuthPassThroughDispatcherTests
         // NOFID = no auth used
         var tattach = new Tattach(1, 100, NinePConstants.NoFid, "root", "/spy");
         var response = await d.DispatchAsync(NinePMessage.NewMsgTattach(tattach), NinePDialect.NineP2000);
+        await Auth.MaterializeAsync(d, 100, 2);
 
         response.Should().BeOfType<Rattach>();
         spy.LastCredentials.Should().BeNull();
@@ -228,6 +240,7 @@ public class AuthPassThroughDispatcherTests
         // Auth fid created but nothing written to it
         await Auth.DoTauth(d, afid: 42);
         await Auth.DoTattach(d, afid: 42);
+        await Auth.MaterializeAsync(d, 100, 4);
 
         // Empty buffer → null credentials (not "")
         spy.LastCredentials.Should().BeNull();
@@ -244,10 +257,12 @@ public class AuthPassThroughDispatcherTests
 
         // First attach consumes the buffer
         await Auth.DoTattach(d, afid: 42, fid: 100);
+        await Auth.MaterializeAsync(d, 100, 4);
         spy.LastCredentials.Should().Be("secret");
 
         // Second attach with same afid — buffer already removed, NOFID behaviour
         await Auth.DoTattach(d, afid: 42, fid: 101);
+        await Auth.MaterializeAsync(d, 101, 5);
         spy.LastCredentials.Should().BeNull();
     }
 
@@ -269,6 +284,7 @@ public class AuthPassThroughDispatcherTests
 
         // Now attach — buffer is gone, credentials should be null
         await Auth.DoTattach(d, afid: 42, fid: 100);
+        await Auth.MaterializeAsync(d, 100, 4);
         spy.LastCredentials.Should().BeNull();
     }
 
@@ -319,6 +335,7 @@ public class AuthPassThroughPropertyTests
         Auth.DoTauth(d, 42).Sync();
         Auth.WriteCredentials(d, 42, c).Sync();
         Auth.DoTattach(d, 42).Sync();
+        Auth.MaterializeAsync(d, 100, 5).Sync();
 
         return spy.LastCredentials == c;
     }
@@ -339,6 +356,7 @@ public class AuthPassThroughPropertyTests
         Auth.WriteCredentials(d, 42, p1).Sync();
         Auth.WriteCredentials(d, 42, p2).Sync();
         Auth.DoTattach(d, 42).Sync();
+        Auth.MaterializeAsync(d, 100, 5).Sync();
 
         return spy.LastCredentials == p1 + p2;
     }
@@ -357,9 +375,11 @@ public class AuthPassThroughPropertyTests
         Auth.DoTauth(d, 42).Sync();
         Auth.WriteCredentials(d, 42, c).Sync();
         Auth.DoTattach(d, 42, fid: 100).Sync();
+        Auth.MaterializeAsync(d, 100, 5).Sync();
 
         // Second attach — buffer already drained
         Auth.DoTattach(d, 42, fid: 101).Sync();
+        Auth.MaterializeAsync(d, 101, 6).Sync();
 
         return spy.LastCredentials == null;
     }
@@ -392,6 +412,7 @@ public class AuthPassThroughPropertyTests
         var d = MakeDispatcher(out var spy);
         var tattach = new Tattach((ushort)(tag.Get % 65535 + 1), 100, NinePConstants.NoFid, "root", "/spy");
         d.DispatchAsync(NinePMessage.NewMsgTattach(tattach), NinePDialect.NineP2000).Sync();
+        Auth.MaterializeAsync(d, 100, 7).Sync();
 
         return spy.LastCredentials == null;
     }

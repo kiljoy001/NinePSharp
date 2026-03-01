@@ -14,6 +14,8 @@ namespace NinePSharp.Tests.Architecture;
 
 public class Plan9ProcessTests
 {
+    private static Channel RootChannel => ChannelOps.createNamespaceNode(new NinePSharp.Core.FSharp.Qid(QidType.QTDIR, 0, 0), FsList<string>(Array.Empty<string>()));
+
     [Fact]
     public void Channel_Walk_Returns_New_Channel_Without_Mutating_Source()
     {
@@ -23,7 +25,7 @@ public class Plan9ProcessTests
             target,
             Array.Empty<string>(),
             FsList("eth"));
-        source = new Channel(source.Qid, 77UL, source.Target, source.PathState, true);
+        source = new Channel(source.Type, source.Dev, source.Qid, 77UL, source.Target, source.PathState, true, null, null, 0);
 
         var walked = ChannelOps.walk(FsList("wallet"), source);
 
@@ -48,7 +50,7 @@ public class Plan9ProcessTests
             NewTarget("root"),
             Array.Empty<string>(),
             originalPath);
-        source = new Channel(source.Qid, 5UL, source.Target, source.PathState, true);
+        source = new Channel(source.Type, source.Dev, source.Qid, 5UL, source.Target, source.PathState, true, null, null, 0);
 
         var segments = rawSegments
             .Where(s => s != null)
@@ -56,7 +58,7 @@ public class Plan9ProcessTests
             .Take(16)
             .ToList();
 
-        var walked = ChannelOps.walk(FsList(segments), source);
+        var walked = ChannelOps.walk(FsList<string>(segments), source);
 
         return source.InternalPath.SequenceEqual(new[] { "root" })
             && source.Offset == 5UL
@@ -68,7 +70,7 @@ public class Plan9ProcessTests
     public void Process_AddFd_Maps_Channel_Without_Mutating_Original_Process()
     {
         var channel = ChannelOps.createBackendNode(new NinePSharp.Core.FSharp.Qid(QidType.QTFILE, 0, 99), NewTarget("bin"), Array.Empty<string>(), FsList("bin", "tool"));
-        var proc = Process.create(1, EmptyNamespace());
+        var proc = Process.create(1, EmptyNamespace(), RootChannel);
 
         var mutated = Process.addFd(3, channel, proc);
 
@@ -92,7 +94,7 @@ public class Plan9ProcessTests
             MountAt("/" + target, targetFs));
 
         var channel = ChannelOps.createBackendNode(new NinePSharp.Core.FSharp.Qid(QidType.QTDIR, 0, 11), targetFs, Array.Empty<string>(), FsList(target));
-        var parent = Process.addFd(10, channel, Process.create(100, ns));
+        var parent = Process.addFd(10, channel, Process.create(100, ns, RootChannel));
 
         var child = Process.fork(101, parent);
         var reboundChild = Process.bind("/" + source, "/" + target, BindFlags.MREPL, child);
@@ -112,20 +114,59 @@ public class Plan9ProcessTests
             && ReferenceEquals(parentFd.Value, childFd.Value);
     }
 
+    [Property(MaxTest = 100)]
+    public bool Process_Unmount_Removes_Exact_Target(string pathRaw)
+    {
+        var path = CleanPathSegment(pathRaw, "mnt");
+        var fs = NewTarget(path);
+        var ns = BuildNamespace(MountAt("/" + path, fs));
+        var proc = Process.create(1, ns, RootChannel);
+
+        var unmountedProc = Process.unmount(NamespaceOps.mountKeyForPath(FsList(path)), proc);
+
+        var originalResolved = NamespaceOps.resolve(FsList(path), proc.Namespace).Item1.ToList();
+        var unmountedResolved = NamespaceOps.resolve(FsList(path), unmountedProc.Namespace).Item1.ToList();
+
+        return originalResolved.Count == 1 && unmountedResolved.Count == 0;
+    }
+
+    [Property(MaxTest = 100)]
+    public bool Process_Chdir_Updates_Dot(string pathRaw)
+    {
+        var path = CleanPathSegment(pathRaw, "dir");
+        var root = RootChannel;
+        var proc = Process.create(1, EmptyNamespace(), root);
+        var newDot = ChannelOps.createNamespaceNode(new NinePSharp.Core.FSharp.Qid(QidType.QTDIR, 0, 1), FsList(path));
+
+        var updatedProc = Process.chdir(newDot, proc);
+
+        return ReferenceEquals(proc.Dot, root) && ReferenceEquals(updatedProc.Dot, newDot);
+    }
+
     private static NinePSharp.Core.FSharp.Namespace EmptyNamespace()
     {
         return NamespaceOps.empty;
     }
 
-    private static Mount MountAt(string path, params BackendTargetDescriptor[] backends)
+    private static MountChain MountAt(string path, params BackendTargetDescriptor[] backends)
     {
         var normalized = NamespaceOps.splitPath(path);
-        return new Mount(normalized, new MountChain(MountIdForPath(normalized), FsBranches(BindFlags.MREPL, backends)));
+        return new MountChain(
+            MountIdForPath(normalized),
+            NamespaceOps.mountKeyForPath(normalized),
+            normalized,
+            FsBranches(BindFlags.MREPL, backends));
     }
 
-    private static NinePSharp.Core.FSharp.Namespace BuildNamespace(params Mount[] mounts)
+    private static NinePSharp.Core.FSharp.Namespace BuildNamespace(params MountChain[] mounts)
     {
-        return new NinePSharp.Core.FSharp.Namespace(FsList(mounts));
+        var ns = NamespaceOps.empty;
+        foreach (var mount in mounts)
+        {
+            ns = NamespaceOps.mount(mount.From, mount, ns);
+        }
+
+        return ns;
     }
 
     private static BackendTargetDescriptor NewTarget(string id)
@@ -136,39 +177,18 @@ public class Plan9ProcessTests
         return ListModule.OfSeq(items);
     }
 
-    private static FSharpList<MountBranch> FsBranches(BindFlags flags, IEnumerable<BackendTargetDescriptor> backends)
-    {
-        return ListModule.OfSeq(backends.Select(target => new MountBranch(target, flags)));
-    }
+    private static FSharpList<T> FsList<T>(params T[] items) => FsList((IEnumerable<T>)items);
 
-    private static FSharpList<string> FsList(params string[] items)
-    {
-        return ListModule.OfSeq(items);
-    }
+    private static FSharpList<MountBranch> FsBranches(BindFlags flags, params BackendTargetDescriptor[] targets)
+        => FsList(targets.Select(t => new MountBranch(t, flags)));
 
-    private static string CleanPathSegment(string? raw, string fallback)
+    private static string CleanPathSegment(string raw, string fallback)
     {
         if (string.IsNullOrWhiteSpace(raw)) return fallback;
-        var chars = raw.Where(char.IsLetterOrDigit).Take(12).ToArray();
-        return chars.Length == 0 ? fallback : new string(chars);
+        var clean = raw.Replace("/", "").Trim();
+        return string.IsNullOrWhiteSpace(clean) ? fallback : clean;
     }
 
-    private static ulong MountIdForPath(IEnumerable<string> segments)
-    {
-        unchecked
-        {
-            ulong hash = 14695981039346656037UL;
-            foreach (var segment in segments)
-            {
-                foreach (var ch in segment)
-                {
-                    hash = (hash ^ ch) * 1099511628211UL;
-                }
-
-                hash = (hash ^ '/') * 1099511628211UL;
-            }
-
-            return hash == 0 ? 1UL : hash;
-        }
-    }
+    private static ulong MountIdForPath(IEnumerable<string> path)
+        => (ulong)string.Join("/", path).GetHashCode();
 }

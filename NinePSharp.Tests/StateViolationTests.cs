@@ -1,3 +1,4 @@
+using NinePSharp.Server.Utils;
 using NinePSharp.Constants;
 using System;
 using System.Collections.Generic;
@@ -26,9 +27,12 @@ public class StateViolationTests
     {
         var cluster = new Mock<IRemoteMountProvider>().Object;
         var mockBackend = new Mock<IProtocolBackend>();
+        mockBackend.Setup(b => b.Name).Returns("mock");
         mockBackend.Setup(b => b.MountPath).Returns("/mock");
-        mockBackend.Setup(b => b.GetFileSystem(It.IsAny<System.Security.SecureString>(), It.IsAny<System.Security.Cryptography.X509Certificates.X509Certificate2>())).Returns(new MockFileSystem());
-        mockBackend.Setup(b => b.GetFileSystem(It.IsAny<System.Security.Cryptography.X509Certificates.X509Certificate2>())).Returns(new MockFileSystem());
+        mockBackend.Setup(b => b.GetRuntime(It.IsAny<System.Security.SecureString>(), It.IsAny<System.Security.Cryptography.X509Certificates.X509Certificate2>()))
+            .Returns(() => BackendTargetDescriptor.LocalRuntime("mock", "/mock", () => RuntimeFileSystemAdapter.ToRuntime(new MockFileSystem())).CreateRuntime());
+        mockBackend.Setup(b => b.GetRuntime(It.IsAny<System.Security.Cryptography.X509Certificates.X509Certificate2>()))
+            .Returns(() => BackendTargetDescriptor.LocalRuntime("mock", "/mock", () => RuntimeFileSystemAdapter.ToRuntime(new MockFileSystem())).CreateRuntime());
         
         _dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, cluster);
     }
@@ -48,7 +52,7 @@ public class StateViolationTests
             Tstat v => NinePMessage.NewMsgTstat(v),
             _ => throw new ArgumentException("Unsupported message type")
         };
-        return await _dispatcher.DispatchAsync(pmsg, NinePDialect.NineP2000);
+        return await _dispatcher.DispatchAsync("test-session", pmsg, NinePDialect.NineP2000);
     }
 
     [Fact]

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
+using System;
 
 namespace NinePSharp.Server.Backends;
 
@@ -24,21 +25,29 @@ public class CardanoBackend : IProtocolBackend
     }
 
     public string Name => "Cardano";
-    public string MountPath => _config?.MountPath ?? "/cardano";
+    public string MountPath => _config?.MountPath ?? "/ada";
 
     public Task InitializeAsync(IConfiguration configuration)
     {
         _config = configuration.GetSection("Server:Cardano").Get<CardanoBackendConfig>();
         _httpClient = new HttpClient();
-        Console.WriteLine($"[Cardano Backend] Initialized with MountPath: {MountPath}");
         return Task.CompletedTask;
     }
 
-    public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null)
+    private JsonRpcClient? GetRpcClient()
     {
-        if (_config == null) throw new InvalidOperationException("Backend not initialized");
-        return new CardanoFileSystem(_config, _vault, _authService, certificate, _httpClient);
+        if (_config == null || _httpClient == null || string.IsNullOrEmpty(_config.RpcUrl)) return null;
+        return new JsonRpcClient(_httpClient, _config.RpcUrl);
     }
 
-    public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null) => GetFileSystem(certificate);
+    public IBackendRuntime GetRuntime(X509Certificate2? certificate = null)
+    {
+        if (_config == null) throw new InvalidOperationException("Backend not initialized");
+        return BackendTargetDescriptor.LocalRuntime(Name, MountPath, () => new CardanoFileSystem(_config, GetRpcClient(), _vault, _authService, certificate)).CreateRuntime();
+    }
+
+    public IBackendRuntime GetRuntime(SecureString? credentials, X509Certificate2? certificate = null)
+    {
+        return GetRuntime(certificate);
+    }
 }

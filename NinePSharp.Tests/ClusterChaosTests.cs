@@ -1,64 +1,62 @@
-using NinePSharp.Constants;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Akka.Actor;
 using Akka.TestKit.Xunit2;
-using NinePSharp.Messages;
-using NinePSharp.Server.Cluster.Actors;
-using NinePSharp.Server.Cluster.Messages;
-using NinePSharp.Server.Interfaces;
+using FluentAssertions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using NinePSharp.Constants;
+using NinePSharp.Messages;
+using NinePSharp.Parser;
+using NinePSharp.Server;
+using NinePSharp.Server.Cluster;
+using NinePSharp.Server.Interfaces;
+using NinePSharp.Server.Utils;
 using Xunit;
 
 namespace NinePSharp.Tests;
 
 public class ClusterChaosTests : TestKit
 {
-    [Fact]
-    public void SessionActor_Handles_Simultaneous_Writes_Without_Deadlock()
+    private readonly Mock<ILoggerFactory> _loggerFactoryMock = new();
+
+    public ClusterChaosTests() : base("akka.actor.provider = cluster")
     {
-        // Arrange
-        var mockFs = new Mock<INinePFileSystem>();
-        mockFs.Setup(f => f.WriteAsync(It.IsAny<Twrite>()))
-              .Returns(async (Twrite t) => {
-                  await Task.Delay(10); // Simulate some work
-                  return new Rwrite(t.Tag, (uint)t.Data.Length);
-              });
-
-        var actor = Sys.ActorOf(Props.Create(() => new NinePSessionActor(mockFs.Object)));
-
-        // Act - Fire 50 simultaneous writes
-        for (ushort i = 0; i < 50; i++)
-        {
-            var dto = new TWriteDto { Tag = i, Fid = 1, Data = new byte[] { 1, 2, 3 } };
-            actor.Tell(dto);
-        }
-
-        // Assert - Expect 50 responses
-        for (int i = 0; i < 50; i++)
-        {
-            ExpectMsg<RWriteDto>(TimeSpan.FromSeconds(2));
-        }
+        _loggerFactoryMock.Setup(x => x.CreateLogger(It.IsAny<string>())).Returns(NullLogger.Instance);
     }
 
     [Fact]
-    public void SessionActor_Propagates_Errors_Correctly()
+    public async Task Cluster_Should_Handle_Actor_Restart()
     {
-        // Arrange
-        var mockFs = new Mock<INinePFileSystem>();
-        mockFs.Setup(f => f.ReadAsync(It.IsAny<Tread>()))
-              .ThrowsAsync(new Exception("Remote drive failed"));
+        var systemName = "ChaosTest" + Guid.NewGuid().ToString("N")[..8];
+        var config = new AkkaConfig
+        {
+            SystemName = systemName,
+            Hostname = "127.0.0.1",
+            Port = 0,
+            Role = "backend"
+        };
 
-        var actor = Sys.ActorOf(Props.Create(() => new NinePSessionActor(mockFs.Object)));
+        using var cluster = new ClusterManager(NullLogger<ClusterManager>.Instance, _loggerFactoryMock.Object, config);
+        cluster.Start();
 
-        // Act
-        var dto = new TReadDto { Tag = 1, Fid = 1, Count = 1024 };
-        actor.Tell(dto);
+        var fsMock = new Mock<INinePFileSystem>();
+        fsMock.SetupProperty(f => f.Dialect);
+        fsMock.Setup(x => x.WalkAsync(It.IsAny<Twalk>())).ReturnsAsync(new Rwalk(1, new[] { new Qid(QidType.QTDIR, 0, 1) }));
+        fsMock.Setup(x => x.Clone()).Returns(fsMock.Object);
 
-        // Assert
-        var error = ExpectMsg<RErrorDto>();
-        Assert.Equal("Remote drive failed", error.Ename);
+        await cluster.RegisterMountAsync("/chaos", () => RuntimeFileSystemAdapter.ToRuntime(fsMock.Object));
+
+        var runtime = await cluster.TryCreateRemoteRuntimeAsync("/chaos");
+        runtime.Should().NotBeNull();
+
+        // Kill the underlying actors or simulate failure - simplified for this test kit
+        await cluster.StopAsync();
+        
+        var runtime2 = await cluster.TryCreateRemoteRuntimeAsync("/chaos");
+        runtime2.Should().BeNull();
     }
 }

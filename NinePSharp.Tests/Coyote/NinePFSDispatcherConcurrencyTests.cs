@@ -1,3 +1,4 @@
+using NinePSharp.Server.Utils;
 using NinePSharp.Constants;
 using System;
 using System.Collections.Concurrent;
@@ -51,8 +52,8 @@ public class NinePFSDispatcherConcurrencyTests
         {
             var mockBackend = new Mock<IProtocolBackend>();
             mockBackend.Setup(b => b.MountPath).Returns("/mock");
-            mockBackend.Setup(b => b.GetFileSystem(It.IsAny<X509Certificate2>()))
-                       .Returns(() => new MockFileSystem());
+            mockBackend.Setup(b => b.GetRuntime(It.IsAny<X509Certificate2>()))
+                       .Returns(() => RuntimeFileSystemAdapter.ToRuntime(new MockFileSystem()));
 
             var mockClusterManager = new Mock<IRemoteMountProvider>();
             var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, mockClusterManager.Object);
@@ -101,8 +102,8 @@ public class NinePFSDispatcherConcurrencyTests
         {
             var mockBackend = new Mock<IProtocolBackend>();
             mockBackend.Setup(b => b.MountPath).Returns("/mock");
-            mockBackend.Setup(b => b.GetFileSystem(It.IsAny<X509Certificate2>()))
-                       .Returns(() => new MockFileSystem());
+            mockBackend.Setup(b => b.GetRuntime(It.IsAny<X509Certificate2>()))
+                       .Returns(() => RuntimeFileSystemAdapter.ToRuntime(new MockFileSystem()));
 
             var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, new Mock<IRemoteMountProvider>().Object);
 

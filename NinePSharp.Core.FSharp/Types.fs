@@ -22,45 +22,49 @@ type BindFlags =
     | MAFTER  = 0x0002  // Union after existing mount
     | MCREATE = 0x0004  // Allow creation in this mount
 
-/// <summary>
-/// Namespace lookup modes modeled after Plan 9's different name-resolution intents.
-/// </summary>
-type LookupMode =
-    | Walk = 0
-    | BindSource = 1
-    | BindTarget = 2
-    | Create = 3
-
-type MountFrame =
-    { MountId: uint64
-      MountPath: string list
-      ExitPath: string list }
-
 type MountBranch =
     { Target: BackendTargetDescriptor
       Flags: BindFlags }
 
-type PathState =
-    { VisiblePath: string list
-      MountHistory: MountFrame list }
+/// <summary>
+/// Mount key for channel identity lookup (like 9front's type/dev/qid triple).
+/// </summary>
+type MountKey =
+    { Type: uint16
+      Dev: uint32           // 32-bit like 9front's ulong
+      Qid: Qid }
 
 type ChannelTarget =
     | NamespaceNode
     | BackendNode of BackendTargetDescriptor * string list
 
 /// <summary>
-/// A Channel (Chan) is an active pointer to a resource in the namespace.
+/// Path state like 9front's Path structure.
+/// Mtpt is mount point history (like Chan **mtpt in 9front).
 /// </summary>
-type Channel =
-    { Qid: Qid
+type PathState =
+    { VisiblePath: string list
+      Mtpt: Channel list }      // mount point history (like 9front's Path.mtpt[])
+/// <summary>
+/// A Channel (Chan) is an active pointer to a resource in the namespace.
+/// Like 9front's Chan structure with type/dev/qid identity.
+/// </summary>
+and Channel =
+    { Type: uint16            // device type
+      Dev: uint32             // device instance (32-bit like 9front's ulong)
+      Qid: Qid
       Offset: uint64
       Target: ChannelTarget
       PathState: PathState
-      IsOpened: bool }
+      IsOpened: bool
+      Umh: MountChain option  // mount head for union reads
+      Umc: Channel option     // current chan in union iteration
+      Uri: int }              // union read index
     member this.InternalPath = this.PathState.VisiblePath
-
-type MountChain =
+and MountChain =
     { MountId: uint64
+      From: MountKey
+      MountPath: string list
       Branches: MountBranch list }
     member this.Targets = this.Branches |> List.map (fun branch -> branch.Target)
     member this.Flags =
@@ -68,20 +72,17 @@ type MountChain =
         | head :: _ -> head.Flags
         | [] -> BindFlags.MREPL
 
-/// <summary>
-/// A Mount defines a binding between a virtual path and one or more backend targets.
-/// </summary>
-type Mount =
-    { TargetPath: string list
-      Chain: MountChain }
-    member this.Targets = this.Chain.Targets
-    member this.Flags = this.Chain.Flags
+module MountKeyModule =
+    let fromChannel (channel: Channel) =
+        { Type = channel.Type
+          Dev = channel.Dev
+          Qid = channel.Qid }
 
 /// <summary>
 /// A Namespace is an immutable collection of mounts.
 /// </summary>
 type Namespace =
-    { Mounts: Mount list }
+    { MountHash: Map<MountKey, MountChain> }
 
 /// <summary>
 /// A Plan 9 Process represents an execution context with its own FD table.
@@ -89,4 +90,6 @@ type Namespace =
 type Plan9Process =
     { Pid: int
       Namespace: Namespace
+      Dot: Channel
+      Slash: Channel
       FdTable: Map<int, Channel> }

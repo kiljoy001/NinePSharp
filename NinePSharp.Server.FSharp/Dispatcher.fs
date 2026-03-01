@@ -13,18 +13,28 @@ open NinePSharp.Core.FSharp
 open NinePSharp.Messages
 open NinePSharp.Parser
 open NinePSharp.Server
+open NinePSharp.Server.Abstractions.Utils
 open NinePSharp.Server.Interfaces
 open NinePSharp.Server.Utils
 
+/// Tracks an in-flight request for flush support (9front semantics).
+type private InFlightRequest =
+    { Tag: uint16
+      Cts: CancellationTokenSource
+      Completion: TaskCompletionSource<unit> }
+
 type private SessionBox(state: ProtocolSession) =
     let gate = obj()
+    let inFlightRequests = ConcurrentDictionary<uint16, InFlightRequest>()
     member _.Gate = gate
     member val State = state with get, set
+    member _.InFlightRequests = inFlightRequests
+
+type private VirtualDirEntry =
+    { QidType: QidType
+      Name: string }
 
 type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
-    let defaultSessionId = "__compat__"
-    let fids = ConcurrentDictionary<uint32, INinePFileSystem>()
-    let authFids = ConcurrentDictionary<uint32, SecureString>()
     let sessions = ConcurrentDictionary<string, SessionBox>(StringComparer.Ordinal)
     let fidOperationGates = ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal)
 
@@ -40,10 +50,10 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
         ProtocolSessionOps.createBindingWithPathState NamespaceNode qidType qidVersion qidPath pathState
 
     let createBackendBinding (target: BackendTargetDescriptor) (relativePath: string list) (visiblePath: string list) (qidType: QidType) (qidVersion: uint32) (qidPath: uint64) =
-        ProtocolSessionOps.createBinding (BackendNode(target, relativePath)) qidType qidVersion qidPath visiblePath
+        ChannelOps.createBackendNode { Type = qidType; Version = qidVersion; Path = qidPath } target relativePath visiblePath
 
     let createBackendBindingWithPathState (target: BackendTargetDescriptor) (relativePath: string list) (pathState: PathState) (qidType: QidType) (qidVersion: uint32) (qidPath: uint64) =
-        ProtocolSessionOps.createBindingWithPathState (BackendNode(target, relativePath)) qidType qidVersion qidPath pathState
+        ChannelOps.createBackendNodeWithPathState { Type = qidType; Version = qidVersion; Path = qidPath } target relativePath pathState
 
     let stableSyntheticQidPath (kind: char) (path: string list) =
         let normalized =
@@ -86,7 +96,7 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
         |> NamespaceOps.splitPath
 
     let buildRootNamespace (certificate: X509Certificate2) =
-        let mounts =
+        let chains =
             attachResolver.GetRootMounts(certificate)
             |> Seq.mapi (fun index mount ->
                 if String.IsNullOrWhiteSpace(mount.MountPath) then
@@ -97,17 +107,20 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
             |> Seq.groupBy (fun struct (_, mount) -> NamespaceOps.splitPath mount.MountPath)
             |> Seq.map (fun (targetPath, group) ->
                 let ordered = group |> Seq.sortBy (fun struct (index, _) -> index) |> Seq.toList
-                { TargetPath = targetPath
-                  Chain =
-                      { MountId = uint64 ((ordered |> List.head |> fun struct (index, _) -> index) + 1)
-                        Branches =
-                            ordered
-                            |> List.map (fun struct (_, mount) ->
-                                { Target = mount.Target
-                                  Flags = BindFlags.MAFTER }) } })
+                let mountId = uint64 ((ordered |> List.head |> fun struct (index, _) -> index) + 1)
+                let key = NamespaceOps.mountKeyForPath targetPath
+                key,
+                    { MountId = mountId
+                      From = key
+                      MountPath = targetPath
+                      Branches =
+                          ordered
+                          |> List.mapi (fun branchIndex struct (_, mount) ->
+                              { Target = mount.Target
+                                Flags = if branchIndex = 0 then BindFlags.MCREATE else BindFlags.MAFTER }) })
             |> Seq.toList
 
-        { Mounts = mounts }
+        { MountHash = chains |> Map.ofList }
 
     let createErrorResponse tag dialect (error: NinePProtocolException) : obj =
         if dialect = NinePDialect.NineP2000L then
@@ -133,112 +146,101 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
         | NinePMessage.MsgTflush t -> t.Tag
         | _ -> 0us
 
-    let getOrCreateSessionBox (sessionId: string) dialect (certificate: X509Certificate2) : SessionBox option =
-        let resolvedSessionId =
-            if String.IsNullOrWhiteSpace(sessionId) then defaultSessionId else sessionId
-
+    let getOrCreateSessionBox (sessionId: string) dialect (certificate: X509Certificate2) : SessionBox =
+        if String.IsNullOrWhiteSpace(sessionId) then
+            raise (ArgumentException("sessionId is required", nameof(sessionId)))
         let sessionBox =
             sessions.GetOrAdd(
-                resolvedSessionId,
+                sessionId,
                 Func<string, SessionBox>(fun id -> SessionBox(ProtocolSessionOps.create id dialect certificate)))
 
         withLock sessionBox.Gate (fun () ->
             sessionBox.State <- ProtocolSessionOps.withTransport dialect certificate sessionBox.State)
 
-        Some sessionBox
+        sessionBox
 
-    let tryGetGlobalFid fid =
-        let mutable fs = Unchecked.defaultof<INinePFileSystem>
-        if fids.TryGetValue(fid, &fs) then Some fs else None
+    let bindFid (fid: uint32) (channel: Channel) (session: SessionBox) : unit =
+        withLock session.Gate (fun () -> session.State <- ProtocolSessionOps.bindFid fid channel session.State)
 
-    let tryRemoveGlobalFid fid =
-        let mutable fs = Unchecked.defaultof<INinePFileSystem>
-        if fids.TryRemove(fid, &fs) then Some fs else None
+    /// Track an in-flight request for flush support (9front semantics).
+    /// Returns CancellationToken that handlers should check.
+    let withInFlightTracking (tag: uint16) (session: SessionBox) (action: CancellationToken -> Task<obj>) : Task<obj> =
+        task {
+            let cts = new CancellationTokenSource()
+            let completion = TaskCompletionSource<unit>()
+            let inFlight = { Tag = tag; Cts = cts; Completion = completion }
 
-    let tryGetGlobalAuthFid fid =
-        let mutable secure = Unchecked.defaultof<SecureString>
-        if authFids.TryGetValue(fid, &secure) then Some secure else None
+            // Register this request as in-flight
+            session.InFlightRequests.[tag] <- inFlight
 
-    let tryRemoveGlobalAuthFid fid =
-        let mutable secure = Unchecked.defaultof<SecureString>
-        if authFids.TryRemove(fid, &secure) then Some secure else None
+            try
+                let! result = action cts.Token
+                return result
+            finally
+                // Mark as complete and unregister
+                completion.TrySetResult(()) |> ignore
+                session.InFlightRequests.TryRemove(tag) |> ignore
+                cts.Dispose()
+        }
 
-    let bindFid (fid: uint32) (channel: Channel) (session: SessionBox option) : unit =
-        match session with
-        | None ->
-            match channel.Target with
-            | NamespaceNode ->
-                raise (NinePProtocolException("Legacy non-session path cannot bind virtual namespace channels."))
-            | BackendNode(target, relativePath) ->
-                let fs = target.CreateSession()
-                fs.Dialect <- NinePDialect.NineP2000
-                if not (List.isEmpty relativePath) then
-                    let walk = fs.WalkAsync(Twalk(0us, 0u, 0u, relativePath |> List.toArray)).GetAwaiter().GetResult()
-                    if isNull walk.Wqid || walk.Wqid.Length <> relativePath.Length then
-                        raise (NinePProtocolException("Unable to materialize backend path"))
-                fids.[fid] <- fs
-        | Some sessionBox ->
-            withLock sessionBox.Gate (fun () -> sessionBox.State <- ProtocolSessionOps.bindFid fid channel sessionBox.State)
+    let updateChannel (fid: uint32) (updater: Channel -> Channel) (session: SessionBox) : unit =
+        withLock session.Gate (fun () ->
+            match ProtocolSessionOps.tryFindFid fid session.State with
+            | Some channel -> session.State <- ProtocolSessionOps.bindFid fid (updater channel) session.State
+            | None -> ())
 
-    let getFileSystemOrThrow (fid: uint32) (session: SessionBox option) : INinePFileSystem =
-        match session with
-        | None ->
-            match tryGetGlobalFid fid with
-            | Some fs -> fs
-            | None -> raise (NinePProtocolException("Unknown FID"))
-        | Some sessionBox ->
-            withLock sessionBox.Gate (fun () ->
-                match ProtocolSessionOps.tryFindFid fid sessionBox.State with
-                | Some channel ->
-                    match channel.Target with
-                    | NamespaceNode -> raise (NinePProtocolException("Virtual namespace nodes are not backed by a persistent filesystem"))
-                    | BackendNode(target, relativePath) ->
-                        let fs = target.CreateSession()
-                        if not (List.isEmpty relativePath) then
-                            let walk = fs.WalkAsync(Twalk(0us, 0u, 0u, relativePath |> List.toArray)).GetAwaiter().GetResult()
-                            if isNull walk.Wqid || walk.Wqid.Length <> relativePath.Length then
-                                raise (NinePProtocolException("Unable to materialize backend path"))
-                        fs
-                | None -> raise (NinePProtocolException("Unknown FID")))
+    let updateChannelOffset (fid: uint32) (newOffset: uint64) (session: SessionBox) : unit =
+        updateChannel fid (fun channel -> { channel with Offset = newOffset }) session
 
-    let getChannelOrThrow (fid: uint32) (session: SessionBox option) : Channel =
-        match session with
-        | None -> raise (NinePProtocolException("Session state is required"))
-        | Some sessionBox ->
-            withLock sessionBox.Gate (fun () ->
-                match ProtocolSessionOps.tryFindFid fid sessionBox.State with
-                | Some channel -> channel
-                | None -> raise (NinePProtocolException("Unknown FID")))
+    let markChannelOpened (fid: uint32) (qid: NinePSharp.Constants.Qid option) (session: SessionBox) : unit =
+        updateChannel
+            fid
+            (fun channel ->
+                let nextQid =
+                    match qid with
+                    | Some value -> { Type = value.Type; Version = value.Version; Path = value.Path }
+                    | None -> channel.Qid
 
-    let consumeAuthFid (afid: uint32) (session: SessionBox option) : SecureString option =
-        match session with
-        | None -> tryRemoveGlobalAuthFid afid
-        | Some sessionBox ->
-            withLock sessionBox.Gate (fun () ->
-                match ProtocolSessionOps.tryFindAuthFid afid sessionBox.State with
-                | Some secure ->
-                    sessionBox.State <- ProtocolSessionOps.removeAuthFid afid sessionBox.State
-                    Some secure
-                | None -> None)
+                { channel with
+                    Qid = nextQid
+                    Offset = 0UL
+                    IsOpened = true
+                    Umc = None
+                    Uri = 0 })
+            session
 
-    let tryFindAuthFid (fid: uint32) (session: SessionBox option) : SecureString option =
-        match session with
-        | None -> tryGetGlobalAuthFid fid
-        | Some sessionBox ->
-            withLock sessionBox.Gate (fun () ->
-                ProtocolSessionOps.tryFindAuthFid fid sessionBox.State)
+    let getSessionUserName (session: SessionBox) =
+        withLock session.Gate (fun () -> session.State.UserName)
 
-    let gateKey (session: SessionBox option) (fid: uint32) =
-        let scope =
-            match session with
-            | None -> "__global"
-            | Some sessionBox -> sessionBox.State.SessionId
-        $"{scope}:{fid}"
+    let requireOpened (operationName: string) (channel: Channel) =
+        if not channel.IsOpened then
+            raise (NinePProtocolException($"FID must be opened before {operationName}"))
 
-    let getOperationGate (session: SessionBox option) (fid: uint32) =
+    let getChannelOrThrow (fid: uint32) (session: SessionBox) : Channel =
+        withLock session.Gate (fun () ->
+            match ProtocolSessionOps.tryFindFid fid session.State with
+            | Some channel -> channel
+            | None -> raise (NinePProtocolException("Unknown FID")))
+
+    let consumeAuthFid (afid: uint32) (session: SessionBox) : SecureString option =
+        withLock session.Gate (fun () ->
+            match ProtocolSessionOps.tryFindAuthFid afid session.State with
+            | Some secure ->
+                session.State <- ProtocolSessionOps.removeAuthFid afid session.State
+                Some secure
+            | None -> None)
+
+    let tryFindAuthFid (fid: uint32) (session: SessionBox) : SecureString option =
+        withLock session.Gate (fun () ->
+            ProtocolSessionOps.tryFindAuthFid fid session.State)
+
+    let gateKey (session: SessionBox) (fid: uint32) =
+        $"{session.State.SessionId}:{fid}"
+
+    let getOperationGate (session: SessionBox) (fid: uint32) =
         fidOperationGates.GetOrAdd(gateKey session fid, fun _ -> new SemaphoreSlim(1, 1))
 
-    let withFidLocks (session: SessionBox option) (fidsToLock: seq<uint32>) (action: unit -> Task<obj>) : Task<obj> =
+    let withFidLocks (session: SessionBox) (fidsToLock: seq<uint32>) (action: unit -> Task<obj>) : Task<obj> =
         task {
             let gates =
                 fidsToLock
@@ -257,108 +259,116 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
                     gates.[i].Release() |> ignore
         }
 
-    let getSessionStateOrThrow (session: SessionBox option) =
-        match session with
-        | Some sessionBox -> withLock sessionBox.Gate (fun () -> sessionBox.State)
-        | None -> raise (NinePProtocolException("Session state is required"))
+    let getSessionStateOrThrow (session: SessionBox) =
+        withLock session.Gate (fun () -> session.State)
 
-    let updateSessionState (session: SessionBox option) updater =
-        match session with
-        | Some sessionBox ->
-            withLock sessionBox.Gate (fun () ->
-                sessionBox.State <- updater sessionBox.State)
-        | None -> ()
+    let updateSessionState (session: SessionBox) updater =
+        withLock session.Gate (fun () ->
+            session.State <- updater session.State)
 
-    let parseBackendReaddirNames (data: ReadOnlyMemory<byte>) =
-        let names = ResizeArray<string>()
-        let span = data.Span
+    let normalizeMountPathString (path: string) =
+        "/" + String.Join("/", NamespaceOps.splitPath path)
+
+    let parseBackendReadEntries (data: ReadOnlyMemory<byte>) =
+        let entries = ResizeArray<VirtualDirEntry>()
+        let bytes = data.ToArray()
         let mutable offset = 0
+        while offset < bytes.Length do
+            try
+                let stat = Stat(bytes, &offset)
+                if not (String.IsNullOrWhiteSpace(stat.Name)) then
+                    entries.Add({ QidType = stat.Qid.Type; Name = stat.Name })
+            with _ ->
+                offset <- bytes.Length
+        entries.ToArray()
 
-        while offset < span.Length do
-            if span.Length - offset < 24 then
-                offset <- span.Length
-            else
-                offset <- offset + 1 + 4 + 8
-                offset <- offset + 8
-                offset <- offset + 1
-                let nameLen = int (BitConverter.ToUInt16(span.Slice(offset, 2)))
-                offset <- offset + 2
-                if nameLen < 0 || offset + nameLen > span.Length then
-                    offset <- span.Length
-                else
-                    let name = Encoding.UTF8.GetString(span.Slice(offset, nameLen))
-                    offset <- offset + nameLen
-                    names.Add(name)
-
-        names.ToArray()
-
-    let getMountDirectoryNamesAsync (dialect: NinePDialect) (branches: MountBranch list) =
+    let materializeBackendRuntimeAsync (target: BackendTargetDescriptor) =
         task {
-            let seen = System.Collections.Generic.HashSet<string>(StringComparer.Ordinal)
-            let names = ResizeArray<string>()
+            let! remoteRuntime =
+                if target.IsRemote then
+                    attachResolver.TryCreateRemoteRuntimeAsync(target.MountPath)
+                else
+                    Task.FromResult<IBackendRuntime>(null)
 
-            for branch in branches do
-                let! remoteFs =
-                    if branch.Target.IsRemote then
-                        attachResolver.TryCreateRemoteFileSystemAsync(branch.Target.MountPath)
-                    else
-                        Task.FromResult<INinePFileSystem>(branch.Target.CreateSession())
-
-                let fs =
-                    if isNull remoteFs then
-                        raise (NinePProtocolException($"No backend found for mount '{branch.Target.MountPath}'"))
-                    else
-                        remoteFs
-
-                fs.Dialect <- dialect
-                let! page = fs.ReaddirAsync(Treaddir(0u, 0us, 0u, 0UL, UInt32.MaxValue))
-                for name in parseBackendReaddirNames page.Data do
-                    if not (String.IsNullOrWhiteSpace(name)) && seen.Add(name) then
-                        names.Add(name)
-
-            return names.ToArray()
+            if target.IsRemote then
+                if isNull remoteRuntime then
+                    return raise (NinePProtocolException($"No backend found for mount '{target.MountPath}'"))
+                else
+                    return remoteRuntime
+            else
+                return target.CreateRuntime()
         }
 
-    let hasMountedChildren (ns: Namespace) (currentPath: string list) =
-        ns.Mounts
-        |> List.exists (fun mount ->
-            hasPrefix mount.TargetPath currentPath && mount.TargetPath.Length > currentPath.Length)
+    let remoteMountExistsAsync (mountPath: string) =
+        task {
+            let normalized = normalizeMountPathString mountPath
+            let! remoteMountPaths = attachResolver.GetRemoteMountPathsAsync()
+            return
+                remoteMountPaths
+                |> Seq.exists (fun candidate -> normalizeMountPathString candidate = normalized)
+        }
 
-    let getVirtualChildNamesAsync (dialect: NinePDialect) (ns: Namespace) (currentPath: string list) =
+    let getMountDirectoryEntriesAsync (dialect: NinePDialect) (branches: MountBranch list) =
         task {
             let seen = System.Collections.Generic.HashSet<string>(StringComparer.Ordinal)
-            let names = ResizeArray<string>()
+            let entries = ResizeArray<VirtualDirEntry>()
 
-            let exactResolution = NamespaceOps.resolveWithMode LookupMode.BindTarget currentPath ns
-            if exactResolution.MatchedMount.IsSome then
-                let! mountNames = getMountDirectoryNamesAsync dialect exactResolution.Branches
-                for name in mountNames do
-                    if seen.Add(name) then
-                        names.Add(name)
+            for branch in branches do
+                let! runtime = materializeBackendRuntimeAsync branch.Target
+                let! page = runtime.ReadAsync([||], Tread(0us, 0u, 0UL, UInt32.MaxValue), dialect)
+                for entry in parseBackendReadEntries page.Data do
+                    if seen.Add(entry.Name) then
+                        entries.Add(entry)
 
-            for mount in ns.Mounts do
-                if hasPrefix mount.TargetPath currentPath && mount.TargetPath.Length > currentPath.Length then
-                    let name = mount.TargetPath.[currentPath.Length]
+            return entries.ToArray()
+        }
+
+    let allMountChains (ns: Namespace) =
+        ns.MountHash |> Map.toList |> List.map snd
+
+    let hasMountedChildren (ns: Namespace) (currentPath: string list) =
+        allMountChains ns
+        |> List.exists (fun chain ->
+            hasPrefix chain.MountPath currentPath && chain.MountPath.Length > currentPath.Length)
+
+    let getVirtualChildEntriesAsync (dialect: NinePDialect) (ns: Namespace) (currentPath: string list) =
+        task {
+            let seen = System.Collections.Generic.HashSet<string>(StringComparer.Ordinal)
+            let entries = ResizeArray<VirtualDirEntry>()
+
+            let key = NamespaceOps.mountKeyForPath currentPath
+            match NamespaceOps.findMount key ns with
+            | Some chain ->
+                let! mountEntries = getMountDirectoryEntriesAsync dialect chain.Branches
+                for entry in mountEntries do
+                    if seen.Add(entry.Name) then
+                        entries.Add(entry)
+            | None -> ()
+
+            for chain in allMountChains ns do
+                if hasPrefix chain.MountPath currentPath && chain.MountPath.Length > currentPath.Length then
+                    let name = chain.MountPath.[currentPath.Length]
                     if not (String.IsNullOrEmpty(name)) && seen.Add(name) then
-                        names.Add(name)
+                        entries.Add({ QidType = QidType.QTDIR; Name = name })
 
             if List.isEmpty currentPath then
                 let! remoteMountPaths = attachResolver.GetRemoteMountPathsAsync()
                 for mountPath in remoteMountPaths do
                     match NamespaceOps.splitPath mountPath with
-                    | first :: _ when seen.Add(first) -> names.Add(first)
+                    | first :: _ when seen.Add(first) -> entries.Add({ QidType = QidType.QTDIR; Name = first })
                     | [] -> ()
                     | _ -> ()
 
-            return names.ToArray()
+            return entries.ToArray()
         }
 
     let isVirtualDirectory (ns: Namespace) (fullPath: string list) =
-        let exactResolution = NamespaceOps.resolveWithMode LookupMode.BindTarget fullPath ns
+        let key = NamespaceOps.mountKeyForPath fullPath
+        let mountAtPath = NamespaceOps.findMount key ns
 
         List.isEmpty fullPath
-        || (exactResolution.MatchedMount.IsSome
-            && (exactResolution.Branches.Length > 1 || hasMountedChildren ns fullPath))
+        || (mountAtPath.IsSome
+            && (mountAtPath.Value.Branches.Length > 1 || hasMountedChildren ns fullPath))
         || hasMountedChildren ns fullPath
 
     let isNamespaceChannel (channel: Channel) =
@@ -366,42 +376,19 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
         | NamespaceNode -> true
         | BackendNode _ -> false
 
-    let materializeBackendAsync (dialect: NinePDialect) (target: BackendTargetDescriptor) (relativePath: string list) =
-        task {
-            let! remoteFs =
-                if target.IsRemote then
-                    attachResolver.TryCreateRemoteFileSystemAsync(target.MountPath)
-                else
-                    Task.FromResult<INinePFileSystem>(target.CreateSession())
-
-            let fs =
-                if isNull remoteFs then
-                    raise (NinePProtocolException($"No backend found for mount '{target.MountPath}'"))
-                else
-                    remoteFs
-
-            fs.Dialect <- dialect
-
-            if not (List.isEmpty relativePath) then
-                let! walk = fs.WalkAsync(Twalk(0us, 0u, 0u, relativePath |> List.toArray))
-                if isNull walk.Wqid || walk.Wqid.Length <> relativePath.Length then
-                    raise (NinePProtocolException("Resolved backend path no longer exists"))
-
-            return fs
-        }
-
-    let tryResolveBranchPathAsync (dialect: NinePDialect) (branches: MountBranch list) (remainder: string list) =
+    let tryResolveBranchPathAsync
+        (dialect: NinePDialect) (branches: MountBranch list) (remainder: string list) =
         task {
             let mutable resolved : (BackendTargetDescriptor * string list) option = None
 
             for branch in branches do
                 if resolved.IsNone then
                     try
-                        let! fs = materializeBackendAsync dialect branch.Target []
+                        let! runtime = materializeBackendRuntimeAsync branch.Target
                         if List.isEmpty remainder then
                             resolved <- Some(branch.Target, [])
                         else
-                            let! walk = fs.WalkAsync(Twalk(0us, 0u, 0u, remainder |> List.toArray))
+                            let! walk = runtime.WalkAsync(remainder |> List.toArray, dialect)
                             if not (isNull walk.Wqid) && walk.Wqid.Length = remainder.Length then
                                 resolved <- Some(branch.Target, remainder)
                     with
@@ -413,15 +400,15 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
     let dispatchWithChannelAsync
         (dialect: NinePDialect)
         (channel: Channel)
-        (action: INinePFileSystem -> Task<obj>)
+        (action: IBackendRuntime * string array -> Task<obj>)
         : Task<obj> =
         task {
             match channel.Target with
             | NamespaceNode ->
                 return raise (NinePProtocolException("Virtual namespace node"))
             | BackendNode(target, relativePath) ->
-                let! fs = materializeBackendAsync dialect target relativePath
-                return! action fs
+                let! runtime = materializeBackendRuntimeAsync target
+                return! action (runtime, relativePath |> List.toArray)
         }
 
     let dispatchCreateIntoNamespaceAsync
@@ -430,29 +417,26 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
         (dialect: NinePDialect)
         (channel: Channel)
         (t: Tcreate)
-        (session: SessionBox option)
+        (session: SessionBox)
         : Task<obj> =
         task {
             let stateSnapshot = getSessionStateOrThrow session
             let currentPath = channel.InternalPath
 
-            match NamespaceOps.trySelectCreateTarget currentPath (ProtocolSessionOps.namespaceOf stateSnapshot) with
+            match NamespaceOps.trySelectCreateTarget (currentPath @ [ t.Name ]) (ProtocolSessionOps.namespaceOf stateSnapshot) with
             | None ->
                 let mountedPath = "/" + String.Join("/", currentPath)
                 return raise (NinePProtocolException($"No creatable backend mounted at '{mountedPath}'"))
             | Some target ->
-                let! fs = materializeBackendAsync dialect target []
-                let! response = fs.CreateAsync(t)
+                let! runtime = materializeBackendRuntimeAsync target
+                let! response = runtime.CreateAsync([||], t, dialect)
 
                 let createdPath = currentPath @ [ t.Name ]
                 let rebound =
                     createBackendBinding target [ t.Name ] createdPath response.Qid.Type response.Qid.Version response.Qid.Path
 
-                match session with
-                | Some sessionBox ->
-                    withLock sessionBox.Gate (fun () ->
-                        sessionBox.State <- ProtocolSessionOps.bindFid fid rebound sessionBox.State)
-                | None -> ()
+                withLock session.Gate (fun () ->
+                    session.State <- ProtocolSessionOps.bindFid fid { rebound with IsOpened = true } session.State)
 
                 return response :> obj
         }
@@ -462,15 +446,15 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
         (dialect: NinePDialect)
         (channel: Channel)
         (t: Tcreate)
-        (session: SessionBox option)
+        (session: SessionBox)
         : Task<obj> =
         task {
             match channel.Target with
             | NamespaceNode ->
                 return raise (NinePProtocolException("Virtual namespace node"))
             | BackendNode(target, relativePath) ->
-                let! fs = materializeBackendAsync dialect target relativePath
-                let! response = fs.CreateAsync(t)
+                let! runtime = materializeBackendRuntimeAsync target
+                let! response = runtime.CreateAsync(relativePath |> List.toArray, t, dialect)
 
                 let rebound =
                     createBackendBinding
@@ -481,11 +465,8 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
                         response.Qid.Version
                         response.Qid.Path
 
-                match session with
-                | Some sessionBox ->
-                    withLock sessionBox.Gate (fun () ->
-                        sessionBox.State <- ProtocolSessionOps.bindFid fid rebound sessionBox.State)
-                | None -> ()
+                withLock session.Gate (fun () ->
+                    session.State <- ProtocolSessionOps.bindFid fid { rebound with IsOpened = true } session.State)
 
                 return response :> obj
         }
@@ -493,128 +474,110 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
     let tryResolveVirtualPathAsync (state: ProtocolSession) (dialect: NinePDialect) (pathState: PathState) =
         task {
             let fullPath = pathState.VisiblePath
-            let resolution = NamespaceOps.resolveWithMode LookupMode.Walk fullPath (ProtocolSessionOps.namespaceOf state)
-            let directAttachRoot =
-                match resolution.MatchedMount with
-                | Some mount ->
-                    List.isEmpty fullPath
-                    && List.isEmpty mount.TargetPath
-                    && (ProtocolSessionOps.namespaceOf state).Mounts.Length = 1
-                    && resolution.Branches.Length = 1
-                | None -> false
-            let namespaceOwnedExactPath =
-                resolution.MatchedMount.IsSome
-                && List.isEmpty resolution.Remainder
-                && not directAttachRoot
-                && isVirtualDirectory (ProtocolSessionOps.namespaceOf state) fullPath
+            let ns = ProtocolSessionOps.namespaceOf state
+            let key = NamespaceOps.mountKeyForPath fullPath
+            let mountAtPath = NamespaceOps.findMount key ns
 
-            match resolution.Targets with
+            let directAttachRoot =
+                match mountAtPath with
+                | Some chain ->
+                    List.isEmpty fullPath
+                    && List.isEmpty chain.MountPath
+                    && ns.MountHash.Count = 1
+                    && chain.Branches.Length = 1
+                | None -> false
+
+            let namespaceOwnedExactPath =
+                mountAtPath.IsSome
+                && not directAttachRoot
+                && isVirtualDirectory ns fullPath
+
+            match mountAtPath with
             | _ when namespaceOwnedExactPath ->
                 let qid = syntheticDirectoryQid fullPath
                 return Some(createVirtualBindingWithPathState dialect pathState qid.Type qid.Version qid.Path, qid)
-            | _ when not (List.isEmpty resolution.Remainder) ->
-                let! selected = tryResolveBranchPathAsync dialect resolution.Branches resolution.Remainder
-                match selected with
-                | Some(target, relativePath) ->
-                    let qid =
-                        if List.isEmpty relativePath then syntheticDirectoryQid fullPath else syntheticFileQid fullPath
-
-                    let resolvedPathState =
-                        match resolution.MatchedMount with
-                        | Some mount when List.isEmpty relativePath ->
-                            match pathState.MountHistory with
-                            | head :: _ when head.MountId = mount.Chain.MountId -> pathState
-                            | _ ->
-                                { pathState with
-                                    MountHistory =
-                                        { MountId = mount.Chain.MountId
-                                          MountPath = mount.TargetPath
-                                          ExitPath = parentPath mount.TargetPath }
-                                        :: pathState.MountHistory }
-                        | _ -> pathState
-
-                    return Some(createBackendBindingWithPathState target relativePath resolvedPathState qid.Type qid.Version qid.Path, qid)
-                | None ->
-                    if isVirtualDirectory (ProtocolSessionOps.namespaceOf state) fullPath then
-                        let qid = syntheticDirectoryQid fullPath
-                        return Some(createVirtualBindingWithPathState dialect pathState qid.Type qid.Version qid.Path, qid)
-                    else
-                        return None
-            | target :: _ ->
-                let qid =
-                    if List.isEmpty resolution.Remainder then syntheticDirectoryQid fullPath else syntheticFileQid fullPath
-
-                let resolvedPathState =
-                    match resolution.MatchedMount with
-                    | Some mount when List.isEmpty resolution.Remainder ->
-                        match pathState.MountHistory with
-                        | head :: _ when head.MountId = mount.Chain.MountId -> pathState
-                        | _ ->
-                            { pathState with
-                                MountHistory =
-                                    { MountId = mount.Chain.MountId
-                                      MountPath = mount.TargetPath
-                                      ExitPath = parentPath mount.TargetPath }
-                                    :: pathState.MountHistory }
-                    | _ -> pathState
-
-                return Some(createBackendBindingWithPathState target resolution.Remainder resolvedPathState qid.Type qid.Version qid.Path, qid)
-            | [] ->
-                if isVirtualDirectory (ProtocolSessionOps.namespaceOf state) fullPath then
+            | Some chain when not (List.isEmpty chain.Branches) ->
+                let target = chain.Branches.Head.Target
+                let qid = syntheticDirectoryQid fullPath
+                return Some(createBackendBindingWithPathState target [] pathState qid.Type qid.Version qid.Path, qid)
+            | _ ->
+                if isVirtualDirectory ns fullPath then
                     let qid = syntheticDirectoryQid fullPath
                     return Some(createVirtualBindingWithPathState dialect pathState qid.Type qid.Version qid.Path, qid)
                 elif List.isEmpty fullPath then
                     return None
                 else
                     let remoteMountPath = "/" + fullPath.Head
-                    let! remoteProbe = attachResolver.TryCreateRemoteFileSystemAsync(remoteMountPath)
-                    if isNull remoteProbe then
+                    let! remoteExists = remoteMountExistsAsync remoteMountPath
+                    if not remoteExists then
                         return None
                     else
                         let relative = if fullPath.Length > 1 then fullPath |> List.skip 1 else []
-                        let descriptor = BackendTargetDescriptor.Remote(remoteMountPath)
+                        let descriptor = BackendTargetDescriptor.Remote(remoteMountPath, remoteMountPath)
                         let qid =
                             if List.isEmpty relative then syntheticDirectoryQid fullPath else syntheticFileQid fullPath
-                        let remotePathState =
-                            if List.isEmpty relative then
-                                match pathState.MountHistory with
-                                | head :: _ when head.MountPath = [ fullPath.Head ] -> pathState
-                                | _ ->
-                                    { pathState with
-                                        MountHistory =
-                                            { MountId = stableSyntheticQidPath 'm' [ fullPath.Head ]
-                                              MountPath = [ fullPath.Head ]
-                                              ExitPath = [] }
-                                            :: pathState.MountHistory }
-                            else
-                                pathState
-
-                        return Some(createBackendBindingWithPathState descriptor relative remotePathState qid.Type qid.Version qid.Path, qid)
+                        return Some(createBackendBindingWithPathState descriptor relative pathState qid.Type qid.Version qid.Path, qid)
         }
 
-    let encodeVirtualReadEntries (_dialect: NinePDialect) (currentPath: string list) (childNames: string array) =
+    let encodeVirtualReadEntries (dialect: NinePDialect) (currentPath: string list) (owner: string) (entriesToEncode: VirtualDirEntry array) =
         let entries = ResizeArray<byte>()
-        for name in childNames do
+        for entry in entriesToEncode do
+            let qid =
+                match entry.QidType with
+                | QidType.QTDIR -> syntheticDirectoryQid (currentPath @ [ entry.Name ])
+                | _ -> syntheticFileQid (currentPath @ [ entry.Name ])
+
+            let mode =
+                match entry.QidType with
+                | QidType.QTDIR -> 0755u ||| uint32 NinePConstants.FileMode9P.DMDIR
+                | _ -> 0644u
+
             let stat =
                 Stat(
                     0us,
                     0us,
                     0u,
-                    syntheticDirectoryQid (currentPath @ [ name ]),
-                    0755u ||| uint32 NinePConstants.FileMode9P.DMDIR,
+                    qid,
+                    mode,
                     0u,
                     0u,
                     0UL,
-                    name,
-                    "scott",
-                    "scott",
-                    "scott",
-                    dialect = NinePDialect.NineP2000)
+                    entry.Name,
+                    owner,
+                    owner,
+                    owner,
+                    dialect)
             let buffer = Array.zeroCreate<byte> (int stat.Size)
             let mutable offset = 0
             stat.WriteTo(buffer, &offset)
             entries.AddRange(buffer)
         entries.ToArray()
+
+    let encodeVirtualReaddirEntries (currentPath: string list) (entriesToEncode: VirtualDirEntry array) =
+        let buffer = ResizeArray<byte>()
+        let mutable entryOffset = 0UL
+
+        for entry in entriesToEncode do
+            let qid =
+                match entry.QidType with
+                | QidType.QTDIR -> syntheticDirectoryQid (currentPath @ [ entry.Name ])
+                | _ -> syntheticFileQid (currentPath @ [ entry.Name ])
+
+            let nameBytes = Encoding.UTF8.GetBytes(entry.Name)
+            let entrySize = 13UL + 8UL + 1UL + 2UL + uint64 nameBytes.Length
+            let nextOffset = entryOffset + entrySize
+
+            buffer.Add(byte qid.Type)
+            buffer.AddRange(BitConverter.GetBytes(qid.Version))
+            buffer.AddRange(BitConverter.GetBytes(qid.Path))
+            buffer.AddRange(BitConverter.GetBytes(nextOffset))
+            buffer.Add(if entry.QidType = QidType.QTDIR then 0x80uy else 0uy)
+            buffer.AddRange(BitConverter.GetBytes(uint16 nameBytes.Length))
+            buffer.AddRange(nameBytes)
+
+            entryOffset <- nextOffset
+
+        buffer.ToArray()
 
     let sliceVirtualReadData tag (offset: uint64) (count: uint32) (allData: byte array) =
         if offset >= uint64 allData.Length then
@@ -634,14 +597,54 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
             else
                 Rread(tag, allData.AsMemory(int offset, totalToSend).ToArray()) :> obj
 
-    let handleVirtualRead (tag: uint16) (dialect: NinePDialect) (currentPath: string list) (offset: uint64) (count: uint32) (ns: Namespace) =
+    let sliceVirtualReaddirData tag (offset: uint64) (count: uint32) (allData: byte array) =
+        let page = ResizeArray<byte>()
+        let mutable cursor = 0
+        let mutable entryStartOffset = 0UL
+        let mutable doneReading = false
+
+        while cursor + 24 <= allData.Length && not doneReading do
+            let nameLength = int (BitConverter.ToUInt16(allData, cursor + 22))
+            let entrySize = 24 + nameLength
+            if entrySize <= 0 || cursor + entrySize > allData.Length then
+                doneReading <- true
+            else
+                if entryStartOffset >= offset then
+                    if page.Count + entrySize > int count then
+                        doneReading <- true
+                    else
+                        page.AddRange(allData.AsSpan(cursor, entrySize).ToArray())
+
+                entryStartOffset <- BitConverter.ToUInt64(allData, cursor + 13)
+                cursor <- cursor + entrySize
+
+        Rreaddir((uint)(NinePConstants.HeaderSize + 4 + page.Count), tag, uint32 page.Count, page.ToArray()) :> obj
+
+    let handleVirtualRead (tag: uint16) (dialect: NinePDialect) (currentPath: string list) (offset: uint64) (count: uint32) (session: SessionBox) =
         task {
-            let! childNames = getVirtualChildNamesAsync dialect ns currentPath
-            let allData = encodeVirtualReadEntries dialect currentPath childNames
-            return sliceVirtualReadData tag offset count allData
+            let state = getSessionStateOrThrow session
+            let! entries = getVirtualChildEntriesAsync dialect state.Process.Namespace currentPath
+            let allVirtualData = encodeVirtualReadEntries dialect currentPath state.UserName entries
+            return sliceVirtualReadData tag offset count allVirtualData
         }
 
-    let handleVirtualStat (tag: uint16) (dialect: NinePDialect) (currentPath: string list) =
+    let handleVirtualReaddir (tag: uint16) (dialect: NinePDialect) (currentPath: string list) (offset: uint64) (count: uint32) (session: SessionBox) =
+        task {
+            let state = getSessionStateOrThrow session
+            let! entries = getVirtualChildEntriesAsync dialect state.Process.Namespace currentPath
+            let allVirtualData = encodeVirtualReaddirEntries currentPath entries
+            return sliceVirtualReaddirData tag offset count allVirtualData
+        }
+
+    /// Handle readdir for union mounts - iterates through all backends and dedupes
+    let handleUnionReaddir (tag: uint16) (dialect: NinePDialect) (chain: MountChain) (offset: uint64) (count: uint32) =
+        task {
+            let! entries = getMountDirectoryEntriesAsync dialect chain.Branches
+            let allVirtualData = encodeVirtualReaddirEntries chain.MountPath entries
+            return sliceVirtualReaddirData tag offset count allVirtualData
+        }
+
+    let handleVirtualStat (tag: uint16) (dialect: NinePDialect) (currentPath: string list) (owner: string) =
         let name =
             match List.rev currentPath with
             | [] -> "/"
@@ -658,65 +661,17 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
                 0u,
                 0UL,
                 name,
-                "scott",
-                "scott",
-                "scott",
-                dialect = dialect)
+                owner,
+                owner,
+                owner,
+                dialect)
 
         Rstat(tag, stat) :> obj
 
     let handleVirtualOpen (tag: uint16) (currentPath: string list) =
         Ropen(tag, syntheticDirectoryQid currentPath, 0u) :> obj
 
-    let handleVirtualReaddir (tag: uint16) (dialect: NinePDialect) (currentPath: string list) (offset: uint64) (count: uint32) (ns: Namespace) =
-        task {
-            let! childNames = getVirtualChildNamesAsync dialect ns currentPath
-            let encodedEntries = ResizeArray<struct (uint64 * byte array)>()
-            let mutable nextOffset = 0UL
-
-            for name in childNames do
-                nextOffset <- nextOffset + 1UL
-                let qid = syntheticDirectoryQid (currentPath @ [ name ])
-                let nameLen = Encoding.UTF8.GetByteCount(name)
-                let entrySize = 13 + 8 + 1 + 2 + nameLen
-                let entry = Array.zeroCreate<byte> entrySize
-                let mutable writeOffset = 0
-                entry.[writeOffset] <- byte qid.Type
-                writeOffset <- writeOffset + 1
-                BitConverter.GetBytes(qid.Version).CopyTo(entry, writeOffset)
-                writeOffset <- writeOffset + 4
-                BitConverter.GetBytes(qid.Path).CopyTo(entry, writeOffset)
-                writeOffset <- writeOffset + 8
-                BitConverter.GetBytes(nextOffset).CopyTo(entry, writeOffset)
-                writeOffset <- writeOffset + 8
-                entry.[writeOffset] <- byte qid.Type
-                writeOffset <- writeOffset + 1
-                BitConverter.GetBytes(uint16 nameLen).CopyTo(entry, writeOffset)
-                writeOffset <- writeOffset + 2
-                Encoding.UTF8.GetBytes(name).CopyTo(entry, writeOffset)
-                encodedEntries.Add(struct (nextOffset, entry))
-
-            let startIndex =
-                if offset = 0UL then
-                    0
-                else
-                    encodedEntries
-                    |> Seq.tryFindIndex (fun struct (next, _) -> next > offset)
-                    |> Option.defaultValue -1
-
-            if startIndex < 0 then
-                return Rreaddir(uint32 (NinePConstants.HeaderSize + 4), tag, 0u, Array.empty<byte>) :> obj
-            else
-                let page = ResizeArray<byte>()
-                for i in startIndex .. encodedEntries.Count - 1 do
-                    let struct (_, entry) = encodedEntries.[i]
-                    if page.Count + entry.Length <= int count then
-                        page.AddRange(entry)
-                let chunk = page.ToArray()
-                return Rreaddir(uint32 chunk.Length + uint32 (NinePConstants.HeaderSize + 4), tag, uint32 chunk.Length, chunk) :> obj
-        }
-
-    let handleAttach (t: Tattach) dialect (certificate: X509Certificate2) session : Task<obj> =
+    let handleAttach (t: Tattach) dialect (certificate: X509Certificate2) (session: SessionBox) : Task<obj> =
         task {
             let credentials =
                 if t.Afid = NinePConstants.NoFid then
@@ -734,9 +689,14 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
 
             if String.IsNullOrEmpty(t.Aname) || t.Aname = "/" then
                 let ns = buildRootNamespace certificate
-                updateSessionState session (ProtocolSessionOps.withNamespace ns)
                 let qid = syntheticDirectoryQid []
-                bindFid t.Fid (createVirtualBinding dialect [] qid.Type qid.Version qid.Path) session
+                let root = createVirtualBinding dialect [] qid.Type qid.Version qid.Path
+                updateSessionState session (fun state ->
+                    state
+                    |> ProtocolSessionOps.withUserName t.Uname
+                    |> ProtocolSessionOps.withNamespace ns
+                    |> ProtocolSessionOps.withProcessRoot root)
+                bindFid t.Fid root session
             else
                 let! resolution = attachResolver.ResolveAsync(t.Aname, credentials, certificate)
                 let target =
@@ -745,91 +705,165 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
                     | value -> value
 
                 let directNamespace =
-                    { Mounts =
-                        [ { TargetPath = []
-                            Chain =
+                    let key = NamespaceOps.mountKeyForPath []
+                    { MountHash =
+                        Map.ofList
+                            [ key,
                                 { MountId = 1UL
+                                  From = key
+                                  MountPath = []
                                   Branches =
                                       [ { Target = target
-                                          Flags = BindFlags.MREPL } ] } } ] }
-                updateSessionState session (ProtocolSessionOps.withNamespace directNamespace)
+                                          Flags = BindFlags.MREPL } ] } ] }
                 let qid = syntheticDirectoryQid []
-                bindFid t.Fid (createBackendBinding target [] [] qid.Type qid.Version qid.Path) session
+                let root = createBackendBinding target [] [] qid.Type qid.Version qid.Path
+                updateSessionState session (fun state ->
+                    state
+                    |> ProtocolSessionOps.withUserName t.Uname
+                    |> ProtocolSessionOps.withNamespace directNamespace
+                    |> ProtocolSessionOps.withProcessRoot root)
+                bindFid t.Fid root session
             return Rattach(t.Tag, Qid(QidType.QTDIR, 0u, 0UL)) :> obj
         }
 
-    let handleWalk (t: Twalk) (dialect: NinePDialect) (session: SessionBox option) : Task<obj> =
+    /// Walk one segment and check for mount crossing (9front domount semantics).
+    /// Returns (channel with updated Mtpt, qid) or None if walk fails.
+    let walkOneSegmentAsync (ns: Namespace) (dialect: NinePDialect) (segment: string) (chan: Channel) =
         task {
-            match session with
-            | None ->
-                let fs = getFileSystemOrThrow t.Fid None
-                if t.NewFid <> t.Fid && fids.ContainsKey(t.NewFid) then
-                    return Rerror(t.Tag, $"newfid {t.NewFid} already exists") :> obj
-                else
-                    let targetFs = fs.Clone()
-                    targetFs.Dialect <- fs.Dialect
-                    let! response = targetFs.WalkAsync(t)
-                    let mutable addConflict : obj option = None
+            // Apply segment to path state
+            let tentative = ChannelOps.walk [ segment ] chan
 
-                    if t.Wname.Length = 0 || (not (isNull response.Wqid) && response.Wqid.Length = t.Wname.Length) then
-                        if t.NewFid = t.Fid then
-                            fids.[t.NewFid] <- targetFs
-                        elif not (fids.TryAdd(t.NewFid, targetFs)) then
-                            addConflict <- Some (Rerror(t.Tag, $"newfid {t.NewFid} was claimed by another thread") :> obj)
+            match tentative.Target with
+            | NamespaceNode ->
+                // Virtual namespace node - check if there's a mount at this path
+                // For namespace nodes, we use path-based keys since walk doesn't update qid
+                let key = NamespaceOps.mountKeyForPath tentative.InternalPath
+                match NamespaceOps.findMount key ns with
+                | Some chain when not (List.isEmpty chain.Branches) ->
+                    // Mount found - cross into it
+                    let target = chain.Branches.Head.Target
+                    let! runtime = materializeBackendRuntimeAsync target
+                    let! walkResult = runtime.WalkAsync([||], dialect)
+                    let qid =
+                        if isNull walkResult.Wqid || walkResult.Wqid.Length = 0 then
+                            syntheticDirectoryQid tentative.InternalPath
+                        else
+                            walkResult.Wqid.[0]
+                    let newPathState =
+                        { tentative.PathState with Mtpt = chan :: tentative.PathState.Mtpt }
+                    let crossed =
+                        { ChannelOps.createBackendNodeWithPathState
+                            { Type = qid.Type; Version = qid.Version; Path = qid.Path }
+                            target
+                            []
+                            newPathState
+                          with Umh = if chain.Branches.Length > 1 then Some chain else None }
+                    return Some (crossed, qid)
+                | _ ->
+                    // No mount at this qid - check if path exists in namespace
+                    // A namespace directory exists if it has mounted children
+                    if hasMountedChildren ns tentative.InternalPath then
+                        let qid = syntheticDirectoryQid tentative.InternalPath
+                        return Some (tentative, qid)
+                    else
+                        return None  // Path doesn't exist in namespace
 
-                    match addConflict with
-                    | Some errorResponse -> return errorResponse
-                    | None -> return response :> obj
-
-            | Some sessionBox ->
-                let sourceChannel : Channel =
-                    withLock sessionBox.Gate (fun () ->
-                        match ProtocolSessionOps.tryFindFid t.Fid sessionBox.State with
-                        | Some channel when t.NewFid <> t.Fid && ProtocolSessionOps.containsFid t.NewFid sessionBox.State ->
-                            raise (NinePProtocolException(sprintf "newfid %u already exists" t.NewFid))
-                        | Some channel -> channel
-                        | None -> raise (NinePProtocolException("Unknown FID")))
-
-                let stateSnapshot = getSessionStateOrThrow session
-                let qids = ResizeArray<NinePSharp.Constants.Qid>()
-                let mutable lastChannel = sourceChannel
-                let mutable failed = false
-
-                if t.Wname.Length = 0 then
-                    lastChannel <- sourceChannel
-                else
-                    for segment in t.Wname do
-                        if not failed then
-                            let tentative = ChannelOps.walk [ segment ] lastChannel
-                            let! resolved = tryResolveVirtualPathAsync stateSnapshot dialect tentative.PathState
-                            match resolved with
-                            | Some (channel, qid) ->
-                                qids.Add(qid)
-                                lastChannel <- channel
-                            | None ->
-                                failed <- true
-
-                let mutable updateFailure : obj option = None
-
-                if t.Wname.Length = 0 || qids.Count = t.Wname.Length then
-                    updateFailure <-
-                        withLock sessionBox.Gate (fun () ->
-                            match ProtocolSessionOps.tryFindFid t.Fid sessionBox.State with
-                            | None ->
-                                Some (Rerror(t.Tag, $"fid {t.Fid} was removed during walk") :> obj)
-                            | Some _ when t.NewFid <> t.Fid && ProtocolSessionOps.containsFid t.NewFid sessionBox.State ->
-                                Some (Rerror(t.Tag, $"newfid {t.NewFid} was claimed by another thread") :> obj)
-                            | Some _ ->
-                                sessionBox.State <- ProtocolSessionOps.bindFid t.NewFid lastChannel sessionBox.State
-                                None)
-
-                match updateFailure with
-                | Some errorResponse -> return errorResponse
-                | None -> return Rwalk(t.Tag, if qids.Count = 0 then null else qids.ToArray()) :> obj
+            | BackendNode(target, relativePath) ->
+                // Already in a backend - walk one segment
+                // Walk the full accumulated path since runtime may not track state
+                let nextRelativePath = relativePath @ [ segment ]
+                let! runtime = materializeBackendRuntimeAsync target
+                try
+                    let! walkResult = runtime.WalkAsync(nextRelativePath |> List.toArray, dialect)
+                    if isNull walkResult.Wqid || walkResult.Wqid.Length <> nextRelativePath.Length then
+                        return None
+                    else
+                        let qid = walkResult.Wqid.[nextRelativePath.Length - 1]
+                        let walkedChan =
+                            ChannelOps.createBackendNodeWithPathState
+                                { Type = qid.Type; Version = qid.Version; Path = qid.Path }
+                                target
+                                nextRelativePath
+                                tentative.PathState
+                        // Check for mount at this qid (nested mount)
+                        let key = MountKeyModule.fromChannel walkedChan
+                        match NamespaceOps.findMount key ns with
+                        | Some chain when not (List.isEmpty chain.Branches) ->
+                            // Mount found at this qid - cross into it
+                            let mountTarget = chain.Branches.Head.Target
+                            let! mountRuntime = materializeBackendRuntimeAsync mountTarget
+                            let! mountWalk = mountRuntime.WalkAsync([||], dialect)
+                            let mountQid =
+                                if isNull mountWalk.Wqid || mountWalk.Wqid.Length = 0 then qid
+                                else mountWalk.Wqid.[0]
+                            let newPathState =
+                                { walkedChan.PathState with Mtpt = walkedChan :: walkedChan.PathState.Mtpt }
+                            let crossed =
+                                ChannelOps.createBackendNodeWithPathState
+                                    { Type = mountQid.Type; Version = mountQid.Version; Path = mountQid.Path }
+                                    mountTarget
+                                    []
+                                    newPathState
+                            return Some (crossed, mountQid)
+                        | _ ->
+                            return Some (walkedChan, qid)
+                with
+                | :? NinePProtocolException -> return None
         }
 
-    let handleWrite (t: Twrite) dialect session : Task<obj> =
+    let handleWalk (t: Twalk) (dialect: NinePDialect) (session: SessionBox) : Task<obj> =
         task {
+            let sourceChannel : Channel =
+                withLock session.Gate (fun () ->
+                    match ProtocolSessionOps.tryFindFid t.Fid session.State with
+                    | Some channel when t.NewFid <> t.Fid && ProtocolSessionOps.containsFid t.NewFid session.State ->
+                        raise (NinePProtocolException(sprintf "newfid %u already exists" t.NewFid))
+                    | Some channel -> channel
+                    | None -> raise (NinePProtocolException("Unknown FID")))
+
+            let stateSnapshot = getSessionStateOrThrow session
+            let ns = ProtocolSessionOps.namespaceOf stateSnapshot
+            let qids = ResizeArray<NinePSharp.Constants.Qid>()
+            let mutable lastChannel = sourceChannel
+            let mutable failed = false
+
+            if t.Wname.Length = 0 then
+                lastChannel <- sourceChannel
+            else
+                for segment in t.Wname do
+                    if not failed then
+                        let! result = walkOneSegmentAsync ns dialect segment lastChannel
+                        match result with
+                        | Some (channel, qid) ->
+                            qids.Add(qid)
+                            lastChannel <- channel
+                        | None ->
+                            failed <- true
+
+            let mutable updateFailure : obj option = None
+
+            if t.Wname.Length = 0 || qids.Count > 0 then
+                updateFailure <-
+                    withLock session.Gate (fun () ->
+                        match ProtocolSessionOps.tryFindFid t.Fid session.State with
+                        | None ->
+                            Some (Rerror(t.Tag, $"fid {t.Fid} was removed during walk") :> obj)
+                        | Some _ when t.NewFid <> t.Fid && ProtocolSessionOps.containsFid t.NewFid session.State ->
+                            Some (Rerror(t.Tag, $"newfid {t.NewFid} was claimed by another thread") :> obj)
+                        | Some _ ->
+                            session.State <- ProtocolSessionOps.bindFid t.NewFid lastChannel session.State
+                            None)
+
+            match updateFailure with
+            | Some errorResponse -> return errorResponse
+            | None when failed && qids.Count = 0 ->
+                return raise (NinePProtocolException("walk failed"))
+            | None -> return Rwalk(t.Tag, if qids.Count = 0 then null else qids.ToArray()) :> obj
+        }
+
+    let handleWrite (t: Twrite) dialect (ct: CancellationToken) (session: SessionBox) : Task<obj> =
+        task {
+            ct.ThrowIfCancellationRequested()
             match tryFindAuthFid t.Fid session with
             | Some secure ->
                 let byteBuffer = t.Data.ToArray()
@@ -850,47 +884,36 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
 
             | None ->
                 let channel = getChannelOrThrow t.Fid session
+                requireOpened "write" channel
                 return!
-                    dispatchWithChannelAsync dialect channel (fun fs ->
+                    dispatchWithChannelAsync dialect channel (fun (runtime, relativePath) ->
                         task {
-                            let! response = fs.WriteAsync(t)
+                            let! response = runtime.WriteAsync(relativePath, t, dialect, ct)
+                            updateChannelOffset t.Fid (t.Offset + uint64 response.Count) session
                             return response :> obj
                         })
         }
 
-    let handleClunk (t: Tclunk) (session: SessionBox option) : Task<obj> =
+    let handleClunk (t: Tclunk) (session: SessionBox) : Task<obj> =
         task {
             let mutable authRemoved = false
             let mutable removedChannel = Unchecked.defaultof<Channel>
             let mutable hadChannel = false
 
-            match session with
-            | None ->
-                match tryRemoveGlobalAuthFid t.Fid with
+            withLock session.Gate (fun () ->
+                match ProtocolSessionOps.tryFindAuthFid t.Fid session.State with
                 | Some secure ->
                     secure.Dispose()
                     authRemoved <- true
+                    session.State <- ProtocolSessionOps.removeAuthFid t.Fid session.State
                 | None -> ()
 
-                match tryRemoveGlobalFid t.Fid with
-                | Some _ -> hadChannel <- false
-                | None -> ()
-
-            | Some sessionBox ->
-                withLock sessionBox.Gate (fun () ->
-                    match ProtocolSessionOps.tryFindAuthFid t.Fid sessionBox.State with
-                    | Some secure ->
-                        secure.Dispose()
-                        authRemoved <- true
-                        sessionBox.State <- ProtocolSessionOps.removeAuthFid t.Fid sessionBox.State
-                    | None -> ()
-
-                    match ProtocolSessionOps.tryFindFid t.Fid sessionBox.State with
-                    | Some channel ->
-                        removedChannel <- channel
-                        hadChannel <- true
-                        sessionBox.State <- ProtocolSessionOps.removeFid t.Fid sessionBox.State
-                    | None -> ())
+                match ProtocolSessionOps.tryFindFid t.Fid session.State with
+                | Some channel ->
+                    removedChannel <- channel
+                    hadChannel <- true
+                    session.State <- ProtocolSessionOps.removeFid t.Fid session.State
+                | None -> ())
 
             if hadChannel then
                 match removedChannel.Target with
@@ -902,45 +925,49 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
                 return Rerror(t.Tag, $"Unknown FID: {t.Fid}") :> obj
         }
 
-    let handleRemove (t: Tremove) (dialect: NinePDialect) (session: SessionBox option) : Task<obj> =
+    let handleRemove (t: Tremove) (dialect: NinePDialect) (session: SessionBox) : Task<obj> =
         task {
             let mutable removedChannel = Unchecked.defaultof<Channel>
             let mutable hadChannel = false
 
-            match session with
-            | None ->
-                match tryRemoveGlobalFid t.Fid with
-                | Some _ -> hadChannel <- false
-                | None -> ()
-
-            | Some sessionBox ->
-                withLock sessionBox.Gate (fun () ->
-                    match ProtocolSessionOps.tryFindFid t.Fid sessionBox.State with
-                    | Some channel ->
-                        removedChannel <- channel
-                        hadChannel <- true
-                        sessionBox.State <- ProtocolSessionOps.removeFid t.Fid sessionBox.State
-                    | None -> ())
+            withLock session.Gate (fun () ->
+                match ProtocolSessionOps.tryFindFid t.Fid session.State with
+                | Some channel ->
+                    removedChannel <- channel
+                    hadChannel <- true
+                    session.State <- ProtocolSessionOps.removeFid t.Fid session.State
+                | None -> ())
 
             if not hadChannel then
                 raise (NinePProtocolException("Unknown FID"))
 
-            match removedChannel.Target with
-            | NamespaceNode ->
+            // Check if this is a mount point by looking up the path-based key
+            let stateSnapshot = getSessionStateOrThrow session
+            let ns = ProtocolSessionOps.namespaceOf stateSnapshot
+            let pathKey = NamespaceOps.mountKeyForPath removedChannel.InternalPath
+            let mountAtPath = NamespaceOps.findMount pathKey ns
+
+            match removedChannel.Target, mountAtPath with
+            | NamespaceNode, Some chain ->
+                // This is an unmount operation (removing a namespace binding)
+                updateSessionState session (ProtocolSessionOps.withNamespace (NamespaceOps.unmountByMountId chain.MountId ns))
+                return Rremove(t.Tag) :> obj
+            | BackendNode(_, relativePath), Some chain when List.isEmpty relativePath ->
+                // At mount root - treat as unmount
+                updateSessionState session (ProtocolSessionOps.withNamespace (NamespaceOps.unmountByMountId chain.MountId ns))
+                return Rremove(t.Tag) :> obj
+            | NamespaceNode, None ->
                 return raise (NinePNotSupportedException())
-            | BackendNode _ ->
+            | BackendNode _, _ ->
                 return!
-                    dispatchWithChannelAsync dialect removedChannel (fun fs ->
+                    dispatchWithChannelAsync dialect removedChannel (fun (runtime, relativePath) ->
                         task {
-                            let! response = fs.RemoveAsync(t)
+                            let! response = runtime.RemoveAsync(relativePath, t, dialect)
                             return response :> obj
                         })
         }
 
     interface INinePFSDispatcher with
-        member this.DispatchAsync(message, dialect, certificate) =
-            (this :> INinePFSDispatcher).DispatchAsync(defaultSessionId, message, dialect, certificate)
-
         member _.DispatchAsync(sessionId, message, dialect, certificate) : Task<obj> =
             task {
                 let tag = getTag message
@@ -949,28 +976,31 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
                 try
                     match message with
                     | NinePMessage.MsgTversion t ->
-                        let versionStr =
-                            match t.Version with
-                            | "9P2000.L" -> "9P2000.L"
-                            | "9P2000.u" -> "9P2000.u"
-                            | _ -> "9P2000"
-
-                        return Rversion(t.Tag, t.MSize, versionStr) :> obj
+                        return Rversion(t.Tag, t.MSize, "9P2000") :> obj
 
                     | NinePMessage.MsgTauth t ->
                         return! withFidLocks session [ t.Afid ] (fun () ->
                             task {
                                 let secure = new SecureString()
-                                match session with
-                                | None -> authFids.[t.Afid] <- secure
-                                | Some sessionBox ->
-                                    withLock sessionBox.Gate (fun () ->
-                                        sessionBox.State <- ProtocolSessionOps.addAuthFid t.Afid secure sessionBox.State)
+                                withLock session.Gate (fun () ->
+                                    session.State <- ProtocolSessionOps.addAuthFid t.Afid secure session.State)
                                 return Rauth(t.Tag, Qid(QidType.QTAUTH, 0u, uint64 t.Afid)) :> obj
                             })
 
                     | NinePMessage.MsgTflush t ->
-                        return Rflush(t.Tag) :> obj
+                        // 9front flush semantics: cancel in-flight request and wait for completion
+                        match session.InFlightRequests.TryGetValue(t.OldTag) with
+                        | true, inFlight ->
+                            // Cancel the request
+                            try inFlight.Cts.Cancel() with _ -> ()
+                            // Wait for it to complete (9front delays flush response until original completes)
+                            try
+                                do! inFlight.Completion.Task
+                            with _ -> ()
+                            return Rflush(t.Tag) :> obj
+                        | false, _ ->
+                            // Request not found or already completed
+                            return Rflush(t.Tag) :> obj
 
                     | NinePMessage.MsgTattach t ->
                         let fidsToLock =
@@ -991,26 +1021,11 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
                             task {
                                 let channel = getChannelOrThrow t.Fid session
                                 if isNamespaceChannel channel then
-                                    return handleVirtualStat t.Tag dialect channel.InternalPath
+                                    return handleVirtualStat t.Tag dialect channel.InternalPath (getSessionUserName session)
                                 else
-                                    return! dispatchWithChannelAsync dialect channel (fun fs ->
+                                    return! dispatchWithChannelAsync dialect channel (fun (runtime, relativePath) ->
                                         task {
-                                            let! response = fs.StatAsync(t)
-                                            return response :> obj
-                                        })
-                            })
-
-                    | NinePMessage.MsgTreaddir t ->
-                        return! withFidLocks session [ t.Fid ] (fun () ->
-                            task {
-                                let channel = getChannelOrThrow t.Fid session
-                                if isNamespaceChannel channel then
-                                    let stateSnapshot = getSessionStateOrThrow session
-                                    return! handleVirtualReaddir t.Tag dialect channel.InternalPath t.Offset t.Count (ProtocolSessionOps.namespaceOf stateSnapshot)
-                                else
-                                    return! dispatchWithChannelAsync dialect channel (fun fs ->
-                                        task {
-                                            let! response = fs.ReaddirAsync(t)
+                                            let! response = runtime.StatAsync(relativePath, t, dialect)
                                             return response :> obj
                                         })
                             })
@@ -1020,7 +1035,14 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
                             task {
                                 let channel = getChannelOrThrow t.Fid session
                                 if isNamespaceChannel channel then
-                                    return! dispatchCreateIntoNamespaceAsync t.Tag t.Fid dialect channel t session
+                                    // Re-resolve with Create intent to find correct parent branch
+                                    let stateSnapshot = getSessionStateOrThrow session
+                                    let! resolved = tryResolveVirtualPathAsync stateSnapshot dialect channel.PathState
+                                    match resolved with
+                                    | Some (updChannel, _) ->
+                                        return! dispatchCreateIntoNamespaceAsync t.Tag t.Fid dialect updChannel t session
+                                    | None ->
+                                        return! dispatchCreateIntoNamespaceAsync t.Tag t.Fid dialect channel t session
                                 else
                                     return! dispatchCreateIntoBackendAsync t.Fid dialect channel t session
                             })
@@ -1028,9 +1050,9 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
                     | NinePMessage.MsgTwstat t ->
                         return! withFidLocks session [ t.Fid ] (fun () ->
                             let channel = getChannelOrThrow t.Fid session
-                            dispatchWithChannelAsync dialect channel (fun fs ->
+                            dispatchWithChannelAsync dialect channel (fun (runtime, relativePath) ->
                                 task {
-                                    let! response = fs.WstatAsync(t)
+                                    let! response = runtime.WstatAsync(relativePath, t, dialect)
                                     return response :> obj
                                 }))
 
@@ -1039,32 +1061,68 @@ type NinePFSDispatcherEngine(attachResolver: IAttachResolver) =
                             task {
                                 let channel = getChannelOrThrow t.Fid session
                                 if isNamespaceChannel channel then
-                                    return handleVirtualOpen t.Tag channel.InternalPath
+                                    // Re-resolve with Open intent to handle union semantics correctly
+                                    let stateSnapshot = getSessionStateOrThrow session
+                                    let! resolved = tryResolveVirtualPathAsync stateSnapshot dialect channel.PathState
+                                    match resolved with
+                                    | Some (updChannel, _) ->
+                                        bindFid t.Fid updChannel session
+                                        markChannelOpened t.Fid None session
+                                        return handleVirtualOpen t.Tag updChannel.InternalPath
+                                    | None ->
+                                        markChannelOpened t.Fid None session
+                                        return handleVirtualOpen t.Tag channel.InternalPath
                                 else
-                                    return! dispatchWithChannelAsync dialect channel (fun fs ->
+                                    return! dispatchWithChannelAsync dialect channel (fun (runtime, relativePath) ->
                                         task {
-                                            let! response = fs.OpenAsync(t)
+                                            let! response = runtime.OpenAsync(relativePath, t, dialect)
+                                            markChannelOpened t.Fid (Some response.Qid) session
                                             return response :> obj
                                         })
                             })
 
                     | NinePMessage.MsgTread t ->
+                        return! withInFlightTracking t.Tag session (fun ct ->
+                            withFidLocks session [ t.Fid ] (fun () ->
+                                task {
+                                    let channel = getChannelOrThrow t.Fid session
+                                    requireOpened "read" channel
+                                    if isNamespaceChannel channel then
+                                        return! handleVirtualRead t.Tag dialect channel.InternalPath t.Offset t.Count session
+                                    else
+                                        return! dispatchWithChannelAsync dialect channel (fun (runtime, relativePath) ->
+                                            task {
+                                                let! response = runtime.ReadAsync(relativePath, t, dialect, ct)
+                                                updateChannelOffset t.Fid (t.Offset + uint64 response.Count) session
+                                                return response :> obj
+                                            })
+                                }))
+
+                    | NinePMessage.MsgTwrite t ->
+                        return! withInFlightTracking t.Tag session (fun ct ->
+                            withFidLocks session [ t.Fid ] (fun () -> handleWrite t dialect ct session))
+
+                    | NinePMessage.MsgTreaddir t ->
                         return! withFidLocks session [ t.Fid ] (fun () ->
                             task {
                                 let channel = getChannelOrThrow t.Fid session
+                                requireOpened "readdir" channel
                                 if isNamespaceChannel channel then
-                                    let stateSnapshot = getSessionStateOrThrow session
-                                    return! handleVirtualRead t.Tag dialect channel.InternalPath t.Offset t.Count (ProtocolSessionOps.namespaceOf stateSnapshot)
+                                    return! handleVirtualReaddir t.Tag dialect channel.InternalPath t.Offset t.Count session
                                 else
-                                    return! dispatchWithChannelAsync dialect channel (fun fs ->
-                                        task {
-                                            let! response = fs.ReadAsync(t)
-                                            return response :> obj
-                                        })
+                                    // Check for union mount (multiple backends)
+                                    match channel.Umh with
+                                    | Some chain ->
+                                        // Union readdir - iterate through all backends
+                                        return! handleUnionReaddir t.Tag dialect chain t.Offset t.Count
+                                    | None ->
+                                        // Single backend - dispatch directly
+                                        return! dispatchWithChannelAsync dialect channel (fun (runtime, relativePath) ->
+                                            task {
+                                                let! response = runtime.ReaddirCompatAsync(relativePath, t, dialect)
+                                                return response :> obj
+                                            })
                             })
-
-                    | NinePMessage.MsgTwrite t ->
-                        return! withFidLocks session [ t.Fid ] (fun () -> handleWrite t dialect session)
 
                     | _ ->
                         return raise (NinePProtocolException("Message type not implemented or supported"))

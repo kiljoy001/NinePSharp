@@ -48,7 +48,7 @@ public class SecretBackendRegressionTests
     }
 
     [Fact]
-    public async Task GetFileSystem_Returns_PathIsolated_Clone_Per_Connection()
+    public async Task GetRuntime_Returns_PathIsolated_Clone_Per_Connection()
     {
         var backend = await CreateBackendAsync();
         string secretName = $"reg-path-{Guid.NewGuid():N}";
@@ -58,10 +58,10 @@ public class SecretBackendRegressionTests
         await ProvisionAsync(backend, password, secretName, expected);
         await UnlockAsync(backend, password, secretName);
 
-        var fsA = backend.GetFileSystem();
+        var fsA = backend.GetRuntime();
         await WalkToAsync(fsA, "vault", secretName);
 
-        var fsB = backend.GetFileSystem();
+        var fsB = backend.GetRuntime();
         var rootRead = await fsB.ReadAsync(new Tread(1, 1, 0, 8192));
         var rootStats = ParseDirectory(rootRead.Data.ToArray());
         var names = rootStats.Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
@@ -146,7 +146,7 @@ public class SecretBackendRegressionTests
 
     private static async Task ProvisionAsync(SecretBackend backend, string password, string name, string value)
     {
-        var fs = backend.GetFileSystem();
+        var fs = backend.GetRuntime();
         await WalkToAsync(fs, "provision");
 
         byte[] data = Encoding.UTF8.GetBytes($"{password}:{name}:{value}");
@@ -163,7 +163,7 @@ public class SecretBackendRegressionTests
 
     private static async Task UnlockAsync(SecretBackend backend, string password, string name)
     {
-        var fs = backend.GetFileSystem();
+        var fs = backend.GetRuntime();
         await WalkToAsync(fs, "unlock");
 
         byte[] data = Encoding.UTF8.GetBytes($"{password}:{name}");
@@ -180,7 +180,7 @@ public class SecretBackendRegressionTests
 
     private static async Task<string> ReadSecretAsync(SecretBackend backend, string name)
     {
-        var fs = backend.GetFileSystem();
+        var fs = backend.GetRuntime();
         await WalkToAsync(fs, "vault", name);
 
         var read = await fs.ReadAsync(new Tread(1, 1, 0, 8192));

@@ -115,30 +115,12 @@ public class RemoteFileSystem : INinePFileSystem
         throw new Exception("Unexpected response from remote actor");
     }
 
-    public async Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
+    public async Task<Rcreate> CreateAsync(Tcreate tcreate)
     {
-        var dto = new TGetAttrDto(tgetattr);
-        var response = await _sessionActor.Ask(dto, _timeout);
-        
-        if (response is RGetAttrDto r)
-        {
-            return new NinePSharp.Messages.Rgetattr(
-                r.Tag, r.Valid, r.Qid, r.Mode, r.Uid, r.Gid, 
-                r.Nlink, r.Rdev, r.DataSize, r.BlkSize, r.Blocks, 
-                r.AtimeSec, r.AtimeNsec, r.MtimeSec, r.MtimeNsec, 
-                r.CtimeSec, r.CtimeNsec, r.BtimeSec, r.BtimeNsec, 
-                r.Gen, r.DataVersion);
-        }
-        if (response is RErrorDto e) throw new NinePProtocolException(e.Ename);
-        throw new Exception("Unexpected response from remote actor");
-    }
-
-    public async Task<Rsetattr> SetAttrAsync(Tsetattr tsetattr)
-    {
-        var dto = new TSetAttrDto(tsetattr);
+        var dto = new TCreateDto(tcreate);
         var response = await _sessionActor.Ask(dto, _timeout);
 
-        if (response is RSetAttrDto r) return new Rsetattr(r.Tag);
+        if (response is RCreateDto r) return new Rcreate(r.Tag, r.Qid, r.Iounit);
         if (response is RErrorDto e) throw new NinePProtocolException(e.Ename);
         throw new Exception("Unexpected response from remote actor");
     }

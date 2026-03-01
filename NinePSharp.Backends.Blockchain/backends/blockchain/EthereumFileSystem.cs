@@ -34,6 +34,8 @@ public class EthereumFileSystem : INinePFileSystem
     private Dictionary<string, string> _trackedTxs = new(); // txHash -> status
     private Dictionary<string, string> _contractAbis = new(); // address -> abi
 
+    public NinePDialect Dialect { get; set; } = NinePDialect.NineP2000;
+
     public EthereumFileSystem(EthereumBackendConfig config, JsonRpcClient rpcClient, ILuxVaultService vault, IEmercoinAuthService? authService = null, X509Certificate2? certificate = null)
     {
         _config = config;
@@ -156,7 +158,7 @@ public class EthereumFileSystem : INinePFileSystem
                 var mode = f.Type == QidType.QTDIR ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0644;
                 if (f.Name == "use" || f.Name == "abi" || f.Name == "call") mode = 0666;
                 
-                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott");
+                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "none", "none", "none");
                 
                 var entryBuffer = new byte[stat.Size];
                 int offset = 0;
@@ -290,7 +292,7 @@ public class EthereumFileSystem : INinePFileSystem
     {
         var name = _currentPath.LastOrDefault() ?? "eth";
         bool isDir = IsDirectory(_currentPath);
-        var stat = new Stat(0, 0, 0, new Qid(isDir ? QidType.QTDIR : QidType.QTFILE, 0, 0), 0644 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0), 0, 0, 0, name, "scott", "scott", "scott");
+        var stat = new Stat(0, 0, 0, new Qid(isDir ? QidType.QTDIR : QidType.QTFILE, 0, 0), 0644 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0), 0, 0, 0, name, "none", "none", "none");
         return new Rstat(tstat.Tag, stat);
     }
 

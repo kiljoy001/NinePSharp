@@ -14,83 +14,21 @@ using NinePSharp.Server.Interfaces;
 using NinePSharp.Tests.Helpers;
 using Xunit;
 
+using FSharpQid = NinePSharp.Core.FSharp.Qid;
+
 namespace NinePSharp.Tests.Architecture;
 
+/// <summary>
+/// Tests for 9front-correct namespace invariants.
+///
+/// Key 9front semantics tested:
+/// - Path.mtpt is array of Chan* (mount point history)
+/// - Mount lookup by channel identity (Type, Dev, Qid)
+/// - Walk crosses mounts by checking qid at each step
+/// </summary>
 public sealed class NineFrontNamespaceInvariantPropertyTests
 {
-    [Property(MaxTest = 100)]
-    public bool Channel_Walk_DotDot_From_Mounted_BackendRoot_Pops_Mount_History(string[] rawSegments)
-    {
-        var mountPath = CleanSegments(rawSegments, "mnt");
-        ulong mountId = MountIdForPath(mountPath);
-        var frame = new MountFrame(mountId, FsList(mountPath), FsList(mountPath.Take(Math.Max(0, mountPath.Count - 1))));
-        var pathState = ChannelOps.createPathStateWithHistory(mountPath, new[] { frame });
-        var channel = ChannelOps.createBackendNodeWithPathState(
-            new NinePSharp.Core.FSharp.Qid(QidType.QTDIR, 0, 1),
-            NewTarget("mounted"),
-            Array.Empty<string>(),
-            pathState);
-
-        var walked = ChannelOps.walk(FsList(".."), channel);
-
-        return walked.InternalPath.SequenceEqual(mountPath.Take(Math.Max(0, mountPath.Count - 1)))
-            && !walked.PathState.MountHistory.Any()
-            && walked.Offset == 0UL
-            && !walked.IsOpened;
-    }
-
-    [Property(MaxTest = 80)]
-    public bool Namespace_BindTarget_Mode_Requires_Exact_Target_Path(string rootRaw, string childRaw, string leafRaw)
-    {
-        string root = CleanSegment(rootRaw, "root");
-        string child = CleanSegment(childRaw, "child");
-        string leaf = CleanSegment(leafRaw, "leaf");
-        if (child == root)
-        {
-            child += "x";
-        }
-
-        var shallow = NewTarget("shallow");
-        var deep = NewTarget("deep");
-        var ns = BuildNamespace(
-            MountAt("/" + root, shallow),
-            MountAt("/" + root + "/" + child, deep));
-
-        var exact = NamespaceOps.resolveWithMode(LookupMode.BindTarget, FsList(root, child), ns);
-        var nested = NamespaceOps.resolveWithMode(LookupMode.BindTarget, FsList(root, child, leaf), ns);
-
-        var exactTargets = exact.Targets.ToList();
-        return exactTargets.Count == 1
-            && ReferenceEquals(exactTargets[0], deep)
-            && !nested.Targets.Any()
-            && nested.Remainder.SequenceEqual(new[] { root, child, leaf });
-    }
-
-    [Property(MaxTest = 80)]
-    public bool Namespace_Walk_Mode_Still_Uses_Longest_Prefix_Under_Mount_Chains(string rootRaw, string childRaw, string leafRaw)
-    {
-        string root = CleanSegment(rootRaw, "root");
-        string child = CleanSegment(childRaw, "child");
-        string leaf = CleanSegment(leafRaw, "leaf");
-        if (child == root)
-        {
-            child += "x";
-        }
-
-        var shallow = NewTarget("shallow");
-        var deep = NewTarget("deep");
-        var ns = BuildNamespace(
-            MountAt("/" + root, shallow),
-            MountAt("/" + root + "/" + child, deep));
-
-        var resolved = NamespaceOps.resolveWithMode(LookupMode.Walk, FsList(root, child, leaf), ns);
-        var targets = resolved.Targets.ToList();
-
-        return targets.Count == 1
-            && ReferenceEquals(targets[0], deep)
-            && resolved.Remainder.SequenceEqual(new[] { leaf });
-    }
-
+    // Tests for 9front-correct protocol and namespace behavior
     [Property(MaxTest = 50)]
     public bool Dispatcher_Unknown_Root_Walk_Does_Not_Bind_NewFid(string rawMissing)
     {
@@ -101,15 +39,76 @@ public sealed class NineFrontNamespaceInvariantPropertyTests
         });
 
         DispatcherIntegrationTestKit.AttachRootAsync(dispatcher, tag: 1, fid: 100).Sync();
-        var walk = DispatcherIntegrationTestKit.WalkAsync(dispatcher, tag: 2, fid: 100, newFid: 101, wname: new[] { missing }).Sync();
-
-        var readResponse = dispatcher.DispatchAsync(
-            NinePMessage.NewMsgTread(new Tread(3, 101, 0, 64)),
-            NinePDialect.NineP2000U,
+        var walkResponse = dispatcher.DispatchAsync(
+            "test-session",
+            NinePMessage.NewMsgTwalk(new Twalk(2, 100, 101, new[] { missing })),
+            NinePDialect.NineP2000,
             null!).Sync();
 
-        return (walk.Wqid == null || walk.Wqid.Length == 0)
+        var readResponse = dispatcher.DispatchAsync(
+            "test-session",
+            NinePMessage.NewMsgTread(new Tread(3, 101, 0, 64)),
+            NinePDialect.NineP2000,
+            null!).Sync();
+
+        return walkResponse is Rerror
             && readResponse is Rerror;
+    }
+
+    // NEW: Test correct qid-based mount lookup
+    [Fact]
+    public void Mount_Lookup_Uses_Channel_Identity_Not_Path()
+    {
+        var chan1 = CreateChannel(type: 1, dev: 100, qidPath: 1000);
+        var chan2 = CreateChannel(type: 1, dev: 100, qidPath: 2000);
+
+        var target1 = NewTarget("target1");
+        var target2 = NewTarget("target2");
+
+        var key1 = MountKeyModule.fromChannel(chan1);
+        var key2 = MountKeyModule.fromChannel(chan2);
+
+        var ns = NamespaceOps.empty;
+        ns = NamespaceOps.mount(key1, CreateMhead(key1, target1), ns);
+        ns = NamespaceOps.mount(key2, CreateMhead(key2, target2), ns);
+
+        // Lookup by different qids finds different mounts
+        var found1 = NamespaceOps.findMount(key1, ns);
+        var found2 = NamespaceOps.findMount(key2, ns);
+
+        found1.Value.Branches.ToList().Single().Target.Should().BeSameAs(target1);
+        found2.Value.Branches.ToList().Single().Target.Should().BeSameAs(target2);
+    }
+
+    #region Helpers
+
+    private static Channel CreateChannel(ushort type, uint dev, ulong qidPath)
+    {
+        var qid = new FSharpQid(QidType.QTDIR, 0, qidPath);
+        var pathState = new PathState(
+            FsList<string>(Array.Empty<string>()),
+            FsList<Channel>(Array.Empty<Channel>()));
+        return new Channel(
+            type,
+            dev,
+            qid,
+            0UL,
+            ChannelTarget.NamespaceNode,
+            pathState,
+            false,
+            Microsoft.FSharp.Core.FSharpOption<MountChain>.None,
+            Microsoft.FSharp.Core.FSharpOption<Channel>.None,
+            0);
+    }
+
+    private static MountChain CreateMhead(MountKey key, BackendTargetDescriptor target)
+    {
+        var branch = new MountBranch(target, BindFlags.MREPL);
+        return new MountChain(
+            1UL,
+            key,
+            FsList<string>(Array.Empty<string>()),
+            FsList(new[] { branch }));
     }
 
     private static List<string> CleanSegments(IEnumerable<string?> rawSegments, string fallback)
@@ -140,43 +139,11 @@ public sealed class NineFrontNamespaceInvariantPropertyTests
         return chars.Length == 0 ? fallback : new string(chars);
     }
 
-    private static Mount MountAt(string path, params BackendTargetDescriptor[] backends)
-    {
-        var normalized = NamespaceOps.splitPath(path);
-        return new Mount(normalized, new MountChain(MountIdForPath(normalized), FsBranches(BindFlags.MREPL, backends)));
-    }
-
-    private static NinePSharp.Core.FSharp.Namespace BuildNamespace(params Mount[] mounts)
-        => new(FsList(mounts));
-
     private static BackendTargetDescriptor NewTarget(string id)
         => BackendTargetDescriptor.Local(id, "/" + id, () => new Mock<INinePFileSystem>(MockBehavior.Loose).Object);
 
     private static FSharpList<T> FsList<T>(IEnumerable<T> items)
         => ListModule.OfSeq(items);
 
-    private static FSharpList<string> FsList(params string[] items)
-        => ListModule.OfSeq(items);
-
-    private static FSharpList<MountBranch> FsBranches(BindFlags flags, IEnumerable<BackendTargetDescriptor> backends)
-        => ListModule.OfSeq(backends.Select(target => new MountBranch(target, flags)));
-
-    private static ulong MountIdForPath(IEnumerable<string> segments)
-    {
-        unchecked
-        {
-            ulong hash = 14695981039346656037UL;
-            foreach (var segment in segments)
-            {
-                foreach (var ch in segment)
-                {
-                    hash = (hash ^ ch) * 1099511628211UL;
-                }
-
-                hash = (hash ^ '/') * 1099511628211UL;
-            }
-
-            return hash == 0 ? 1UL : hash;
-        }
-    }
+    #endregion
 }

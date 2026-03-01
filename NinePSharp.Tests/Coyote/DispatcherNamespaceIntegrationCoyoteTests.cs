@@ -36,11 +36,16 @@ public class DispatcherNamespaceIntegrationCoyoteTests
             await DispatcherIntegrationTestKit.AttachRootAsync(dispatcher, tag: 1, fid: rootFid);
             await DispatcherIntegrationTestKit.WalkAsync(dispatcher, tag: 2, fid: rootFid, newFid: fidA, wname: new[] { "alpha" });
             await DispatcherIntegrationTestKit.WalkAsync(dispatcher, tag: 3, fid: rootFid, newFid: fidB, wname: new[] { "alpha" });
+            await DispatcherIntegrationTestKit.OpenAsync(dispatcher, tag: 7, fid: fidB);
 
             var switchAndRead = CoyoteTask.Run(async () =>
             {
                 _ = await dispatcher.DispatchAsync(
                     NinePMessage.NewMsgTwalk(new Twalk(4, fidA, fidA, new[] { "..", "beta" })),
+                    dialect: NinePDialect.NineP2000U);
+
+                _ = await dispatcher.DispatchAsync(
+                    NinePMessage.NewMsgTopen(new Topen(8, fidA, NinePConstants.OREAD)),
                     dialect: NinePDialect.NineP2000U);
 
                 await CoyoteTask.Yield();
@@ -105,6 +110,7 @@ public class DispatcherNamespaceIntegrationCoyoteTests
             const uint pageBytes = 320;
 
             await DispatcherIntegrationTestKit.AttachRootAsync(dispatcher, tag: 1, fid: rootFid);
+            await DispatcherIntegrationTestKit.OpenAsync(dispatcher, tag: 10, fid: rootFid);
 
             var first = await DispatcherIntegrationTestKit.ReadAsync(dispatcher, tag: 2, fid: rootFid, offset: 0, count: pageBytes);
             var firstEntries = DispatcherIntegrationTestKit.ParseStatsTable(first.Data.Span);

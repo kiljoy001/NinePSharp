@@ -8,7 +8,7 @@ public interface IRemoteMountProvider : IDisposable
 {
     void Start();
     Task StopAsync();
-    Task RegisterMountAsync(string mountPath, Func<INinePFileSystem> createSession);
+    Task RegisterMountAsync(string mountPath, Func<IBackendRuntime> createRuntime);
     Task<IReadOnlyList<string>> GetRemoteMountPathsAsync();
-    Task<INinePFileSystem?> TryCreateRemoteFileSystemAsync(string mountPath);
+    Task<IBackendRuntime?> TryCreateRemoteRuntimeAsync(string mountPath);
 }

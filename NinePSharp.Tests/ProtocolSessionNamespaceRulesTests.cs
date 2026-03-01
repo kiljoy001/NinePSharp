@@ -18,8 +18,12 @@ public sealed class ProtocolSessionNamespaceRulesTests
     {
         var session = ProtocolSessionOps.create("s1", NinePDialect.NineP2000, null!);
         var path = NamespaceOps.splitPath("/srv");
-        var mount = new Mount(path, new MountChain(MountIdForPath(path), FsBranches(BindFlags.MREPL, new[] { NewTarget("srv") })));
-        var ns = new Namespace(FsList(new[] { mount }));
+        var mount = new MountChain(
+            MountIdForPath(path),
+            NamespaceOps.mountKeyForPath(path),
+            path,
+            FsBranches(BindFlags.MREPL, new[] { NewTarget("srv") }));
+        var ns = NamespaceOps.mount(mount.From, mount, NamespaceOps.empty);
 
         var updated = ProtocolSessionOps.withNamespace(ns, session);
 

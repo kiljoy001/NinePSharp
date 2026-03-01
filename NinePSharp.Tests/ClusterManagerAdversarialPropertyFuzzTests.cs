@@ -1,3 +1,4 @@
+using NinePSharp.Server.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,6 +14,8 @@ using NinePSharp.Constants;
 using NinePSharp.Messages;
 using NinePSharp.Server.Cluster;
 using NinePSharp.Server.Interfaces;
+using NinePSharp.Server.Abstractions.Utils;
+using NinePSharp.Server.Utils;
 using Xunit;
 
 namespace NinePSharp.Tests;
@@ -28,7 +31,7 @@ public sealed class ClusterManagerAdversarialPropertyFuzzTests
         try
         {
             sut.Start();
-            sut.RegisterMountAsync(safe, () => new TaggedFileSystem("tagged")).Sync();
+            sut.RegisterMountAsync(safe, () => RuntimeFileSystemAdapter.ToRuntime(new TaggedFileSystem("tagged"))).Sync();
 
             var mounts = sut.GetRemoteMountPathsAsync().Sync();
             return mounts.Contains("/" + safe.TrimStart('/'));
@@ -41,7 +44,7 @@ public sealed class ClusterManagerAdversarialPropertyFuzzTests
     }
 
     [Fact]
-    public async Task TryCreateRemoteFileSystemAsync_Returns_Fresh_Sessions_Per_Call()
+    public async Task TryCreateRemoteRuntimeAsync_Returns_Fresh_Sessions_Per_Call()
     {
         int counter = 0;
         var sut = CreateManager();
@@ -49,17 +52,20 @@ public sealed class ClusterManagerAdversarialPropertyFuzzTests
         try
         {
             sut.Start();
-            await sut.RegisterMountAsync("/fresh", () => new TaggedFileSystem("session-" + ++counter));
+            await sut.RegisterMountAsync("/fresh", () => {
+                string sessionTag = "session-" + ++counter;
+                return RuntimeFileSystemAdapter.ToRuntime(new TaggedFileSystem(sessionTag));
+            });
 
-            var first = await sut.TryCreateRemoteFileSystemAsync("/fresh");
-            var second = await sut.TryCreateRemoteFileSystemAsync("/fresh");
+            var first = await sut.TryCreateRemoteRuntimeAsync("/fresh");
+            var second = await sut.TryCreateRemoteRuntimeAsync("/fresh");
 
             first.Should().NotBeNull();
             second.Should().NotBeNull();
             first.Should().NotBeSameAs(second);
 
-            var firstRead = await first!.ReadAsync(new Tread(1, 0, 0, 64));
-            var secondRead = await second!.ReadAsync(new Tread(2, 0, 0, 64));
+            var firstRead = await first!.ReadAsync(Array.Empty<string>(), new Tread(1, 0, 0, 64), NinePDialect.NineP2000);
+            var secondRead = await second!.ReadAsync(Array.Empty<string>(), new Tread(2, 0, 0, 64), NinePDialect.NineP2000);
 
             Encoding.UTF8.GetString(firstRead.Data.ToArray()).Should().Be("session-1");
             Encoding.UTF8.GetString(secondRead.Data.ToArray()).Should().Be("session-2");
@@ -72,7 +78,7 @@ public sealed class ClusterManagerAdversarialPropertyFuzzTests
     }
 
     [Property(MaxTest = 25)]
-    public bool TryCreateRemoteFileSystemAsync_Unknown_Mount_Returns_Null(NonEmptyString registeredRaw, NonEmptyString missingRaw)
+    public bool TryCreateRemoteRuntimeAsync_Unknown_Mount_Returns_Null(NonEmptyString registeredRaw, NonEmptyString missingRaw)
     {
         string registered = NormalizeMountPath(registeredRaw.Get);
         string missing = NormalizeMountPath(missingRaw.Get);
@@ -85,8 +91,8 @@ public sealed class ClusterManagerAdversarialPropertyFuzzTests
         try
         {
             sut.Start();
-            sut.RegisterMountAsync(registered, () => new TaggedFileSystem("live")).Sync();
-            return sut.TryCreateRemoteFileSystemAsync(missing).Sync() == null;
+            sut.RegisterMountAsync(registered, () => RuntimeFileSystemAdapter.ToRuntime(new TaggedFileSystem("live"))).Sync();
+            return sut.TryCreateRemoteRuntimeAsync(missing).Sync() == null;
         }
         finally
         {
@@ -134,16 +140,17 @@ public sealed class ClusterManagerAdversarialPropertyFuzzTests
             _payload = Encoding.UTF8.GetBytes(tag);
         }
 
-        public NinePDialect Dialect { get; set; }
+        public NinePDialect Dialect { get; set; } = NinePDialect.NineP2000;
 
         public Task<Rwalk> WalkAsync(Twalk twalk) => Task.FromResult(new Rwalk(twalk.Tag, Array.Empty<Qid>()));
         public Task<Ropen> OpenAsync(Topen topen) => Task.FromResult(new Ropen(topen.Tag, new Qid(QidType.QTFILE, 0, 1), 0));
         public Task<Rread> ReadAsync(Tread tread) => Task.FromResult(new Rread(tread.Tag, _payload));
         public Task<Rwrite> WriteAsync(Twrite twrite) => Task.FromResult(new Rwrite(twrite.Tag, twrite.Count));
         public Task<Rclunk> ClunkAsync(Tclunk tclunk) => Task.FromResult(new Rclunk(tclunk.Tag));
-        public Task<Rstat> StatAsync(Tstat tstat) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0, 0, 0, new Qid(QidType.QTFILE, 0, 1), 0, 0, 0, 0, "tag", "u", "g", "m")));
+        public Task<Rstat> StatAsync(Tstat tstat) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0, 0, 0, new Qid(QidType.QTFILE, 0, 1), 0, 0, 0, 0, "tag", "none", "none", "none")));
         public Task<Rwstat> WstatAsync(Twstat twstat) => Task.FromResult(new Rwstat(twstat.Tag));
         public Task<Rremove> RemoveAsync(Tremove tremove) => Task.FromResult(new Rremove(tremove.Tag));
+        public Task<Rcreate> CreateAsync(Tcreate tcreate) => Task.FromResult(new Rcreate(tcreate.Tag, new Qid(QidType.QTFILE, 0, 1), 0));
         public INinePFileSystem Clone() => new TaggedFileSystem(Encoding.UTF8.GetString(_payload)) { Dialect = Dialect };
     }
 }

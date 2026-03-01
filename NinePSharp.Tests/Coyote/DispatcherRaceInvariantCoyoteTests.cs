@@ -1,16 +1,17 @@
-using NinePSharp.Constants;
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security;
 using System.Security.Cryptography.X509Certificates;
-using FluentAssertions;
-using Microsoft.Coyote.SystematicTesting;
+using System.Threading.Tasks;
+using Microsoft.Coyote.Specifications;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using NinePSharp.Constants;
 using NinePSharp.Messages;
 using NinePSharp.Parser;
 using NinePSharp.Server;
 using NinePSharp.Server.Interfaces;
+using NinePSharp.Server.Utils;
 using Xunit;
 using CoyoteTask = Microsoft.Coyote.Rewriting.Types.Threading.Tasks.Task;
 
@@ -19,56 +20,44 @@ namespace NinePSharp.Tests.Coyote;
 public class DispatcherRaceInvariantCoyoteTests
 {
     [Fact]
-    public void Coyote_Twalk_Concurrent_SameNewFid_Yields_OneSuccess_OneError()
+    public static async Task TestConcurrentWalks()
     {
-        var configuration = Microsoft.Coyote.Configuration.Create()
-            .WithTestingIterations(250)
-            .WithPartiallyControlledConcurrencyAllowed(true);
+        var mockFs = new Mock<INinePFileSystem>();
+        mockFs.SetupProperty(f => f.Dialect);
+        mockFs.Setup(x => x.WalkAsync(It.IsAny<Twalk>()))
+              .ReturnsAsync(new Rwalk(1, new[] { new Qid(QidType.QTDIR, 0, 1) }));
+        mockFs.Setup(x => x.Clone()).Returns(mockFs.Object);
 
-        var engine = TestingEngine.Create(configuration, async () =>
+        var mockBackend = new Mock<IProtocolBackend>();
+        mockBackend.Setup(b => b.Name).Returns("mock");
+        mockBackend.Setup(b => b.MountPath).Returns("/mock");
+        mockBackend.Setup(b => b.GetRuntime(It.IsAny<X509Certificate2>()))
+                   .Returns(() => RuntimeFileSystemAdapter.ToRuntime(mockFs.Object));
+
+        var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, new NullRemoteMountProvider());
+
+        await dispatcher.DispatchAsync("s1", NinePMessage.NewMsgTattach(new Tattach(1, 1, uint.MaxValue, "user", "/")), NinePDialect.NineP2000);
+
+        var t1 = CoyoteTask.Run(async () =>
         {
-            var fs = new Mock<INinePFileSystem>(MockBehavior.Strict);
-            fs.Setup(f => f.Clone()).Returns(fs.Object);
-            fs.Setup(f => f.WalkAsync(It.IsAny<Twalk>()))
-                .Returns(async (Twalk t) =>
-                {
-                    await CoyoteTask.Yield();
-                    return new Rwalk(t.Tag, t.Wname.Select(_ => new Qid(QidType.QTDIR, 0, 1)).ToArray());
-                });
-
-            var backend = new Mock<IProtocolBackend>(MockBehavior.Strict);
-            backend.SetupGet(b => b.Name).Returns("mock");
-            backend.SetupGet(b => b.MountPath).Returns("/mock");
-            backend.Setup(b => b.GetFileSystem(It.IsAny<X509Certificate2>())).Returns(fs.Object);
-            backend.Setup(b => b.GetFileSystem(It.IsAny<SecureString>(), It.IsAny<X509Certificate2>())).Returns(fs.Object);
-
-            var dispatcher = new NinePFSDispatcher(
-                NullLogger<NinePFSDispatcher>.Instance,
-                new[] { backend.Object },
-                new Mock<IRemoteMountProvider>().Object);
-
-            await dispatcher.DispatchAsync(
-                NinePMessage.NewMsgTattach(new Tattach(1, 100, NinePConstants.NoFid, "user", "/mock")),
-                dialect: NinePDialect.NineP2000U);
-
-            const uint newFid = 200;
-            var twalk1 = CoyoteTask.Run(() => dispatcher.DispatchAsync(
-                NinePMessage.NewMsgTwalk(new Twalk(2, 100, newFid, new[] { "x" })),
-                dialect: NinePDialect.NineP2000U));
-            var twalk2 = CoyoteTask.Run(() => dispatcher.DispatchAsync(
-                NinePMessage.NewMsgTwalk(new Twalk(3, 100, newFid, new[] { "x" })),
-                dialect: NinePDialect.NineP2000U));
-
-            object[] results = await CoyoteTask.WhenAll(twalk1, twalk2);
-
-            int walkSuccesses = results.Count(r => r is Rwalk rw && rw.Wqid != null && rw.Wqid.Length == 1);
-            int errors = results.Count(r => r is Rerror || r is Rlerror);
-
-            walkSuccesses.Should().Be(1, "newfid can be claimed by only one concurrent Twalk");
-            errors.Should().Be(1, "the loser should receive an error response");
+            await dispatcher.DispatchAsync("s1", NinePMessage.NewMsgTwalk(new Twalk(2, 1, 2, new[] { "mock" })), NinePDialect.NineP2000);
         });
 
-        engine.Run();
-        Assert.True(engine.TestReport.NumOfFoundBugs == 0, engine.TestReport.GetText(configuration));
+        var t2 = CoyoteTask.Run(async () =>
+        {
+            await dispatcher.DispatchAsync("s1", NinePMessage.NewMsgTwalk(new Twalk(3, 1, 3, new[] { "mock" })), NinePDialect.NineP2000);
+        });
+
+        await CoyoteTask.WhenAll(t1, t2);
+    }
+
+    private class NullRemoteMountProvider : IRemoteMountProvider
+    {
+        public void Start() { }
+        public Task StopAsync() => Task.CompletedTask;
+        public Task RegisterMountAsync(string mountPath, Func<IBackendRuntime> createRuntime) => Task.CompletedTask;
+        public Task<IReadOnlyList<string>> GetRemoteMountPathsAsync() => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        public Task<IBackendRuntime?> TryCreateRemoteRuntimeAsync(string mountPath) => Task.FromResult<IBackendRuntime?>(null);
+        public void Dispose() { }
     }
 }

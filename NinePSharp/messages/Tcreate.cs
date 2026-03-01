@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Text;
 using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
@@ -16,6 +17,16 @@ public readonly struct Tcreate : ISerializable
     public string Name { get; }
     public uint Perm { get; }
     public byte Mode { get; }
+
+    public Tcreate(ushort tag, uint fid, string name, uint perm, byte mode)
+    {
+        Tag = tag;
+        Fid = fid;
+        Name = name;
+        Perm = perm;
+        Mode = mode;
+        Size = (uint)(NinePConstants.HeaderSize + 4 + 2 + Encoding.UTF8.GetByteCount(name) + 4 + 1);
+    }
 
     public Tcreate(ReadOnlySpan<byte> data)
     {

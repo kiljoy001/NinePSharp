@@ -43,6 +43,12 @@ public class DispatcherRaceReproductionTests
         // to expose the race between ContainsKey and assignment in a loop.
         
         var mockBackend = new Mock<IProtocolBackend>();
+        mockBackend.SetupGet(x => x.Name).Returns("data");
+        mockBackend.SetupGet(x => x.MountPath).Returns("/data");
+        mockBackend.Setup(x => x.GetRuntime(It.IsAny<X509Certificate2?>()))
+            .Returns(() => RuntimeFileSystemAdapter.ToRuntime(CreateSlowFs()));
+        mockBackend.Setup(x => x.GetRuntime(It.IsAny<System.Security.SecureString?>(), It.IsAny<X509Certificate2?>()))
+            .Returns(() => RuntimeFileSystemAdapter.ToRuntime(CreateSlowFs()));
         var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, new Mock<IRemoteMountProvider>().Object);
 
         uint rootFid = 100;
@@ -69,7 +75,7 @@ public class DispatcherRaceReproductionTests
             startSignal.Set();
             var results = await Task.WhenAll(tasks);
             
-            int successes = results.Count(r => r is Rwalk);
+            int successes = results.Count(r => r is Rwalk walk && walk.Wqid is { Length: 1 });
             if (successes > 1)
             {
                 totalSuccesses += successes;

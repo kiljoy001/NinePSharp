@@ -1,4 +1,5 @@
 using NinePSharp.Server.Interfaces;
+using NinePSharp.Server.Abstractions.Utils;
 using System.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
@@ -10,19 +11,19 @@ public interface IAttachResolver
     Task<AttachResolution> ResolveAsync(string? aname, SecureString? credentials, X509Certificate2? certificate);
     IReadOnlyList<NamespaceMountDescriptor> GetRootMounts(X509Certificate2? certificate);
     Task<IReadOnlyList<string>> GetRemoteMountPathsAsync();
-    Task<INinePFileSystem?> TryCreateRemoteFileSystemAsync(string mountPath);
+    Task<IBackendRuntime?> TryCreateRemoteRuntimeAsync(string mountPath);
 }
 
 public sealed class BackendTargetDescriptor
 {
-    private readonly Func<INinePFileSystem>? _createSession;
+    private readonly Func<IBackendRuntime>? _createRuntime;
 
-    private BackendTargetDescriptor(string id, string mountPath, bool isRemote, Func<INinePFileSystem>? createSession)
+    private BackendTargetDescriptor(string id, string mountPath, bool isRemote, Func<IBackendRuntime>? createRuntime)
     {
         Id = id;
         MountPath = mountPath;
         IsRemote = isRemote;
-        _createSession = createSession;
+        _createRuntime = createRuntime;
     }
 
     public string Id { get; }
@@ -32,19 +33,27 @@ public sealed class BackendTargetDescriptor
     public bool IsRemote { get; }
 
     public static BackendTargetDescriptor Local(string id, string mountPath, Func<INinePFileSystem> createSession)
-        => new(id, mountPath, isRemote: false, createSession);
+        => new(id, mountPath, isRemote: false, () => new FileSystemBackendRuntime(id, mountPath, createSession));
 
-    public static BackendTargetDescriptor Remote(string mountPath)
-        => new(mountPath, mountPath, isRemote: true, createSession: null);
+    public static BackendTargetDescriptor LocalRuntime(string id, string mountPath, Func<IBackendRuntime> createRuntime)
+        => new(id, mountPath, isRemote: false, createRuntime);
 
-    public INinePFileSystem CreateSession()
+    public static BackendTargetDescriptor Remote(string id, string mountPath)
+        => new(id, mountPath, isRemote: true, createRuntime: null);
+
+    public IBackendRuntime CreateRuntime()
     {
-        if (IsRemote || _createSession == null)
+        if (IsRemote)
         {
             throw new InvalidOperationException("Remote backend targets must be materialized through the remote mount provider.");
         }
 
-        return _createSession();
+        if (_createRuntime == null)
+        {
+            throw new InvalidOperationException("Backend target descriptor is missing creation delegate.");
+        }
+
+        return _createRuntime();
     }
 }
 

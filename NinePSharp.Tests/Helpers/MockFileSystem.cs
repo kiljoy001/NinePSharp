@@ -35,7 +35,7 @@ internal class MockFileSystem : INinePFileSystem
     private readonly ConcurrentDictionary<string, MockEntry> _entries;
     private List<string> _currentPath = new();
 
-    public NinePDialect Dialect { get; set; }
+    public NinePDialect Dialect { get; set; } = NinePDialect.NineP2000;
 
     public MockFileSystem()
         : this("mock")
@@ -122,18 +122,56 @@ internal class MockFileSystem : INinePFileSystem
     {
         string currentPath = GetFullPath();
 
-        if (_entries.TryGetValue(currentPath, out MockEntry? entry) && entry.Type == MockEntryType.File)
+        if (_entries.TryGetValue(currentPath, out MockEntry? entry))
         {
-            if (tread.Offset >= (ulong)entry.Content.Length)
+            if (entry.Type == MockEntryType.File)
             {
-                return Task.FromResult(new Rread(tread.Tag, Array.Empty<byte>()));
-            }
+                if (tread.Offset >= (ulong)entry.Content.Length)
+                {
+                    return Task.FromResult(new Rread(tread.Tag, Array.Empty<byte>()));
+                }
 
-            int offset = (int)tread.Offset;
-            int count = (int)Math.Min(tread.Count, (uint)(entry.Content.Length - offset));
-            byte[] data = new byte[count];
-            Array.Copy(entry.Content, offset, data, 0, count);
-            return Task.FromResult(new Rread(tread.Tag, data));
+                int offset = (int)tread.Offset;
+                int count = (int)Math.Min(tread.Count, (uint)(entry.Content.Length - offset));
+                byte[] data = new byte[count];
+                Array.Copy(entry.Content, offset, data, 0, count);
+                return Task.FromResult(new Rread(tread.Tag, data));
+            }
+            else if (entry.Type == MockEntryType.Directory)
+            {
+                var children = _entries
+                    .Where(e =>
+                    {
+                        string parentPath = Path.GetDirectoryName(e.Key)?.Replace('\\', '/') ?? "/";
+                        return parentPath == currentPath && e.Key != currentPath;
+                    })
+                    .OrderBy(e => e.Key, StringComparer.Ordinal)
+                    .ToList();
+
+                var allStats = new List<byte>();
+                foreach (var child in children)
+                {
+                    var childEntry = child.Value;
+                    var qidType = childEntry.Type == MockEntryType.Directory ? QidType.QTDIR : QidType.QTFILE;
+                    var mode = childEntry.Mode;
+                    if (childEntry.Type == MockEntryType.Directory) mode |= (uint)NinePConstants.FileMode9P.DMDIR;
+                    
+                    var stat = new Stat(0, 0, 0, new Qid(qidType, 0, childEntry.Qid), mode, 0, 0, (ulong)childEntry.Content.Length, childEntry.Name, "none", "none", "none", dialect: Dialect);
+                    var buffer = new byte[stat.Size];
+                    int off = 0;
+                    stat.WriteTo(buffer, ref off);
+                    allStats.AddRange(buffer);
+                }
+
+                if (tread.Offset >= (ulong)allStats.Count)
+                {
+                    return Task.FromResult(new Rread(tread.Tag, Array.Empty<byte>()));
+                }
+
+                int start = (int)tread.Offset;
+                int len = (int)Math.Min(tread.Count, (uint)(allStats.Count - start));
+                return Task.FromResult(new Rread(tread.Tag, allStats.GetRange(start, len).ToArray()));
+            }
         }
 
         return Task.FromResult(new Rread(tread.Tag, Array.Empty<byte>()));
@@ -175,12 +213,12 @@ internal class MockFileSystem : INinePFileSystem
 
             return Task.FromResult(new Rstat(
                 tstat.Tag,
-                new Stat(0, 0, 0, new Qid(qidType, 0, entry.Qid), mode, 0, 0, (ulong)entry.Content.Length, entry.Name, "u", "g", "m", dialect: Dialect)));
+                new Stat(0, 0, 0, new Qid(qidType, 0, entry.Qid), mode, 0, 0, (ulong)entry.Content.Length, entry.Name, "none", "none", "none", dialect: Dialect)));
         }
 
         return Task.FromResult(new Rstat(
             tstat.Tag,
-            new Stat(0, 0, 0, new Qid(QidType.QTFILE, 0, 1), 0x1A4, 0, 0, 0, "mock", "u", "g", "m", dialect: Dialect)));
+            new Stat(0, 0, 0, new Qid(QidType.QTFILE, 0, 1), 0x1A4, 0, 0, 0, "mock", "none", "none", "none", dialect: Dialect)));
     }
 
     public Task<Rwstat> WstatAsync(Twstat twstat)
@@ -215,30 +253,6 @@ internal class MockFileSystem : INinePFileSystem
         throw new NinePProtocolException("File not found");
     }
 
-    public Task<Rgetattr> GetAttrAsync(Tgetattr tgetattr)
-    {
-        string currentPath = GetFullPath();
-        if (_entries.TryGetValue(currentPath, out MockEntry? entry))
-        {
-            QidType qidType = entry.Type == MockEntryType.Directory ? QidType.QTDIR : QidType.QTFILE;
-            uint mode = entry.Mode;
-            if (entry.Type == MockEntryType.Directory)
-            {
-                mode |= (uint)NinePConstants.FileMode9P.DMDIR;
-            }
-
-            return Task.FromResult(new Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, new Qid(qidType, 0, entry.Qid), mode));
-        }
-
-        return Task.FromResult(new Rgetattr(tgetattr.Tag, (ulong)NinePConstants.GetAttrMask.P9_GETATTR_BASIC, new Qid(QidType.QTFILE, 0, 1), 0x1A4));
-    }
-
-    public Task<Rstatfs> StatfsAsync(Tstatfs tstatfs)
-    {
-        ulong usedBlocks = (ulong)(_entries.Sum(e => e.Value.Content.Length) / 4096);
-        return Task.FromResult(new Rstatfs(tstatfs.Tag, 0x01021997, 4096, 100000, 100000 - usedBlocks, 100000 - usedBlocks, (ulong)_entries.Count, 100000 - (ulong)_entries.Count, 0, 256));
-    }
-
     public Task<Rcreate> CreateAsync(Tcreate tcreate)
     {
         string parentPath = GetFullPath();
@@ -249,112 +263,17 @@ internal class MockFileSystem : INinePFileSystem
             throw new NinePProtocolException("Parent directory does not exist");
         }
 
-        if ((tcreate.Perm & (uint)NinePConstants.FileMode9P.DMDIR) != 0)
-        {
-            throw new NinePProtocolException("Cannot create directory with Tcreate");
-        }
-
         ulong qid = (ulong)Math.Abs(newPath.GetHashCode());
         _entries[newPath] = new MockEntry
         {
             Name = tcreate.Name,
-            Type = MockEntryType.File,
+            Type = (tcreate.Perm & (uint)NinePConstants.FileMode9P.DMDIR) != 0 ? MockEntryType.Directory : MockEntryType.File,
             Mode = tcreate.Perm,
             Qid = qid
         };
 
         _currentPath.Add(tcreate.Name);
         return Task.FromResult(new Rcreate(tcreate.Tag, new Qid(QidType.QTFILE, 0, qid), 8192));
-    }
-
-    public Task<Rmkdir> MkdirAsync(Tmkdir tmkdir)
-    {
-        string parentPath = GetFullPath();
-        string newPath = parentPath == "/" ? "/" + tmkdir.Name : parentPath + "/" + tmkdir.Name;
-
-        if (!_entries.TryGetValue(parentPath, out MockEntry? parent) || parent.Type != MockEntryType.Directory)
-        {
-            throw new NinePProtocolException("Parent directory does not exist");
-        }
-
-        if (_entries.ContainsKey(newPath))
-        {
-            throw new NinePProtocolException("Directory already exists");
-        }
-
-        ulong qid = (ulong)Math.Abs(newPath.GetHashCode());
-        _entries[newPath] = new MockEntry
-        {
-            Name = tmkdir.Name,
-            Type = MockEntryType.Directory,
-            Mode = tmkdir.Mode,
-            Gid = tmkdir.Gid,
-            Qid = qid
-        };
-
-        return Task.FromResult(new Rmkdir(NinePConstants.HeaderSize + 13, tmkdir.Tag, new Qid(QidType.QTDIR, 0, qid)));
-    }
-
-    public Task<Rreaddir> ReaddirAsync(Treaddir treaddir)
-    {
-        string currentPath = GetFullPath();
-
-        if (!_entries.TryGetValue(currentPath, out MockEntry? dir) || dir.Type != MockEntryType.Directory)
-        {
-            throw new NinePProtocolException("Not a directory");
-        }
-
-        var children = _entries
-            .Where(e =>
-            {
-                string parentPath = Path.GetDirectoryName(e.Key)?.Replace('\\', '/') ?? "/";
-                return parentPath == currentPath && e.Key != currentPath;
-            })
-            .OrderBy(e => e.Key, StringComparer.Ordinal)
-            .ToList();
-
-        var entries = new List<byte>();
-        ulong offset = 0;
-
-        foreach (var child in children)
-        {
-            offset++;
-            if (offset <= treaddir.Offset)
-            {
-                continue;
-            }
-
-            MockEntry childEntry = child.Value;
-            QidType qidType = childEntry.Type == MockEntryType.Directory ? QidType.QTDIR : QidType.QTFILE;
-            var qid = new Qid(qidType, 0, childEntry.Qid);
-
-            int nameLen = Encoding.UTF8.GetByteCount(childEntry.Name);
-            int entrySize = 13 + 8 + 1 + 2 + nameLen;
-            byte[] entryBuffer = new byte[entrySize];
-
-            int writeOffset = 0;
-            entryBuffer[writeOffset++] = (byte)qid.Type;
-            BinaryPrimitives.WriteUInt32LittleEndian(entryBuffer.AsSpan(writeOffset, 4), qid.Version);
-            writeOffset += 4;
-            BinaryPrimitives.WriteUInt64LittleEndian(entryBuffer.AsSpan(writeOffset, 8), qid.Path);
-            writeOffset += 8;
-            BinaryPrimitives.WriteUInt64LittleEndian(entryBuffer.AsSpan(writeOffset, 8), offset);
-            writeOffset += 8;
-            entryBuffer[writeOffset++] = (byte)qid.Type;
-            BinaryPrimitives.WriteUInt16LittleEndian(entryBuffer.AsSpan(writeOffset, 2), (ushort)nameLen);
-            writeOffset += 2;
-            Encoding.UTF8.GetBytes(childEntry.Name).CopyTo(entryBuffer.AsSpan(writeOffset, nameLen));
-
-            entries.AddRange(entryBuffer);
-            if (entries.Count >= treaddir.Count)
-            {
-                break;
-            }
-        }
-
-        byte[] data = entries.ToArray();
-        byte[] chunk = data.AsSpan(0, (int)Math.Min((long)treaddir.Count, (long)data.Length)).ToArray();
-        return Task.FromResult(new Rreaddir((uint)(chunk.Length + NinePConstants.HeaderSize + 4), treaddir.Tag, (uint)chunk.Length, chunk));
     }
 
     public INinePFileSystem Clone()

@@ -40,16 +40,15 @@ public class BitcoinBackend : IProtocolBackend
         return new JsonRpcClient(_httpClient, _config.RpcUrl, _config.RpcUser, _config.RpcPassword);
     }
 
-    public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null)
+    public IBackendRuntime GetRuntime(X509Certificate2? certificate = null)
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
-        return new BitcoinFileSystem(_config, GetRpcClient(), _vault, _authService, certificate);
+        return BackendTargetDescriptor.LocalRuntime(Name, MountPath, () => new BitcoinFileSystem(_config, GetRpcClient(), _vault, _authService, certificate)).CreateRuntime();
     }
 
-    public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null)
+    public IBackendRuntime GetRuntime(SecureString? credentials, X509Certificate2? certificate = null)
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
-        // For simplicity, we ignore credentials for now or we could implement override URL as in Ethereum
-        return GetFileSystem(certificate);
+        return GetRuntime(certificate);
     }
 }

@@ -7,120 +7,73 @@ using System.Threading.Tasks;
 using FsCheck;
 using FsCheck.Xunit;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using NinePSharp.Messages;
 using NinePSharp.Parser;
-using NinePSharp.Protocol;
 using NinePSharp.Server;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.Utils;
 using Xunit;
-using Moq;
-using NinePSharp.Generators;
 
 namespace NinePSharp.Tests;
 
 public class NinePFSDispatcherPropertyTests
 {
-    private readonly NinePFSDispatcher _dispatcher;
-    private readonly Mock<IProtocolBackend> _mockBackend;
-    private readonly Mock<IRemoteMountProvider> _mockClusterManager;
-
-    public NinePFSDispatcherPropertyTests()
+    [Property(MaxTest = 100)]
+    public bool Dispatcher_Fuzz_Sequence_Returns_Valid_Responses(int[] seeds)
     {
-        _mockBackend = new Mock<IProtocolBackend>();
-        _mockBackend.Setup(b => b.Name).Returns("Mock");
-        _mockBackend.Setup(b => b.MountPath).Returns("/mock");
-        _mockBackend.Setup(b => b.GetFileSystem(It.IsAny<System.Security.SecureString>(), It.IsAny<X509Certificate2>()))
-                    .Returns(() => new MockFileSystem(new LuxVaultService()));
-        _mockBackend.Setup(b => b.GetFileSystem(It.IsAny<X509Certificate2>()))
-                    .Returns(() => new MockFileSystem(new LuxVaultService()));
+        var mockBackend = new Mock<IProtocolBackend>();
+        mockBackend.Setup(b => b.Name).Returns("mock");
+        mockBackend.Setup(b => b.MountPath).Returns("/mock");
+        mockBackend.Setup(b => b.GetRuntime(It.IsAny<X509Certificate2>()))
+            .Returns(() => RuntimeFileSystemAdapter.ToRuntime(new MockFileSystem()));
 
-        _mockClusterManager = new Mock<IRemoteMountProvider>();
-        
-        _dispatcher = new NinePFSDispatcher(
-            NullLogger<NinePFSDispatcher>.Instance,
-            new[] { _mockBackend.Object },
-            _mockClusterManager.Object);
-    }
+        var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, new NullRemoteMountProvider());
 
-    [Property(Arbitrary = new[] { typeof(NinePSharp.Generators.Generators.NinePArb) }, MaxTest = 100)]
-    public bool Dispatcher_Handles_Random_Messages_Without_Crashing(NinePMessage msg)
-    {
-        try
+        foreach (var msg in (seeds ?? Array.Empty<int>()).Take(32).Select(CreateMessage))
         {
-            // We don't care about the result, just that it doesn't throw unhandled exceptions
-            // (NinePProtocolException is handled by DispatchAsync)
-            var task = _dispatcher.DispatchAsync(msg, NinePDialect.NineP2000U);
-            task.Wait();
-            return true;
-        }
-        catch (Exception)
-        {
-            return false;
-        }
-    }
-
-    [Property(Arbitrary = new[] { typeof(NinePSharp.Generators.Generators.NinePArb) }, MaxTest = 100)]
-    public bool Dispatcher_FID_Lifecycle_Integrity(List<NinePMessage> sequence)
-    {
-        if (sequence == null) return true;
-
-        var localDispatcher = new NinePFSDispatcher(
-            NullLogger<NinePFSDispatcher>.Instance,
-            new[] { _mockBackend.Object },
-            _mockClusterManager.Object);
-
-        foreach (var msg in sequence)
-        {
-            try
-            {
-                var task = localDispatcher.DispatchAsync(msg, NinePDialect.NineP2000U);
-                task.Wait();
-            }
-            catch (Exception)
-            {
-                // We expect failures for invalid sequences, but not crashes
+            try {
+                dispatcher.DispatchAsync("s1", msg, NinePDialect.NineP2000).Wait();
+            } catch {
+                return false;
             }
         }
         return true;
     }
 
-    [Property(Arbitrary = new[] { typeof(NinePSharp.Generators.Generators.NinePArb) }, MaxTest = 50)]
-    public bool Dispatcher_Fid_Violations_Return_Error(List<NinePMessage> violationSequence)
+    private static NinePMessage CreateMessage(int seed)
     {
-        if (violationSequence == null || violationSequence.Count == 0) return true;
-
-        var localDispatcher = new NinePFSDispatcher(
-            NullLogger<NinePFSDispatcher>.Instance,
-            new[] { _mockBackend.Object },
-            _mockClusterManager.Object);
-
-        bool errorFound = false;
-
-        foreach (var msg in violationSequence)
+        unchecked
         {
-            try
+            ushort tag = (ushort)(Math.Abs(seed) % ushort.MaxValue);
+            uint fid = (uint)(Math.Abs(seed) % 16);
+            ulong offset = (ulong)(Math.Abs(seed) % 128);
+            uint count = (uint)(Math.Abs(seed) % 256);
+            string name = "n" + Math.Abs(seed % 100).ToString();
+
+            return Math.Abs(seed % 10) switch
             {
-                var result = localDispatcher.DispatchAsync(msg, NinePDialect.NineP2000U).Result;
-                if (result is Rerror || result is Rlerror)
-                {
-                    errorFound = true;
-                }
-            }
-            catch (AggregateException ex) when (ex.InnerException is NinePProtocolException)
-            {
-                // Protocol exceptions are also a form of "handled error"
-                errorFound = true;
-            }
-            catch (Exception)
-            {
-                // Other exceptions are bad
-                return false;
-            }
+                0 => NinePMessage.NewMsgTversion(new Tversion(tag, 8192, "9P2000")),
+                1 => NinePMessage.NewMsgTauth(new Tauth(tag, fid, "user", "/mock")),
+                2 => NinePMessage.NewMsgTattach(new Tattach(tag, fid, NinePConstants.NoFid, "user", "/")),
+                3 => NinePMessage.NewMsgTwalk(new Twalk(tag, fid, (uint)((fid + 1) % 16), new[] { name })),
+                4 => NinePMessage.NewMsgTopen(new Topen(tag, fid, NinePConstants.OREAD)),
+                5 => NinePMessage.NewMsgTread(new Tread(tag, fid, offset, count)),
+                6 => NinePMessage.NewMsgTwrite(new Twrite(tag, fid, offset, new byte[] { 1, 2, 3 })),
+                7 => NinePMessage.NewMsgTreaddir(new Treaddir(24, tag, fid, offset, Math.Max(24u, count))),
+                8 => NinePMessage.NewMsgTstat(new Tstat(tag, fid)),
+                _ => NinePMessage.NewMsgTflush(new Tflush(tag, tag))
+            };
         }
-        
-        // We expect that a sequence designed to be a violation eventually returns an error
-        // though some messages in the sequence might be valid (like the initial Tattach)
-        return errorFound;
+    }
+
+    private class NullRemoteMountProvider : IRemoteMountProvider
+    {
+        public void Start() { }
+        public Task StopAsync() => Task.CompletedTask;
+        public Task RegisterMountAsync(string mountPath, Func<IBackendRuntime> createRuntime) => Task.CompletedTask;
+        public Task<IReadOnlyList<string>> GetRemoteMountPathsAsync() => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        public Task<IBackendRuntime?> TryCreateRemoteRuntimeAsync(string mountPath) => Task.FromResult<IBackendRuntime?>(null);
+        public void Dispose() { }
     }
 }

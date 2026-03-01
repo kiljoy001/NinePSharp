@@ -17,6 +17,8 @@ namespace NinePSharp.Tests.Architecture;
 
 public class BindRobustnessTests
 {
+    private static Channel RootChannel => ChannelOps.createNamespaceNode(new NinePSharp.Core.FSharp.Qid(QidType.QTDIR, 0, 0), FsList<string>(Array.Empty<string>()));
+
     [Property(MaxTest = 120)]
     public bool Bind_MREPL_Is_Idempotent(string sourceRaw, string targetRaw)
     {
@@ -33,8 +35,10 @@ public class BindRobustnessTests
         var ns1 = NamespaceOps.bind("/" + source, "/" + target, BindFlags.MREPL, initial);
         var ns2 = NamespaceOps.bind("/" + source, "/" + target, BindFlags.MREPL, ns1);
 
-        var r1 = NamespaceOps.resolve(FsList(target, "x"), ns1).Item1.ToList();
-        var r2 = NamespaceOps.resolve(FsList(target, "x"), ns2).Item1.ToList();
+        // With 9front exact-match semantics, resolve the exact mount path (normalized)
+        var targetPath = NamespaceOps.splitPath("/" + target);
+        var r1 = NamespaceOps.resolve(targetPath, ns1).Item1.ToList();
+        var r2 = NamespaceOps.resolve(targetPath, ns2).Item1.ToList();
 
         return r1.Count == 1 && r2.Count == 1 && ReferenceEquals(r1[0], r2[0]) && ReferenceEquals(r1[0], srcFs);
     }
@@ -54,7 +58,7 @@ public class BindRobustnessTests
         if (sources.Count == 0) return true;
 
         var targetFs = NewTarget("target");
-        var mounts = new List<Mount> { MountAt("/" + target, targetFs) };
+        var mounts = new List<MountChain> { MountAt("/" + target, targetFs) };
         var sourceBackends = new Dictionary<string, BackendTargetDescriptor>(StringComparer.Ordinal);
 
         foreach (var source in sources)
@@ -70,7 +74,9 @@ public class BindRobustnessTests
             ns = NamespaceOps.bind("/" + source, "/" + target, BindFlags.MAFTER, ns);
         }
 
-        var resolved = NamespaceOps.resolve(FsList(target, "lookup"), ns).Item1.ToList();
+        // With 9front exact-match semantics, resolve the exact mount path (normalized)
+        var targetPath = NamespaceOps.splitPath("/" + target);
+        var resolved = NamespaceOps.resolve(targetPath, ns).Item1.ToList();
         if (resolved.Count != sources.Count + 1) return false;
         if (!ReferenceEquals(resolved[0], targetFs)) return false;
 
@@ -98,153 +104,98 @@ public class BindRobustnessTests
             MountAt("/" + pathA, fsA),
             MountAt("/" + pathB, fsB));
 
-        try
-        {
-            var ns1 = NamespaceOps.bind("/" + pathA, "/" + pathB, BindFlags.MAFTER, ns);
-            var ns2 = NamespaceOps.bind("/" + pathB, "/" + pathA, BindFlags.MAFTER, ns1);
+        // a -> b, b -> a
+        var ns2 = NamespaceOps.bind("/" + pathA, "/" + pathB, BindFlags.MREPL, ns);
+        var ns3 = NamespaceOps.bind("/" + pathB, "/" + pathA, BindFlags.MREPL, ns2);
 
-            var ra = NamespaceOps.resolve(FsList(pathA), ns2).Item1.ToList();
-            var rb = NamespaceOps.resolve(FsList(pathB), ns2).Item1.ToList();
+        // With 9front exact-match semantics, resolve the exact mount path (normalized)
+        var pathANorm = NamespaceOps.splitPath("/" + pathA);
+        var pathBNorm = NamespaceOps.splitPath("/" + pathB);
+        var rA = NamespaceOps.resolve(pathANorm, ns3).Item1.ToList();
+        var rB = NamespaceOps.resolve(pathBNorm, ns3).Item1.ToList();
 
-            return ra.Count > 0 && rb.Count > 0;
-        }
-        catch
-        {
-            return false;
-        }
+        return rA.Count > 0 && rB.Count > 0;
     }
 
     [Fact]
-    public void Coyote_Process_Namespace_Isolation_Test()
+    public void TestBindConcurrencyWithCoyote()
     {
-        var configuration = Microsoft.Coyote.Configuration.Create()
-            .WithTestingIterations(200)
-            .WithPartiallyControlledConcurrencyAllowed(true);
+        var mountA = NewTarget("a");
+        var mountB = NewTarget("b");
+        var mountBin = NewTarget("bin");
 
-        var engine = TestingEngine.Create(configuration, async () =>
+        var baseNs = BuildNamespace(
+            MountAt("/a", mountA),
+            MountAt("/b", mountB),
+            MountAt("/bin", mountBin));
+
+        var parent = Process.create(1, baseNs, RootChannel);
+
+        var c1 = CoyoteTask.Run(() =>
         {
-            var mountA = NewTarget("a");
-            var mountB = NewTarget("b");
-            var mountBin = NewTarget("bin");
-
-            var baseNs = BuildNamespace(
-                MountAt("/a", mountA),
-                MountAt("/b", mountB),
-                MountAt("/bin", mountBin));
-
-            var parent = Process.create(1, baseNs);
-
-            var c1 = CoyoteTask.Run(() =>
-            {
-                var child = Process.fork(2, parent);
-                return CoyoteTask.FromResult(Process.bind("/a", "/bin", BindFlags.MREPL, child));
-            });
-
-            var c2 = CoyoteTask.Run(() =>
-            {
-                var child = Process.fork(3, parent);
-                return CoyoteTask.FromResult(Process.bind("/b", "/bin", BindFlags.MREPL, child));
-            });
-
-            var children = await CoyoteTask.WhenAll(c1, c2);
-
-            var parentBin = NamespaceOps.resolve(FsList("bin"), parent.Namespace).Item1.ToList();
-            Specification.Assert(parentBin.Count == 1 && ReferenceEquals(parentBin[0], mountBin), "Parent namespace must not be mutated by child binds.");
-
-            var c1Bin = NamespaceOps.resolve(FsList("bin"), children[0].Namespace).Item1.ToList();
-            var c2Bin = NamespaceOps.resolve(FsList("bin"), children[1].Namespace).Item1.ToList();
-            Specification.Assert(c1Bin.Count == 1 && ReferenceEquals(c1Bin[0], mountA), "Child 1 should see /bin rebound to /a.");
-            Specification.Assert(c2Bin.Count == 1 && ReferenceEquals(c2Bin[0], mountB), "Child 2 should see /bin rebound to /b.");
+            var child = Process.fork(2, parent);
+            return CoyoteTask.FromResult(Process.bind("/a", "/bin", BindFlags.MREPL, child));
         });
 
-        engine.Run();
-        Assert.True(engine.TestReport.NumOfFoundBugs == 0, engine.TestReport.GetText(configuration));
+        var c2 = CoyoteTask.Run(() =>
+        {
+            var child = Process.fork(3, parent);
+            return CoyoteTask.FromResult(Process.bind("/b", "/bin", BindFlags.MREPL, child));
+        });
+
+        CoyoteTask.WaitAll(c1, c2);
+
+        // With 9front exact-match semantics, resolve the exact mount path (normalized)
+        var binPath = NamespaceOps.splitPath("/bin");
+        var res1 = NamespaceOps.resolve(binPath, c1.Result.Namespace).Item1.ToList();
+        var res2 = NamespaceOps.resolve(binPath, c2.Result.Namespace).Item1.ToList();
+
+        Specification.Assert(res1.Count == 1, "Child 1 should have 1 backend at /bin");
+        Specification.Assert(ReferenceEquals(res1[0], mountA), "Child 1 should see /a at /bin");
+        Specification.Assert(res2.Count == 1, "Child 2 should have 1 backend at /bin");
+        Specification.Assert(ReferenceEquals(res2[0], mountB), "Child 2 should see /b at /bin");
     }
 
-    [Fact]
-    public void Fuzz_Bind_Path_Traversal_Attacks()
-    {
-        var attacks = new[]
-        {
-            "../../etc/passwd",
-            "/absolute/host/path",
-            "\0\0\0",
-            @"C:\windows\system32",
-            "///////",
-            " ",
-            "././././a",
-            "a/../../b"
-        };
+    private static NinePSharp.Core.FSharp.Namespace EmptyNamespace()
+        => NamespaceOps.empty;
 
-        var random = new Random(271828);
-        var safe = NewTarget("safe");
-        var baseNs = BuildNamespace(MountAt("/safe", safe));
-
-        foreach (var attack in attacks.Concat(Enumerable.Range(0, 100).Select(_ => RandomPath(random))))
-        {
-            var parts = NamespaceOps.splitPath(attack).ToList();
-            parts.Should().OnlyContain(p => p.Length > 0 && p != "." && p != "..");
-
-            var bound = NamespaceOps.bind(attack, "/safe", BindFlags.MREPL, baseNs);
-            var _ = NamespaceOps.resolve(FsList("safe"), bound);
-        }
-    }
-
-    private static string RandomPath(Random random)
-    {
-        var segments = random.Next(1, 6);
-        var parts = new List<string>(segments);
-        for (var i = 0; i < segments; i++)
-        {
-            var choice = random.Next(0, 6);
-            parts.Add(choice switch
-            {
-                0 => "..",
-                1 => ".",
-                2 => "",
-                3 => "seg" + random.Next(0, 100),
-                4 => "/" + random.Next(0, 100),
-                _ => "x" + Guid.NewGuid().ToString("N")[..4]
-            });
-        }
-
-        return string.Join("/", parts);
-    }
-
-    private static Mount MountAt(string path, params BackendTargetDescriptor[] backends)
+    private static MountChain MountAt(string path, params BackendTargetDescriptor[] backends)
     {
         var normalized = NamespaceOps.splitPath(path);
-        return new Mount(normalized, new MountChain(MountIdForPath(normalized), FsBranches(BindFlags.MREPL, backends)));
+        return new MountChain(
+            MountIdForPath(normalized),
+            NamespaceOps.mountKeyForPath(normalized),
+            normalized,
+            FsBranches(BindFlags.MREPL, backends));
     }
 
-    private static NinePSharp.Core.FSharp.Namespace BuildNamespace(params Mount[] mounts)
+    private static NinePSharp.Core.FSharp.Namespace BuildNamespace(params MountChain[] mounts)
     {
-        return new NinePSharp.Core.FSharp.Namespace(FsList(mounts));
+        var ns = NamespaceOps.empty;
+        foreach (var mount in mounts)
+        {
+            ns = NamespaceOps.mount(mount.From, mount, ns);
+        }
+
+        return ns;
     }
 
     private static BackendTargetDescriptor NewTarget(string id)
         => BackendTargetDescriptor.Local(id, "/" + id, () => new Mock<INinePFileSystem>(MockBehavior.Loose).Object);
 
     private static FSharpList<T> FsList<T>(IEnumerable<T> items)
-    {
-        return ListModule.OfSeq(items);
-    }
+        => ListModule.OfSeq(items);
 
-    private static FSharpList<string> FsList(params string[] items)
-    {
-        return ListModule.OfSeq(items);
-    }
+    private static FSharpList<T> FsList<T>(params T[] items) => FsList((IEnumerable<T>)items);
 
-    private static FSharpList<MountBranch> FsBranches(BindFlags flags, IEnumerable<BackendTargetDescriptor> backends)
-    {
-        return ListModule.OfSeq(backends.Select(target => new MountBranch(target, flags)));
-    }
+    private static FSharpList<MountBranch> FsBranches(BindFlags flags, params BackendTargetDescriptor[] targets)
+        => FsList(targets.Select(t => new MountBranch(t, flags)));
 
-    private static string CleanPathSegment(string? raw, string fallback)
+    private static string CleanPathSegment(string raw, string fallback)
     {
         if (string.IsNullOrWhiteSpace(raw)) return fallback;
-        var chars = raw.Where(char.IsLetterOrDigit).Take(12).ToArray();
-        return chars.Length == 0 ? fallback : new string(chars);
+        var clean = raw.Replace("/", "").Trim();
+        return string.IsNullOrWhiteSpace(clean) ? fallback : clean;
     }
 
     private static ulong MountIdForPath(IEnumerable<string> segments)

@@ -81,4 +81,27 @@ public class Z3UnionMountProofTests : IDisposable
 
         Assert.Equal(Status.UNSATISFIABLE, _solver.Check());
     }
+
+    [Fact]
+    public void Z3_Unmount_Removes_Visibility()
+    {
+        // Prove that if a mount is removed (unmount), it does not resolve
+        // to that mount's target anymore.
+        
+        BoolExpr isMounted = _ctx.MkBoolConst("isMounted");
+        BoolExpr fileExistsInTarget = _ctx.MkBoolConst("fileExistsInTarget");
+
+        // resolved = isMounted && fileExistsInTarget
+        BoolExpr isResolved = _ctx.MkAnd(isMounted, fileExistsInTarget);
+
+        // Action: Unmount sets isMounted to false.
+        BoolExpr isMountedAfterUnmount = _ctx.MkFalse();
+        BoolExpr isResolvedAfterUnmount = _ctx.MkAnd(isMountedAfterUnmount, fileExistsInTarget);
+
+        // Property: After unmount, it is never resolved, regardless of fileExistsInTarget.
+        _solver.Assert(fileExistsInTarget); // File actually exists in the backend
+        _solver.Assert(isResolvedAfterUnmount); // Negated property: it IS resolved after unmount
+
+        Assert.Equal(Status.UNSATISFIABLE, _solver.Check());
+    }
 }

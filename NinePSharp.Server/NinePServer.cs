@@ -64,7 +64,7 @@ public class NinePServer : BackgroundService
                     await backend.InitializeAsync(section);
                     _logger.LogInformation("Backend '{BackendName}' initialized at {MountPath}", backend.Name, backend.MountPath);
 
-                    await _remoteMountProvider.RegisterMountAsync(backend.MountPath, () => backend.GetFileSystem((System.Security.Cryptography.X509Certificates.X509Certificate2?)null));
+                    await _remoteMountProvider.RegisterMountAsync(backend.MountPath, () => backend.GetRuntime((System.Security.Cryptography.X509Certificates.X509Certificate2?)null));
                 }
                 catch (Exception ex)
                 {

@@ -126,9 +126,17 @@ public class Z3NamespaceBindProofTests
 
         var sourcePath = NamespaceOps.splitPath("/src");
         var targetPath = NamespaceOps.splitPath("/dst");
-        var sourceMount = new Mount(sourcePath, new MountChain(MountIdForPath(sourcePath), FsBranches(BindFlags.MREPL, srcBackends)));
-        var targetMount = new Mount(targetPath, new MountChain(MountIdForPath(targetPath), FsBranches(BindFlags.MREPL, dstBackends)));
-        var ns = new NinePSharp.Core.FSharp.Namespace(FsList(new[] { sourceMount, targetMount }));
+        var sourceMount = new MountChain(
+            MountIdForPath(sourcePath),
+            NamespaceOps.mountKeyForPath(sourcePath),
+            sourcePath,
+            FsBranches(BindFlags.MREPL, srcBackends));
+        var targetMount = new MountChain(
+            MountIdForPath(targetPath),
+            NamespaceOps.mountKeyForPath(targetPath),
+            targetPath,
+            FsBranches(BindFlags.MREPL, dstBackends));
+        var ns = NamespaceOps.mount(targetMount.From, targetMount, NamespaceOps.mount(sourceMount.From, sourceMount, NamespaceOps.empty));
 
         var bound = NamespaceOps.bind("/src", "/dst", flag, ns);
         var resolved = NamespaceOps.resolve(FsPath("dst"), bound).Item1.ToList();

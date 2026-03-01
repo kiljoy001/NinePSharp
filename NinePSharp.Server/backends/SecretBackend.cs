@@ -21,7 +21,7 @@ using NinePSharp.Parser;
 
 namespace NinePSharp.Server.Backends;
 
-public class SecretFileSystem : INinePFileSystem
+public class SecretFileSystem : INinePFileSystem, IReaddirCapableFileSystem
 {
     private readonly ILogger _logger;
     private readonly SecretBackendConfig _config;

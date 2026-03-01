@@ -30,18 +30,18 @@ internal sealed class DefaultAttachResolver : IAttachResolver
         if (backend != null)
         {
             return new AttachResolution(
-                BackendTargetDescriptor.Local(
+                BackendTargetDescriptor.LocalRuntime(
                     backend.Name,
                     backend.MountPath,
-                    () => backend.GetFileSystem(credentials, certificate)),
+                    () => backend.GetRuntime(credentials, certificate)),
                 isRoot: false);
         }
 
         var remotePath = aname.StartsWith("/", StringComparison.Ordinal) ? aname : "/" + aname;
-        var remoteFs = await _remoteMountProvider.TryCreateRemoteFileSystemAsync(remotePath);
-        if (remoteFs != null)
+        var remoteMounts = await GetRemoteMountPathsAsync();
+        if (remoteMounts.Any(path => NormalizeMountPath(path) == NormalizeMountPath(remotePath)))
         {
-            return new AttachResolution(BackendTargetDescriptor.Remote(remotePath), isRoot: false);
+            return new AttachResolution(BackendTargetDescriptor.Remote(remotePath, remotePath), isRoot: false);
         }
 
         throw new Utils.NinePProtocolException($"No backend found for aname '{aname}'");
@@ -59,10 +59,10 @@ internal sealed class DefaultAttachResolver : IAttachResolver
 
             mounts.Add(new NamespaceMountDescriptor(
                 backend.MountPath,
-                BackendTargetDescriptor.Local(
+                BackendTargetDescriptor.LocalRuntime(
                     backend.Name,
                     backend.MountPath,
-                    () => backend.GetFileSystem(certificate))));
+                    () => backend.GetRuntime(certificate))));
         }
 
         return mounts;
@@ -79,14 +79,30 @@ internal sealed class DefaultAttachResolver : IAttachResolver
         return await task ?? Array.Empty<string>();
     }
 
-    public async Task<INinePFileSystem?> TryCreateRemoteFileSystemAsync(string mountPath)
+    public async Task<IBackendRuntime?> TryCreateRemoteRuntimeAsync(string mountPath)
     {
-        var task = _remoteMountProvider.TryCreateRemoteFileSystemAsync(mountPath);
+        var task = _remoteMountProvider.TryCreateRemoteRuntimeAsync(mountPath);
         if (task == null)
         {
             return null;
         }
 
         return await task;
+    }
+
+    private static string NormalizeMountPath(string mountPath)
+    {
+        if (string.IsNullOrWhiteSpace(mountPath))
+        {
+            return "/";
+        }
+
+        var trimmed = mountPath.Trim();
+        if (!trimmed.StartsWith("/", StringComparison.Ordinal))
+        {
+            trimmed = "/" + trimmed;
+        }
+
+        return trimmed;
     }
 }

@@ -6,17 +6,19 @@ namespace NinePSharp.Server.Cluster.Actors;
 
 public class BackendSupervisorActor : ReceiveActor
 {
-    private readonly Func<INinePFileSystem> _createSession;
+    private readonly Func<IBackendRuntime> _createRuntime;
 
-    public BackendSupervisorActor(Func<INinePFileSystem> createSession)
+    public BackendSupervisorActor(Func<IBackendRuntime> createRuntime)
     {
-        _createSession = createSession;
+        _createRuntime = createRuntime;
 
         Receive<SpawnSession>(msg =>
         {
-            var fs = _createSession();
+            var runtime = _createRuntime();
             
-            var sessionActor = Context.ActorOf(Props.Create(() => new NinePSessionActor(fs)));
+            // Temporary bridge to old session actor which still expects INinePFileSystem.
+            // Ideally we'd have a PathBasedSessionActor.
+            var sessionActor = Context.ActorOf(Props.Create(() => new NinePSessionActor(new Utils.RuntimeFileSystemAdapter(runtime))));
             
             Sender.Tell(new SessionSpawned(sessionActor));
         });

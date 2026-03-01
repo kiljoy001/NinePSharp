@@ -125,6 +125,21 @@ public class TRemoveDto
 }
 
 [Serializable]
+public class TCreateDto
+{
+    public ushort Tag { get; set; }
+    public uint Fid { get; set; }
+    public string Name { get; set; } = "";
+    public uint Perm { get; set; }
+    public byte Mode { get; set; }
+    public TCreateDto() {}
+    public TCreateDto(Tcreate t)
+    {
+        Tag = t.Tag; Fid = t.Fid; Name = t.Name; Perm = t.Perm; Mode = t.Mode;
+    }
+}
+
+[Serializable]
 public class TWstatDto
 {
     public ushort Tag { get; set; }
@@ -155,6 +170,16 @@ public class RRemoveDto
     public ushort Tag { get; set; }
     public RRemoveDto() {}
     public RRemoveDto(Rremove r) { Tag = r.Tag; }
+}
+
+[Serializable]
+public class RCreateDto
+{
+    public ushort Tag { get; set; }
+    public Qid Qid { get; set; }
+    public uint Iounit { get; set; }
+    public RCreateDto() {}
+    public RCreateDto(Rcreate r) { Tag = r.Tag; Qid = r.Qid; Iounit = r.Iounit; }
 }
 
 [Serializable]

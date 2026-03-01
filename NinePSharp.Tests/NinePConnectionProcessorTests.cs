@@ -44,7 +44,7 @@ public class NinePConnectionProcessorTests
         processor.ProcessStreamAsync(stream, new IPEndPoint(IPAddress.Loopback, 564), session, CancellationToken.None).Sync();
 
         dispatcher.Verify(
-            d => d.DispatchAsync(It.IsAny<string?>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), It.IsAny<System.Security.Cryptography.X509Certificates.X509Certificate2?>()),
+            d => d.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), It.IsAny<System.Security.Cryptography.X509Certificates.X509Certificate2?>()),
             Times.Never);
 
         return stream.Written.Length == 0;
@@ -68,7 +68,7 @@ public class NinePConnectionProcessorTests
         processor.ProcessStreamAsync(stream, null, session, CancellationToken.None).Sync();
 
         dispatcher.Verify(
-            d => d.DispatchAsync(It.IsAny<string?>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), It.IsAny<System.Security.Cryptography.X509Certificates.X509Certificate2?>()),
+            d => d.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), It.IsAny<System.Security.Cryptography.X509Certificates.X509Certificate2?>()),
             Times.Never);
 
         return stream.Written.Length == 0;

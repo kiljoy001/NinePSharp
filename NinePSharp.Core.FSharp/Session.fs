@@ -7,6 +7,7 @@ open NinePSharp.Server.Interfaces
 
 type ProtocolSession =
     { SessionId: string
+      UserName: string
       Process: Plan9Process
       Fids: Map<uint32, Channel>
       AuthFids: Map<uint32, SecureString>
@@ -14,9 +15,13 @@ type ProtocolSession =
       Certificate: X509Certificate2 option }
 
 module ProtocolSessionOps =
+    let private rootQid = { Type = QidType.QTDIR; Version = 0u; Path = 0UL }
+    let private rootChannel = ChannelOps.createNamespaceNode rootQid []
+
     let create (sessionId: string) (dialect: NinePDialect) (certificate: X509Certificate2) =
         { SessionId = sessionId
-          Process = Process.create 0 NamespaceOps.empty
+          UserName = "none"
+          Process = Process.create 0 NamespaceOps.empty rootChannel
           Fids = Map.empty
           AuthFids = Map.empty
           Dialect = dialect
@@ -24,6 +29,18 @@ module ProtocolSessionOps =
 
     let withNamespace (ns: Namespace) (session: ProtocolSession) =
         { session with Process = { session.Process with Namespace = ns } }
+
+    let withProcessRoot (root: Channel) (session: ProtocolSession) =
+        { session with Process = { session.Process with Dot = root; Slash = root } }
+
+    let withUserName (userName: string) (session: ProtocolSession) =
+        let normalized =
+            match userName with
+            | null
+            | "" -> "none"
+            | value -> value
+
+        { session with UserName = normalized }
 
     let withTransport (dialect: NinePDialect) (certificate: X509Certificate2) (session: ProtocolSession) =
         { session with
@@ -61,11 +78,16 @@ module ProtocolSessionOps =
         (qidPath: uint64)
         (visiblePath: seq<string>) =
         let pathState = ChannelOps.createPathState visiblePath
-        { Qid = { Type = qidType; Version = qidVersion; Path = qidPath }
+        { Type = 0us
+          Dev = 0u
+          Qid = { Type = qidType; Version = qidVersion; Path = qidPath }
           Offset = 0UL
           Target = target
           PathState = pathState
-          IsOpened = false }
+          IsOpened = false
+          Umh = None
+          Umc = None
+          Uri = 0 }
 
     let createBindingWithPathState
         (target: ChannelTarget)
@@ -73,11 +95,16 @@ module ProtocolSessionOps =
         (qidVersion: uint32)
         (qidPath: uint64)
         (pathState: PathState) =
-        { Qid = { Type = qidType; Version = qidVersion; Path = qidPath }
+        { Type = 0us
+          Dev = 0u
+          Qid = { Type = qidType; Version = qidVersion; Path = qidPath }
           Offset = 0UL
           Target = target
           PathState = pathState
-          IsOpened = false }
+          IsOpened = false
+          Umh = None
+          Umc = None
+          Uri = 0 }
 
     let namespaceOf (session: ProtocolSession) =
         session.Process.Namespace

@@ -1,3 +1,4 @@
+using NinePSharp.Server.Utils;
 using NinePSharp.Constants;
 using System;
 using System.Collections.Generic;
@@ -42,8 +43,7 @@ public class EmercoinAndBackendFuzzTests
         backend.InitializeAsync(config).Sync();
 
         backend.MountPath.Should().Be(provideMountPath ? "/" + clean : "/mock");
-        backend.GetFileSystem().Should().BeOfType<MockFileSystem>();
-        backend.GetFileSystem(credentials: null).Should().BeOfType<MockFileSystem>();
+        backend.GetRuntime().Should().BeAssignableTo<IBackendRuntime>();
     }
 
     [Property(MaxTest = 30)]
@@ -264,8 +264,8 @@ public class EmercoinAndBackendFuzzTests
             return Task.CompletedTask;
         }
 
-        public INinePFileSystem GetFileSystem(System.Security.SecureString? credentials, X509Certificate2? certificate = null) => new MockFileSystem();
+        public IBackendRuntime GetRuntime(System.Security.SecureString? credentials, X509Certificate2? certificate = null) => RuntimeFileSystemAdapter.ToRuntime(new NinePSharp.Tests.MockFileSystem());
 
-        public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null) => new MockFileSystem();
+        public IBackendRuntime GetRuntime(X509Certificate2? certificate = null) => RuntimeFileSystemAdapter.ToRuntime(new NinePSharp.Tests.MockFileSystem());
     }
 }

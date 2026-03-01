@@ -121,7 +121,7 @@ namespace NinePSharp.Tests
         {
             // Kills mutant 1580, 1586
             // If Dispatcher throws, server MUST send Rerror to client.
-            _mockDispatcher.Setup(d => d.DispatchAsync(It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), It.IsAny<X509Certificate2>()))
+            _mockDispatcher.Setup(d => d.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), It.IsAny<X509Certificate2>()))
                 .ThrowsAsync(new Exception("Dispatcher Kaboom"));
 
             // Verification would involve checking the stream output.

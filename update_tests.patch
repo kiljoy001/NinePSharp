@@ -1,0 +1,37 @@
+--- NinePSharp.Tests/Plan9ProcessTests.cs
++++ NinePSharp.Tests/Plan9ProcessTests.cs
+@@ -99,6 +99,31 @@
+             && ReferenceEquals(parentFd.Value, childFd.Value);
+     }
+ 
++    [Property(MaxTest = 100)]
++    public bool Process_Unmount_Removes_Exact_Target(string pathRaw)
++    {
++        var path = CleanPathSegment(pathRaw, "mnt");
++        var fs = NewTarget(path);
++        var ns = BuildNamespace(MountAt("/" + path, fs));
++        var proc = Process.create(1, ns, RootChannel);
++
++        var unmountedProc = Process.unmount("/" + path, proc);
++
++        var originalResolved = NamespaceOps.resolve(FsList(path), proc.Namespace).Item1.ToList();
++        var unmountedResolved = NamespaceOps.resolve(FsList(path), unmountedProc.Namespace).Item1.ToList();
++
++        return originalResolved.Count == 1 && unmountedResolved.Count == 0;
++    }
++
++    [Property(MaxTest = 100)]
++    public bool Process_Chdir_Updates_Dot(string pathRaw)
++    {
++        var path = CleanPathSegment(pathRaw, "dir");
++        var proc = Process.create(1, EmptyNamespace(), RootChannel);
++        var newDot = ChannelOps.createNamespaceNode(new NinePSharp.Core.FSharp.Qid(QidType.QTDIR, 0, 1), FsList(path));
++
++        var updatedProc = Process.chdir(newDot, proc);
++
++        return ReferenceEquals(proc.Dot, RootChannel) && ReferenceEquals(updatedProc.Dot, newDot);
++    }
++
+     private static NinePSharp.Core.FSharp.Namespace EmptyNamespace()
+     {
+         return NamespaceOps.empty;

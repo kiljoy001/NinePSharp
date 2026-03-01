@@ -10,159 +10,199 @@ using NinePSharp.Core.FSharp;
 using NinePSharp.Server.Interfaces;
 using Xunit;
 
+using FSharpQid = NinePSharp.Core.FSharp.Qid;
+
 namespace NinePSharp.Tests.Architecture;
 
+/// <summary>
+/// Tests for 9front-correct namespace behavior.
+///
+/// Key 9front semantics:
+/// - Mounts are keyed by channel identity (Type, Dev, Qid), NOT path strings
+/// - Mount lookup is O(1) by MountKey, NOT O(n) path prefix scan
+/// - Walk crosses mounts by checking qid at each step, NOT by prefix matching
+/// </summary>
 public class NamespaceTests
 {
+    // 9front chan.c:865 - findmount takes (type, dev, qid), not path
     [Fact]
-    public void Bind_Replace_Effectively_Swaps_Directory_Backends()
+    public void FindMount_Uses_MountKey_Not_Path()
     {
-        var legacy = NewTarget("legacy");
-        var modern = NewTarget("modern");
+        var channel = CreateChannel(type: 1, dev: 100, qidPath: 1000);
+        var target = NewTarget("backend");
+        var key = MountKeyModule.fromChannel(channel);
 
-        var ns = BuildNamespace(
-            MountAt("/old", legacy),
-            MountAt("/new", modern));
+        var ns = NamespaceOps.empty;
+        var mhead = CreateMhead(key, target);
+        ns = NamespaceOps.mount(key, mhead, ns);
 
-        var replaced = NamespaceOps.bind("/new", "/old", BindFlags.MREPL, ns);
-
-        var (resolved, remaining) = NamespaceOps.resolve(FsList("old", "config.json"), replaced);
-        resolved.ToList().Should().ContainSingle().Which.Should().BeSameAs(modern);
-        remaining.ToList().Should().Equal("config.json");
-
-        var (originalResolved, _) = NamespaceOps.resolve(FsList("old", "config.json"), ns);
-        originalResolved.ToList().Should().ContainSingle().Which.Should().BeSameAs(legacy);
+        // Lookup by MountKey should find it
+        var found = NamespaceOps.findMount(key, ns);
+        found.Should().NotBeNull();
+        found.Value.Branches.ToList().Should().ContainSingle()
+            .Which.Target.Should().BeSameAs(target);
     }
 
-    [Property(MaxTest = 80)]
-    public bool Bind_Before_Union_Prioritizes_New_Backend(string sourceRaw, string targetRaw)
+    [Fact]
+    public void FindMount_Different_Qid_Same_Path_Are_Different_Mounts()
     {
-        var source = CleanPathSegment(sourceRaw, "src");
-        var target = CleanPathSegment(targetRaw, "dst");
-        if (source == target) target += "_t";
+        // Two channels with same "path" but different qids should have separate mounts
+        var chan1 = CreateChannel(type: 1, dev: 100, qidPath: 1000);
+        var chan2 = CreateChannel(type: 1, dev: 100, qidPath: 2000); // Different qid
 
-        var oldBackend = NewTarget("old");
-        var newBackend = NewTarget("new");
+        var target1 = NewTarget("backend1");
+        var target2 = NewTarget("backend2");
 
-        var ns = BuildNamespace(
-            MountAt("/" + source, newBackend),
-            MountAt("/" + target, oldBackend));
+        var key1 = MountKeyModule.fromChannel(chan1);
+        var key2 = MountKeyModule.fromChannel(chan2);
 
-        var bound = NamespaceOps.bind("/" + source, "/" + target, BindFlags.MBEFORE, ns);
-        var (resolved, _) = NamespaceOps.resolve(FsList(target, "file"), bound);
-        var order = resolved.ToList();
+        var ns = NamespaceOps.empty;
+        ns = NamespaceOps.mount(key1, CreateMhead(key1, target1), ns);
+        ns = NamespaceOps.mount(key2, CreateMhead(key2, target2), ns);
 
-        return order.Count == 2
-            && ReferenceEquals(order[0], newBackend)
-            && ReferenceEquals(order[1], oldBackend);
+        // Each should find its own mount
+        var found1 = NamespaceOps.findMount(key1, ns);
+        var found2 = NamespaceOps.findMount(key2, ns);
+
+        found1.Value.Branches.Single().Target.Should().BeSameAs(target1);
+        found2.Value.Branches.Single().Target.Should().BeSameAs(target2);
     }
 
-    [Property(MaxTest = 80)]
-    public bool Bind_After_Union_Appends_New_Backend(string sourceRaw, string targetRaw)
+    [Fact]
+    public void FindMount_Different_Dev_Same_Qid_Are_Different_Mounts()
     {
-        var source = CleanPathSegment(sourceRaw, "src");
-        var target = CleanPathSegment(targetRaw, "dst");
-        if (source == target) target += "_t";
+        // Same qid but different dev should be different mounts
+        var chan1 = CreateChannel(type: 1, dev: 100, qidPath: 1000);
+        var chan2 = CreateChannel(type: 1, dev: 200, qidPath: 1000); // Different dev
 
-        var oldBackend = NewTarget("old");
-        var newBackend = NewTarget("new");
+        var target1 = NewTarget("backend1");
+        var target2 = NewTarget("backend2");
 
-        var ns = BuildNamespace(
-            MountAt("/" + source, newBackend),
-            MountAt("/" + target, oldBackend));
+        var key1 = MountKeyModule.fromChannel(chan1);
+        var key2 = MountKeyModule.fromChannel(chan2);
 
-        var bound = NamespaceOps.bind("/" + source, "/" + target, BindFlags.MAFTER, ns);
-        var (resolved, _) = NamespaceOps.resolve(FsList(target, "file"), bound);
-        var order = resolved.ToList();
+        var ns = NamespaceOps.empty;
+        ns = NamespaceOps.mount(key1, CreateMhead(key1, target1), ns);
+        ns = NamespaceOps.mount(key2, CreateMhead(key2, target2), ns);
 
-        return order.Count == 2
-            && ReferenceEquals(order[0], oldBackend)
-            && ReferenceEquals(order[1], newBackend);
+        var found1 = NamespaceOps.findMount(key1, ns);
+        var found2 = NamespaceOps.findMount(key2, ns);
+
+        found1.Value.Branches.Single().Target.Should().BeSameAs(target1);
+        found2.Value.Branches.Single().Target.Should().BeSameAs(target2);
     }
 
-    [Property(MaxTest = 100)]
-    public bool Resolve_Uses_Longest_Prefix_Match(string rootRaw, string childRaw, string leafRaw)
+    [Fact]
+    public void Union_Mount_MBEFORE_Prepends_To_Chain()
     {
-        var root = CleanPathSegment(rootRaw, "root");
-        var child = CleanPathSegment(childRaw, "child");
-        var leaf = CleanPathSegment(leafRaw, "leaf");
+        var channel = CreateChannel(type: 1, dev: 100, qidPath: 1000);
+        var key = MountKeyModule.fromChannel(channel);
 
-        var rootFs = NewTarget("root");
-        var deepFs = NewTarget("deep");
+        var oldTarget = NewTarget("old");
+        var newTarget = NewTarget("new");
 
-        var ns = BuildNamespace(
-            MountAt("/" + root, rootFs),
-            MountAt("/" + root + "/" + child, deepFs));
+        var ns = NamespaceOps.empty;
+        ns = NamespaceOps.mount(key, CreateMhead(key, oldTarget), ns);
 
-        var (resolved, remaining) = NamespaceOps.resolve(FsList(root, child, leaf), ns);
-        var list = resolved.ToList();
+        // Mount new target BEFORE
+        var newBranch = new MountBranch(newTarget, BindFlags.MBEFORE);
+        var existingChain = NamespaceOps.findMount(key, ns).Value;
+        var updatedChain = new MountChain(
+            existingChain.MountId,
+            existingChain.From,
+            existingChain.MountPath,
+            FsList(new[] { newBranch }.Concat(existingChain.Branches)));
+        ns = NamespaceOps.mount(key, updatedChain, ns);
 
-        return list.Count == 1
-            && ReferenceEquals(list[0], deepFs)
-            && remaining.SequenceEqual(new[] { leaf });
+        var found = NamespaceOps.findMount(key, ns);
+        var targets = found.Value.Branches.Select(b => b.Target).ToList();
+
+        targets.Should().HaveCount(2);
+        targets[0].Should().BeSameAs(newTarget); // New is first
+        targets[1].Should().BeSameAs(oldTarget);
     }
 
-    [Property(MaxTest = 100)]
-    public bool SplitPath_Normalizes_Traversal_Tokens(string rawPath)
+    [Fact]
+    public void Union_Mount_MAFTER_Appends_To_Chain()
     {
-        var parts = NamespaceOps.splitPath(rawPath ?? string.Empty).ToList();
-        return parts.All(p => p.Length > 0 && p != "." && p != "..");
+        var channel = CreateChannel(type: 1, dev: 100, qidPath: 1000);
+        var key = MountKeyModule.fromChannel(channel);
+
+        var oldTarget = NewTarget("old");
+        var newTarget = NewTarget("new");
+
+        var ns = NamespaceOps.empty;
+        ns = NamespaceOps.mount(key, CreateMhead(key, oldTarget), ns);
+
+        // Mount new target AFTER
+        var newBranch = new MountBranch(newTarget, BindFlags.MAFTER);
+        var existingChain = NamespaceOps.findMount(key, ns).Value;
+        var updatedChain = new MountChain(
+            existingChain.MountId,
+            existingChain.From,
+            existingChain.MountPath,
+            FsList(existingChain.Branches.Concat(new[] { newBranch })));
+        ns = NamespaceOps.mount(key, updatedChain, ns);
+
+        var found = NamespaceOps.findMount(key, ns);
+        var targets = found.Value.Branches.Select(b => b.Target).ToList();
+
+        targets.Should().HaveCount(2);
+        targets[0].Should().BeSameAs(oldTarget);
+        targets[1].Should().BeSameAs(newTarget); // New is last
     }
 
-    private static Mount MountAt(string path, params BackendTargetDescriptor[] backends)
+    [Fact]
+    public void Unmount_Removes_Mount()
     {
-        var normalized = NamespaceOps.splitPath(path);
-        return new Mount(
-            normalized,
-            new MountChain(MountIdForPath(normalized), FsBranches(BindFlags.MREPL, backends)));
+        var channel = CreateChannel(type: 1, dev: 100, qidPath: 1000);
+        var key = MountKeyModule.fromChannel(channel);
+        var target = NewTarget("backend");
+
+        var ns = NamespaceOps.empty;
+        ns = NamespaceOps.mount(key, CreateMhead(key, target), ns);
+
+        NamespaceOps.findMount(key, ns).Should().NotBeNull();
+
+        ns = NamespaceOps.unmount(key, ns);
+
+        NamespaceOps.findMount(key, ns).Should().BeNull();
     }
 
-    private static NinePSharp.Core.FSharp.Namespace BuildNamespace(params Mount[] mounts)
+    #region Helpers
+
+    private static Channel CreateChannel(ushort type, uint dev, ulong qidPath)
     {
-        return new NinePSharp.Core.FSharp.Namespace(FsList(mounts));
+        var qid = new FSharpQid(QidType.QTDIR, 0, qidPath);
+        var pathState = new PathState(FsList<string>(Array.Empty<string>()), FsList<Channel>(Array.Empty<Channel>()));
+        return new Channel(
+            type,
+            dev,
+            qid,
+            0UL,
+            ChannelTarget.NamespaceNode,
+            pathState,
+            false,
+            Microsoft.FSharp.Core.FSharpOption<MountChain>.None,
+            Microsoft.FSharp.Core.FSharpOption<Channel>.None,
+            0);
+    }
+
+    private static MountChain CreateMhead(MountKey key, BackendTargetDescriptor target)
+    {
+        var branch = new MountBranch(target, BindFlags.MREPL);
+        return new MountChain(
+            1UL,
+            key,
+            FsList<string>(Array.Empty<string>()),
+            FsList(new[] { branch }));
     }
 
     private static BackendTargetDescriptor NewTarget(string id)
         => BackendTargetDescriptor.Local(id, "/" + id, () => new Mock<INinePFileSystem>(MockBehavior.Loose).Object);
 
     private static FSharpList<T> FsList<T>(IEnumerable<T> items)
-    {
-        return ListModule.OfSeq(items);
-    }
+        => ListModule.OfSeq(items);
 
-    private static FSharpList<string> FsList(params string[] items)
-    {
-        return ListModule.OfSeq(items);
-    }
-
-    private static FSharpList<MountBranch> FsBranches(BindFlags flags, IEnumerable<BackendTargetDescriptor> backends)
-    {
-        return ListModule.OfSeq(backends.Select(target => new MountBranch(target, flags)));
-    }
-
-    private static string CleanPathSegment(string? raw, string fallback)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return fallback;
-        var chars = raw.Where(char.IsLetterOrDigit).Take(12).ToArray();
-        return chars.Length == 0 ? fallback : new string(chars);
-    }
-
-    private static ulong MountIdForPath(IEnumerable<string> segments)
-    {
-        unchecked
-        {
-            ulong hash = 14695981039346656037UL;
-            foreach (var segment in segments)
-            {
-                foreach (var ch in segment)
-                {
-                    hash = (hash ^ ch) * 1099511628211UL;
-                }
-
-                hash = (hash ^ '/') * 1099511628211UL;
-            }
-
-            return hash == 0 ? 1UL : hash;
-        }
-    }
+    #endregion
 }

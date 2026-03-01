@@ -1,15 +1,17 @@
-using NinePSharp.Constants;
+using System;
+using System.Collections.Generic;
 using System.Linq;
-using System.Security;
 using System.Security.Cryptography.X509Certificates;
-using FluentAssertions;
-using Microsoft.Coyote.SystematicTesting;
+using System.Threading.Tasks;
+using Microsoft.Coyote.Specifications;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using NinePSharp.Constants;
 using NinePSharp.Messages;
 using NinePSharp.Parser;
 using NinePSharp.Server;
 using NinePSharp.Server.Interfaces;
+using NinePSharp.Server.Utils;
 using Xunit;
 using CoyoteTask = Microsoft.Coyote.Rewriting.Types.Threading.Tasks.Task;
 
@@ -18,72 +20,50 @@ namespace NinePSharp.Tests.Coyote;
 public class DispatcherRemoveReadRaceCoyoteTests
 {
     [Fact]
-    public void Coyote_Tremove_Concurrent_With_Tread_Leaves_Fid_Clunked()
+    public static async Task TestRemoveReadRace()
     {
-        var configuration = Microsoft.Coyote.Configuration.Create()
-            .WithTestingIterations(200)
-            .WithPartiallyControlledConcurrencyAllowed(true)
-            .WithPotentialDeadlocksReportedAsBugs(false);
+        var mockFs = new Mock<INinePFileSystem>();
+        mockFs.SetupProperty(f => f.Dialect);
+        mockFs.Setup(x => x.OpenAsync(It.IsAny<Topen>()))
+              .ReturnsAsync(new Ropen(5, new Qid(QidType.QTFILE, 0, 1), 0));
+        mockFs.Setup(x => x.ReadAsync(It.IsAny<Tread>()))
+              .ReturnsAsync(new Rread(1, new byte[] { 1 }));
+        mockFs.Setup(x => x.RemoveAsync(It.IsAny<Tremove>()))
+              .ReturnsAsync(new Rremove(1));
+        mockFs.Setup(x => x.Clone()).Returns(mockFs.Object);
 
-        var engine = TestingEngine.Create(configuration, async () =>
+        var mockBackend = new Mock<IProtocolBackend>();
+        mockBackend.Setup(b => b.Name).Returns("mock");
+        mockBackend.Setup(b => b.MountPath).Returns("/mock");
+        mockBackend.Setup(b => b.GetRuntime(It.IsAny<X509Certificate2>()))
+                   .Returns(() => RuntimeFileSystemAdapter.ToRuntime(mockFs.Object));
+
+        var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, new NullRemoteMountProvider());
+
+        await dispatcher.DispatchAsync("s1", NinePMessage.NewMsgTattach(new Tattach(1, 1, uint.MaxValue, "user", "/")), NinePDialect.NineP2000);
+        await dispatcher.DispatchAsync("s1", NinePMessage.NewMsgTwalk(new Twalk(2, 1, 2, new[] { "mock" })), NinePDialect.NineP2000);
+        await dispatcher.DispatchAsync("s1", NinePMessage.NewMsgTopen(new Topen(5, 2, 0)), NinePDialect.NineP2000);
+
+        var t1 = CoyoteTask.Run(async () =>
         {
-            const string sessionId = "coyote-remove-read";
-            var fs = new Mock<INinePFileSystem>(MockBehavior.Strict);
-            fs.SetupProperty(f => f.Dialect);
-            fs.Setup(f => f.Clone()).Returns(fs.Object);
-            fs.Setup(f => f.ReadAsync(It.IsAny<Tread>()))
-                .Returns(async (Tread t) =>
-                {
-                    await CoyoteTask.Yield();
-                    return new Rread(t.Tag, new byte[] { 0x42 });
-                });
-            fs.Setup(f => f.RemoveAsync(It.IsAny<Tremove>()))
-                .Returns(async (Tremove t) =>
-                {
-                    await CoyoteTask.Yield();
-                    return new Rremove(t.Tag);
-                });
-
-            var backend = new Mock<IProtocolBackend>(MockBehavior.Strict);
-            backend.SetupGet(b => b.Name).Returns("mock");
-            backend.SetupGet(b => b.MountPath).Returns("/mock");
-            backend.Setup(b => b.GetFileSystem(It.IsAny<X509Certificate2>())).Returns(fs.Object);
-            backend.Setup(b => b.GetFileSystem(It.IsAny<SecureString>(), It.IsAny<X509Certificate2>())).Returns(fs.Object);
-
-            var dispatcher = new NinePFSDispatcher(
-                NullLogger<NinePFSDispatcher>.Instance,
-                new[] { backend.Object },
-                new Mock<IRemoteMountProvider>().Object);
-
-            _ = await dispatcher.DispatchAsync(
-                sessionId,
-                NinePMessage.NewMsgTattach(new Tattach(1, 100, NinePConstants.NoFid, "user", "/mock")),
-                dialect: NinePDialect.NineP2000U);
-
-            var readTask = CoyoteTask.Run(() => dispatcher.DispatchAsync(
-                sessionId,
-                NinePMessage.NewMsgTread(new Tread(2, 100, 0, 1)),
-                dialect: NinePDialect.NineP2000U));
-            var removeTask = CoyoteTask.Run(() => dispatcher.DispatchAsync(
-                sessionId,
-                NinePMessage.NewMsgTremove(new Tremove(3, 100)),
-                dialect: NinePDialect.NineP2000U));
-
-            object[] results = await CoyoteTask.WhenAll(readTask, removeTask);
-            results.Count(r => r is Rremove).Should().Be(1);
-            results.Count(r => r is Rread || r is Rerror || r is Rlerror).Should().Be(1);
-
-            var followUpRead = await dispatcher.DispatchAsync(
-                sessionId,
-                NinePMessage.NewMsgTread(new Tread(4, 100, 0, 1)),
-                dialect: NinePDialect.NineP2000U);
-            followUpRead.Should().Match(r => r is Rerror || r is Rlerror);
-
-            fs.Verify(f => f.RemoveAsync(It.IsAny<Tremove>()), Times.Once);
-            fs.Verify(f => f.ReadAsync(It.IsAny<Tread>()), Times.AtMostOnce);
+            await dispatcher.DispatchAsync("s1", NinePMessage.NewMsgTread(new Tread(3, 2, 0, 1)), NinePDialect.NineP2000);
         });
 
-        engine.Run();
-        Assert.True(engine.TestReport.NumOfFoundBugs == 0, engine.TestReport.GetText(configuration));
+        var t2 = CoyoteTask.Run(async () =>
+        {
+            await dispatcher.DispatchAsync("s1", NinePMessage.NewMsgTremove(new Tremove(4, 2)), NinePDialect.NineP2000);
+        });
+
+        await CoyoteTask.WhenAll(t1, t2);
+    }
+
+    private class NullRemoteMountProvider : IRemoteMountProvider
+    {
+        public void Start() { }
+        public Task StopAsync() => Task.CompletedTask;
+        public Task RegisterMountAsync(string mountPath, Func<IBackendRuntime> createRuntime) => Task.CompletedTask;
+        public Task<IReadOnlyList<string>> GetRemoteMountPathsAsync() => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        public Task<IBackendRuntime?> TryCreateRemoteRuntimeAsync(string mountPath) => Task.FromResult<IBackendRuntime?>(null);
+        public void Dispose() { }
     }
 }

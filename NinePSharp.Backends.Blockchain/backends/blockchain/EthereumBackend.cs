@@ -59,14 +59,14 @@ public class EthereumBackend : IProtocolBackend
     }
 
     /// <inheritdoc />
-    public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null)
+    public IBackendRuntime GetRuntime(X509Certificate2? certificate = null)
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
-        return new EthereumFileSystem(_config, GetRpcClient(), _vault, _authService, certificate);
+        return BackendTargetDescriptor.LocalRuntime(Name, MountPath, () => new EthereumFileSystem(_config, GetRpcClient(), _vault, _authService, certificate)).CreateRuntime();
     }
 
     /// <inheritdoc />
-    public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null)
+    public IBackendRuntime GetRuntime(SecureString? credentials, X509Certificate2? certificate = null)
     {
         if (_config == null) throw new InvalidOperationException("Backend not initialized");
 
@@ -98,6 +98,7 @@ public class EthereumBackend : IProtocolBackend
             }
         }
 
-        return new EthereumFileSystem(_config, GetRpcClient(rpcUrl), _vault, _authService, certificate);
+        var finalUrl = rpcUrl;
+        return BackendTargetDescriptor.LocalRuntime(Name, MountPath, () => new EthereumFileSystem(_config, GetRpcClient(finalUrl), _vault, _authService, certificate)).CreateRuntime();
     }
 }

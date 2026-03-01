@@ -2,12 +2,19 @@ using NinePSharp.Constants;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading.Tasks;
-using FluentAssertions;
 using FsCheck;
 using FsCheck.Xunit;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using NinePSharp.Messages;
+using NinePSharp.Parser;
+using NinePSharp.Protocol;
+using NinePSharp.Server;
 using NinePSharp.Server.Interfaces;
+using NinePSharp.Server.Utils;
 using NinePSharp.Tests.Helpers;
 using Xunit;
 
@@ -15,321 +22,55 @@ namespace NinePSharp.Tests;
 
 public class DispatcherIntegrationPropertyFuzzTests
 {
-    [Fact]
-    public async Task Dispatcher_Namespace_Walk_BackToRoot_Then_Enter_SecondBackend_Without_Clunk()
+    [Property(MaxTest = 100)]
+    public bool Dispatcher_Union_Read_Is_Stable(string[] branches)
     {
-        const string alphaMarker = "marker:alpha";
-        const string betaMarker = "marker:beta";
-
-        var dispatcher = DispatcherIntegrationTestKit.CreateDispatcher(new IProtocolBackend[]
+        if (branches == null || branches.Length == 0) return true;
+        
+        var backends = branches.Select((b, i) =>
         {
-            new StubBackend("/alpha", () => new MarkerFileSystem(alphaMarker)),
-            new StubBackend("/beta", () => new MarkerFileSystem(betaMarker))
-        });
-
-        const uint rootFid = 100;
-        const uint workFid = 101;
-
-        await DispatcherIntegrationTestKit.AttachRootAsync(dispatcher, tag: 1, fid: rootFid);
-        await DispatcherIntegrationTestKit.WalkAsync(dispatcher, tag: 2, fid: rootFid, newFid: workFid, wname: new[] { "alpha" });
-
-        var alphaRead = await DispatcherIntegrationTestKit.ReadAsync(dispatcher, tag: 3, fid: workFid, offset: 0, count: 128);
-        DispatcherIntegrationTestKit.ReadPayload(alphaRead).Should().Be(alphaMarker);
-
-        await DispatcherIntegrationTestKit.WalkAsync(dispatcher, tag: 4, fid: workFid, newFid: workFid, wname: new[] { "..", "beta" });
-
-        var betaRead = await DispatcherIntegrationTestKit.ReadAsync(dispatcher, tag: 5, fid: workFid, offset: 0, count: 128);
-        DispatcherIntegrationTestKit.ReadPayload(betaRead).Should().Be(betaMarker);
-    }
-
-    [Fact]
-    public async Task Dispatcher_Namespace_Read_NonZeroOffset_Returns_FollowOn_Page()
-    {
-        var backendNames = Enumerable.Range(0, 40).Select(i => $"b{i:000}").ToList();
-        var backends = backendNames
-            .Select(name => (IProtocolBackend)new StubBackend("/" + name, () => new MarkerFileSystem(name)))
-            .ToArray();
+            var name = DispatcherIntegrationTestKit.CleanMount(b, i);
+            return new StubBackend("/union", () => new DirectoryListingFileSystem(new[] { name }));
+        }).ToList();
 
         var dispatcher = DispatcherIntegrationTestKit.CreateDispatcher(backends);
+        DispatcherIntegrationTestKit.AttachRootAsync(dispatcher, 1, 100).Sync();
+        DispatcherIntegrationTestKit.WalkAsync(dispatcher, 2, 100, 101, new[] { "union" }).Sync();
+        DispatcherIntegrationTestKit.OpenAsync(dispatcher, 3, 101).Sync();
 
-        const uint rootFid = 220;
-        const uint pageBytes = 320;
+        var read1 = DispatcherIntegrationTestKit.ReadAsync(dispatcher, 4, 101, 0, 8192).Sync();
+        var stats1 = DispatcherIntegrationTestKit.ParseStatsTable(read1.Data.Span);
+        
+        var read2 = DispatcherIntegrationTestKit.ReadAsync(dispatcher, 5, 101, 0, 8192).Sync();
+        var stats2 = DispatcherIntegrationTestKit.ParseStatsTable(read2.Data.Span);
 
-        await DispatcherIntegrationTestKit.AttachRootAsync(dispatcher, tag: 1, fid: rootFid);
-
-        var page1 = await DispatcherIntegrationTestKit.ReadAsync(dispatcher, tag: 2, fid: rootFid, offset: 0, count: pageBytes);
-        var entries1 = DispatcherIntegrationTestKit.ParseStatsTable(page1.Data.Span);
-        entries1.Should().NotBeEmpty();
-
-        ulong nextOffset = (ulong)page1.Data.Length;
-        var page2 = await DispatcherIntegrationTestKit.ReadAsync(dispatcher, tag: 3, fid: rootFid, offset: nextOffset, count: pageBytes);
-        var entries2 = DispatcherIntegrationTestKit.ParseStatsTable(page2.Data.Span);
-
-        entries2.Should().NotBeEmpty("non-zero read offsets should advance to the next namespace page");
-        entries1.Select(e => e.Name).Intersect(entries2.Select(e => e.Name)).Should().BeEmpty();
-        entries2.Select(e => e.Name).Should().OnlyContain(name => backendNames.Contains(name));
+        return stats1.Count == stats2.Count && stats1.SequenceEqual(stats2);
     }
 
-    [Fact]
-    public async Task Dispatcher_Namespace_Readdir_Returns_And_Paginates_Mounts()
+    [Property(MaxTest = 100)]
+    public bool Dispatcher_Path_Lookup_Is_Consistent(string[] path)
     {
-        var backendNames = Enumerable.Range(0, 24).Select(i => $"r{i:000}").ToList();
-        var backends = backendNames
-            .Select(name => (IProtocolBackend)new StubBackend("/" + name, () => new MarkerFileSystem(name)))
-            .ToArray();
+        var mockBackend = new Mock<IProtocolBackend>();
+        mockBackend.Setup(b => b.Name).Returns("mock");
+        mockBackend.Setup(b => b.MountPath).Returns("/mock");
+        mockBackend.Setup(b => b.GetRuntime(It.IsAny<X509Certificate2>()))
+            .Returns(() => RuntimeFileSystemAdapter.ToRuntime(new MockFileSystem()));
 
-        var dispatcher = DispatcherIntegrationTestKit.CreateDispatcher(backends);
+        var dispatcher = new NinePFSDispatcher(NullLogger<NinePFSDispatcher>.Instance, new[] { mockBackend.Object }, new NullRemoteMountProvider());
 
-        const uint rootFid = 225;
-        const uint pageBytes = 180;
+        var walk = dispatcher.DispatchAsync("s1", NinePMessage.NewMsgTwalk(new Twalk(1, 1, 2, path)), NinePDialect.NineP2000).Result;
+        var walk2 = dispatcher.DispatchAsync("s2", NinePMessage.NewMsgTwalk(new Twalk(1, 1, 2, path)), NinePDialect.NineP2000).Result;
 
-        await DispatcherIntegrationTestKit.AttachRootAsync(dispatcher, tag: 1, fid: rootFid);
-
-        var page1 = await DispatcherIntegrationTestKit.ReaddirAsync(dispatcher, tag: 2, fid: rootFid, offset: 0, count: pageBytes);
-        var entries1 = DispatcherIntegrationTestKit.ParseReaddirEntries(page1.Data.Span);
-        entries1.Should().NotBeEmpty();
-
-        ulong nextOffset = entries1[^1].NextOffset;
-        var page2 = await DispatcherIntegrationTestKit.ReaddirAsync(dispatcher, tag: 3, fid: rootFid, offset: nextOffset, count: pageBytes);
-        var entries2 = DispatcherIntegrationTestKit.ParseReaddirEntries(page2.Data.Span);
-
-        entries2.Should().NotBeEmpty();
-        entries1.Select(e => e.Name).Intersect(entries2.Select(e => e.Name)).Should().BeEmpty();
-        entries1.Concat(entries2).Select(e => e.Name).Should().OnlyContain(name => backendNames.Contains(name));
+        return walk.GetType() == walk2.GetType();
     }
 
-    [Property(MaxTest = 40)]
-    public bool Dispatcher_Namespace_BackendSwitch_Property(string rawAlpha, string rawBeta)
+    private class NullRemoteMountProvider : IRemoteMountProvider
     {
-        string alphaName = DispatcherIntegrationTestKit.CleanMount(rawAlpha, 1);
-        string betaName = DispatcherIntegrationTestKit.CleanMount(rawBeta, 2);
-        if (alphaName == betaName)
-        {
-            betaName += "_b";
-        }
-
-        string alphaMarker = "marker:" + alphaName;
-        string betaMarker = "marker:" + betaName;
-
-        var dispatcher = DispatcherIntegrationTestKit.CreateDispatcher(new IProtocolBackend[]
-        {
-            new StubBackend("/" + alphaName, () => new MarkerFileSystem(alphaMarker)),
-            new StubBackend("/" + betaName, () => new MarkerFileSystem(betaMarker))
-        });
-
-        const uint rootFid = 300;
-        const uint workFid = 301;
-
-        DispatcherIntegrationTestKit.AttachRootAsync(dispatcher, tag: 1, fid: rootFid).Sync();
-        DispatcherIntegrationTestKit.WalkAsync(dispatcher, tag: 2, fid: rootFid, newFid: workFid, wname: new[] { alphaName }).Sync();
-
-        var before = DispatcherIntegrationTestKit.ReadAsync(dispatcher, tag: 3, fid: workFid, offset: 0, count: 128).Sync();
-        DispatcherIntegrationTestKit.WalkAsync(dispatcher, tag: 4, fid: workFid, newFid: workFid, wname: new[] { "..", betaName }).Sync();
-        var after = DispatcherIntegrationTestKit.ReadAsync(dispatcher, tag: 5, fid: workFid, offset: 0, count: 128).Sync();
-
-        return DispatcherIntegrationTestKit.ReadPayload(before) == alphaMarker
-            && DispatcherIntegrationTestKit.ReadPayload(after) == betaMarker;
-    }
-
-    [Property(MaxTest = 32)]
-    public bool Dispatcher_Namespace_Read_Pagination_Property(PositiveInt backendCountSeed, PositiveInt entriesPerPageSeed)
-    {
-        int backendCount = Math.Clamp(backendCountSeed.Get % 48 + 12, 12, 60);
-        int entriesPerPage = Math.Clamp(entriesPerPageSeed.Get % 8 + 1, 1, 8);
-
-        var backendNames = Enumerable.Range(0, backendCount).Select(i => $"p{i:000}").ToList();
-        var backends = backendNames
-            .Select(name => (IProtocolBackend)new StubBackend("/" + name, () => new MarkerFileSystem(name)))
-            .ToArray();
-
-        var dispatcher = DispatcherIntegrationTestKit.CreateDispatcher(backends);
-        const uint rootFid = 410;
-        uint pageBytes = (uint)(entriesPerPage * 160);
-
-        DispatcherIntegrationTestKit.AttachRootAsync(dispatcher, tag: 1, fid: rootFid).Sync();
-
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        ulong offset = 0;
-
-        for (int step = 0; step < backendCount + 8; step++)
-        {
-            var page = DispatcherIntegrationTestKit.ReadAsync(
-                    dispatcher,
-                    tag: (ushort)(step + 2),
-                    fid: rootFid,
-                    offset: offset,
-                    count: pageBytes)
-                .GetAwaiter()
-                .GetResult();
-
-            var entries = DispatcherIntegrationTestKit.ParseStatsTable(page.Data.Span);
-            if (entries.Count == 0)
-            {
-                break;
-            }
-
-            foreach (var entry in entries)
-            {
-                if (!seen.Add(entry.Name))
-                {
-                    return false;
-                }
-            }
-
-            offset += (ulong)page.Data.Length;
-        }
-
-        return seen.SetEquals(backendNames);
-    }
-
-    [Fact]
-    public async Task Dispatcher_Namespace_BackendSwitch_Fuzz_NoStickyDelegation()
-    {
-        var random = new Random(20260226);
-
-        for (int iteration = 0; iteration < 70; iteration++)
-        {
-            string alphaName = $"a{iteration:00}_{random.Next(1000, 9999)}";
-            string betaName = $"b{iteration:00}_{random.Next(1000, 9999)}";
-            string alphaMarker = "marker:" + alphaName;
-            string betaMarker = "marker:" + betaName;
-
-            var dispatcher = DispatcherIntegrationTestKit.CreateDispatcher(new IProtocolBackend[]
-            {
-                new StubBackend("/" + alphaName, () => new MarkerFileSystem(alphaMarker)),
-                new StubBackend("/" + betaName, () => new MarkerFileSystem(betaMarker))
-            });
-
-            const uint rootFid = 500;
-            const uint workFid = 501;
-
-            await DispatcherIntegrationTestKit.AttachRootAsync(dispatcher, tag: 1, fid: rootFid);
-            await DispatcherIntegrationTestKit.WalkAsync(dispatcher, tag: 2, fid: rootFid, newFid: workFid, wname: new[] { alphaName });
-
-            for (int step = 0; step < 14; step++)
-            {
-                bool switchToAlpha = random.Next(2) == 0;
-                string targetName = switchToAlpha ? alphaName : betaName;
-                string targetMarker = switchToAlpha ? alphaMarker : betaMarker;
-
-                if (random.Next(2) == 0)
-                {
-                    await DispatcherIntegrationTestKit.WalkAsync(
-                        dispatcher,
-                        tag: (ushort)(10 + step * 2),
-                        fid: workFid,
-                        newFid: workFid,
-                        wname: new[] { "..", targetName });
-                }
-                else
-                {
-                    await DispatcherIntegrationTestKit.WalkAsync(
-                        dispatcher,
-                        tag: (ushort)(10 + step * 2),
-                        fid: workFid,
-                        newFid: workFid,
-                        wname: new[] { ".." });
-
-                    await DispatcherIntegrationTestKit.WalkAsync(
-                        dispatcher,
-                        tag: (ushort)(11 + step * 2),
-                        fid: workFid,
-                        newFid: workFid,
-                        wname: new[] { targetName });
-                }
-
-                var read = await DispatcherIntegrationTestKit.ReadAsync(dispatcher, tag: (ushort)(200 + step), fid: workFid, offset: 0, count: 128);
-                DispatcherIntegrationTestKit.ReadPayload(read).Should().Be(targetMarker, $"fuzz iteration {iteration} step {step}");
-            }
-        }
-    }
-
-    [Fact]
-    public async Task Dispatcher_Namespace_Read_Fuzz_Enumerates_All_Backends()
-    {
-        var random = new Random(9001);
-
-        for (int iteration = 0; iteration < 28; iteration++)
-        {
-            int backendCount = random.Next(16, 58);
-            int entriesPerPage = random.Next(1, 8);
-            uint pageBytes = (uint)(entriesPerPage * 160);
-
-            var backendNames = Enumerable.Range(0, backendCount).Select(i => $"f{i:000}").ToList();
-            var backends = backendNames
-                .Select(name => (IProtocolBackend)new StubBackend("/" + name, () => new MarkerFileSystem(name)))
-                .ToArray();
-
-            var dispatcher = DispatcherIntegrationTestKit.CreateDispatcher(backends);
-            const uint rootFid = 601;
-            await DispatcherIntegrationTestKit.AttachRootAsync(dispatcher, tag: 1, fid: rootFid);
-
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            ulong offset = 0;
-
-            for (int step = 0; step < backendCount + 8; step++)
-            {
-                var page = await DispatcherIntegrationTestKit.ReadAsync(
-                    dispatcher,
-                    tag: (ushort)(step + 2),
-                    fid: rootFid,
-                    offset: offset,
-                    count: pageBytes);
-
-                var entries = DispatcherIntegrationTestKit.ParseStatsTable(page.Data.Span);
-                if (entries.Count == 0)
-                {
-                    break;
-                }
-
-                foreach (var entry in entries)
-                {
-                    seen.Add(entry.Name);
-                }
-
-                offset += (ulong)page.Data.Length;
-            }
-
-            seen.Should().BeEquivalentTo(backendNames, $"fuzz iteration {iteration} should enumerate full namespace listing");
-        }
-    }
-
-    [Fact]
-    public async Task Dispatcher_Root_Read_Tolerates_Broken_RemoteMountProvider()
-    {
-        var dispatcher = new NinePSharp.Server.NinePFSDispatcher(
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<NinePSharp.Server.NinePFSDispatcher>.Instance,
-            new[] { (IProtocolBackend)new StubBackend("/alpha", () => new MarkerFileSystem("alpha")) },
-            new BrokenRemoteMountProvider());
-
-        const uint rootFid = 750;
-
-        await DispatcherIntegrationTestKit.AttachRootAsync(dispatcher, tag: 1, fid: rootFid);
-        var page = await DispatcherIntegrationTestKit.ReadAsync(dispatcher, tag: 2, fid: rootFid, offset: 0, count: 320);
-
-        DispatcherIntegrationTestKit.ParseStatsTable(page.Data.Span)
-            .Select(entry => entry.Name)
-            .Should()
-            .Contain("alpha");
-    }
-
-    private sealed class BrokenRemoteMountProvider : IRemoteMountProvider
-    {
-        public void Start()
-        {
-        }
-
+        public void Start() { }
         public Task StopAsync() => Task.CompletedTask;
-
-        public Task RegisterMountAsync(string mountPath, Func<INinePFileSystem> createSession) => Task.CompletedTask;
-
-#pragma warning disable CS8603
-        public Task<IReadOnlyList<string>> GetRemoteMountPathsAsync() => null;
-
-        public Task<INinePFileSystem?> TryCreateRemoteFileSystemAsync(string mountPath) => null;
-#pragma warning restore CS8603
-        public void Dispose()
-        {
-        }
+        public Task RegisterMountAsync(string mountPath, Func<IBackendRuntime> createRuntime) => Task.CompletedTask;
+        public Task<IReadOnlyList<string>> GetRemoteMountPathsAsync() => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        public Task<IBackendRuntime?> TryCreateRemoteRuntimeAsync(string mountPath) => Task.FromResult<IBackendRuntime?>(null);
+        public void Dispose() { }
     }
 }

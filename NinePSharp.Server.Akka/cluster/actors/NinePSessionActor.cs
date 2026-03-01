@@ -68,19 +68,19 @@ public class NinePSessionActor : ReceiveActor
             } catch (Exception ex) { Sender.Tell(new RErrorDto { Tag = msg.Tag, Ename = ex.Message }); }
         });
 
-        ReceiveAsync<TGetAttrDto>(async msg => {
-            var tgetattr = new Tgetattr(msg.Tag, msg.Fid, msg.RequestMask);
-            try {
-                var res = await _fs.GetAttrAsync(tgetattr);
-                Sender.Tell(new RGetAttrDto(res));
-            } catch (Exception ex) { Sender.Tell(new RErrorDto { Tag = msg.Tag, Ename = ex.Message }); }
-        });
-
         ReceiveAsync<TRemoveDto>(async msg => {
             var tremove = new Tremove(msg.Tag, msg.Fid);
             try {
                 var res = await _fs.RemoveAsync(tremove);
                 Sender.Tell(new RRemoveDto(res));
+            } catch (Exception ex) { Sender.Tell(new RErrorDto { Tag = msg.Tag, Ename = ex.Message }); }
+        });
+
+        ReceiveAsync<TCreateDto>(async msg => {
+            var tcreate = new Tcreate(msg.Tag, msg.Fid, msg.Name, msg.Perm, msg.Mode);
+            try {
+                var res = await _fs.CreateAsync(tcreate);
+                Sender.Tell(new RCreateDto(res));
             } catch (Exception ex) { Sender.Tell(new RErrorDto { Tag = msg.Tag, Ename = ex.Message }); }
         });
 
@@ -91,14 +91,6 @@ public class NinePSessionActor : ReceiveActor
             try {
                 var res = await _fs.WstatAsync(twstat);
                 Sender.Tell(new RWstatDto(res));
-            } catch (Exception ex) { Sender.Tell(new RErrorDto { Tag = msg.Tag, Ename = ex.Message }); }
-        });
-
-        ReceiveAsync<TSetAttrDto>(async msg => {
-            var tsetattr = new Tsetattr(0, msg.Tag, msg.Fid, msg.Valid, msg.Mode, msg.Uid, msg.Gid, msg.FileSize, msg.AtimeSec, msg.AtimeNsec, msg.MtimeSec, msg.MtimeNsec);
-            try {
-                var res = await _fs.SetAttrAsync(tsetattr);
-                Sender.Tell(new RSetAttrDto(res));
             } catch (Exception ex) { Sender.Tell(new RErrorDto { Tag = msg.Tag, Ename = ex.Message }); }
         });
         

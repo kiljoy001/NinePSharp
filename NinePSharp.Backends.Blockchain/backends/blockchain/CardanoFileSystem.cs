@@ -21,6 +21,7 @@ using NinePSharp.Server.Utils;
 namespace NinePSharp.Server.Backends;
 
 public class CardanoFileSystem : INinePFileSystem
+    public NinePDialect Dialect { get; set; } = NinePDialect.NineP2000;
 {
     private const decimal LovelacePerAda = 1_000_000m;
     private static readonly HttpClient SharedHttpClient = new() { Timeout = TimeSpan.FromSeconds(15) };
@@ -164,7 +165,7 @@ public class CardanoFileSystem : INinePFileSystem
                 var mode = f.Type == QidType.QTDIR ? (uint)NinePConstants.FileMode9P.DMDIR | 0755 : 0644;
                 if (f.Name == "use" || f.Name == "send") mode = 0666;
                 
-                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "scott", "scott", "scott");
+                var stat = new Stat(0, 0, 0, qid, mode, 0, 0, 0, f.Name, "none", "none", "none");
                 
                 var entryBuffer = new byte[stat.Size];
                 int offset = 0;
@@ -331,7 +332,7 @@ public class CardanoFileSystem : INinePFileSystem
         uint mode = 0644 | (isDir ? (uint)NinePConstants.FileMode9P.DMDIR : 0);
         if (name == "use" || name == "send") mode = 0666;
 
-        var stat = new Stat(0, 0, 0, GetQid(_currentPath), mode, 0, 0, 0, name, "scott", "scott", "scott");
+        var stat = new Stat(0, 0, 0, GetQid(_currentPath), mode, 0, 0, 0, name, "none", "none", "none");
         return new Rstat(tstat.Tag, stat);
     }
 
