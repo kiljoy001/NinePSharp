@@ -32,9 +32,10 @@ module NamespaceOps =
         else
             { Type = QidType.QTDIR; Version = 0u; Path = PathHash.stableHash 'd' path }
 
-    /// Path-based mount key for initialization. Generates stable Type/Dev from path.
-    /// Prefer MountKeyModule.fromChannel for runtime channel-based lookups.
-    let mountKeyForPath (path: string list) =
+    /// Path-based mount key for initialization (buildRootNamespace).
+    /// Generates stable Type/Dev from path for the synthetic boot namespace.
+    /// Runtime bind operations should use mountByChannel with real channel identity.
+    let mountKeyForPathInit (path: string list) =
         // Use '#' (0x23) as Type for namespace-synthetic channels
         let typeValue = uint16 '#'
         // Generate stable Dev from path hash (9front uses device instance numbers)
@@ -81,19 +82,19 @@ module NamespaceOps =
         |> List.fold max 0UL
         |> fun current -> current + 1UL
 
-    let private tryFindByPath (path: string list) (ns: Namespace) =
-        findMount (mountKeyForPath path) ns
+    let private tryFindByPathInit (path: string list) (ns: Namespace) =
+        findMount (mountKeyForPathInit path) ns
 
     /// Get targets at a path (for testing/compatibility).
     /// Returns (targets, remainder) where remainder is always empty with exact-match semantics.
-    let resolve (path: string list) (ns: Namespace) : BackendTargetDescriptor list * string list =
-        let key = mountKeyForPath path
+    let resolve (path: string list) (ns: Namespace) : string list list * string list =
+        let key = mountKeyForPathInit path
         match findMount key ns with
         | Some chain -> (chain.Targets, List.empty<string>)
-        | None -> (List.empty<BackendTargetDescriptor>, List.empty<string>)
+        | None -> (List.empty<string list>, List.empty<string>)
 
     let trySelectCreateTarget (path: string list) (ns: Namespace) =
-        let key = mountKeyForPath path
+        let key = mountKeyForPathInit path
         match findMount key ns with
         | None -> None
         | Some chain ->
@@ -106,18 +107,38 @@ module NamespaceOps =
             | None, [ branch ] -> Some branch.Target
             | _ -> None
 
-    let bind (newPath: string) (oldPath: string) (flags: BindFlags) (ns: Namespace) =
-        let targetPath = splitPath oldPath
-        let sourcePath = splitPath newPath
-        let sourceKey = mountKeyForPath sourcePath
-        let sourceTargets =
-            match findMount sourceKey ns with
-            | Some chain -> chain.Targets
-            | None -> []
-        let sourceBranches = sourceTargets |> List.map (fun target -> { Target = target; Flags = flags })
-        let targetKey = mountKeyForPath targetPath
-        let existingMount = tryFindByPath targetPath ns
+    /// Select create target for a mount using channel-based key (9front semantics).
+    /// Prefers MCREATE branch, falls back to only branch if singular.
+    let trySelectCreateTargetByKey (key: MountKey) (ns: Namespace) =
+        match findMount key ns with
+        | None -> None
+        | Some chain ->
+            let preferred =
+                chain.Branches
+                |> List.tryFind (fun branch -> branch.Flags.HasFlag(BindFlags.MCREATE))
 
+            match preferred, chain.Branches with
+            | Some branch, _ -> Some branch.Target
+            | None, [ branch ] -> Some branch.Target
+            | _ -> None
+
+    /// Mount using channel identity (9front lexnames semantics).
+    /// Both target and source channels must have been walked to resolve their identity.
+    let mountByChannel (targetChan: Channel) (sourceChan: Channel) (flags: BindFlags) (ns: Namespace) =
+        let targetKey = MountKeyModule.fromChannel targetChan
+        let sourceKey = MountKeyModule.fromChannel sourceChan
+
+        // Get source branches (what we're mounting)
+        let sourceBranches =
+            match findMount sourceKey ns with
+            | Some chain -> chain.Branches
+            | None ->
+                // Source not mounted - use direct target from channel
+                match sourceChan.Target with
+                | BackendNode(targetPath) -> [ { Target = targetPath; Flags = flags } ]
+                | NamespaceNode -> [] // Mounting a virtual dir as-is?
+
+        let existingMount = findMount targetKey ns
         let updatedChain =
             match existingMount with
             | Some chain when flags.HasFlag(BindFlags.MBEFORE) ->
@@ -129,7 +150,10 @@ module NamespaceOps =
             | None ->
                 { MountId = nextMountId ns
                   From = targetKey
-                  MountPath = targetPath
+                  MountPath = targetChan.InternalPath
                   Branches = sourceBranches }
 
         mount targetKey updatedChain ns
+
+    let bind (targetChan: Channel) (sourceChan: Channel) (flags: BindFlags) (ns: Namespace) =
+        mountByChannel targetChan sourceChan flags ns

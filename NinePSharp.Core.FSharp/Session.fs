@@ -71,6 +71,22 @@ module ProtocolSessionOps =
     let removeFid (fid: uint32) (session: ProtocolSession) =
         { session with Fids = session.Fids |> Map.remove fid }
 
+    /// Compute channel identity (Type, Dev) from ChannelTarget.
+    /// Matches logic in ChannelOps.createNamespaceNode / createBackendNode
+    /// so that MountKeyModule.fromChannel produces consistent mount table keys.
+    let private channelIdentity (target: ChannelTarget) (visiblePath: string list) =
+        match target with
+        | NamespaceNode ->
+            // Match ChannelOps.namespaceTypeDevForPath: Type='#', Dev=path-hash
+            let typeValue = uint16 '#'
+            let devValue =
+                if List.isEmpty visiblePath then 0u
+                else uint32 (int64 (PathHash.stableHash 'D' visiblePath) &&& 0xFFFFFFFFL)
+            (typeValue, devValue)
+        | BackendNode(relativePath) ->
+            // Match ChannelOps.createBackendNode: Type=1, Dev=target-hash
+            (1us, uint32 (hash relativePath &&& System.Int32.MaxValue))
+
     let createBinding
         (target: ChannelTarget)
         (qidType: QidType)
@@ -78,8 +94,9 @@ module ProtocolSessionOps =
         (qidPath: uint64)
         (visiblePath: seq<string>) =
         let pathState = ChannelOps.createPathState visiblePath
-        { Type = 0us
-          Dev = 0u
+        let (typeValue, devValue) = channelIdentity target pathState.VisiblePath
+        { Type = typeValue
+          Dev = devValue
           Qid = { Type = qidType; Version = qidVersion; Path = qidPath }
           Offset = 0UL
           Target = target
@@ -87,7 +104,8 @@ module ProtocolSessionOps =
           IsOpened = false
           Umh = None
           Umc = None
-          Uri = 0 }
+          Uri = 0
+          Cname = [] }
 
     let createBindingWithPathState
         (target: ChannelTarget)
@@ -95,8 +113,9 @@ module ProtocolSessionOps =
         (qidVersion: uint32)
         (qidPath: uint64)
         (pathState: PathState) =
-        { Type = 0us
-          Dev = 0u
+        let (typeValue, devValue) = channelIdentity target pathState.VisiblePath
+        { Type = typeValue
+          Dev = devValue
           Qid = { Type = qidType; Version = qidVersion; Path = qidPath }
           Offset = 0UL
           Target = target
@@ -104,10 +123,14 @@ module ProtocolSessionOps =
           IsOpened = false
           Umh = None
           Umc = None
-          Uri = 0 }
+          Uri = 0
+          Cname = [] }
 
     let namespaceOf (session: ProtocolSession) =
         session.Process.Namespace
+
+    let rootOf (session: ProtocolSession) =
+        session.Process.Slash
 
     let walkChannel
         (segments: seq<string>)

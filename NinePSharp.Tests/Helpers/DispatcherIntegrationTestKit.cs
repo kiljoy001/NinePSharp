@@ -6,6 +6,7 @@ using System.Linq;
 using System.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -23,12 +24,11 @@ internal static class DispatcherIntegrationTestKit
 {
     internal readonly record struct ReaddirEntry(QidType QidType, ulong NextOffset, string Name);
 
-    internal static NinePFSDispatcher CreateDispatcher(IEnumerable<IProtocolBackend> backends)
+    internal static NinePFSDispatcher CreateDispatcher(INinePRequestHandler handler)
     {
         return new NinePFSDispatcher(
             NullLogger<NinePFSDispatcher>.Instance,
-            backends,
-            new NullRemoteMountProvider());
+            handler);
     }
 
     internal static async Task AttachRootAsync(NinePFSDispatcher dispatcher, ushort tag, uint fid)
@@ -43,7 +43,8 @@ internal static class DispatcherIntegrationTestKit
 
         if (response is not Rattach)
         {
-            throw new Xunit.Sdk.XunitException($"Expected Rattach, got {response.GetType().Name}");
+            string errMsg = response is Rerror err ? err.Ename : "";
+            throw new Xunit.Sdk.XunitException($"Expected Rattach, got {response.GetType().Name} ({errMsg})");
         }
     }
 
@@ -56,7 +57,8 @@ internal static class DispatcherIntegrationTestKit
 
         if (response is not Rwalk walk)
         {
-            throw new Xunit.Sdk.XunitException($"Expected Rwalk, got {response.GetType().Name}");
+            string errMsg = response is Rerror err ? err.Ename : "";
+            throw new Xunit.Sdk.XunitException($"Expected Rwalk, got {response.GetType().Name} ({errMsg})");
         }
 
         return walk;
@@ -71,7 +73,8 @@ internal static class DispatcherIntegrationTestKit
 
         if (response is not Rread read)
         {
-            throw new Xunit.Sdk.XunitException($"Expected Rread, got {response.GetType().Name}");
+            string errMsg = response is Rerror err ? err.Ename : "";
+            throw new Xunit.Sdk.XunitException($"Expected Rread, got {response.GetType().Name} ({errMsg})");
         }
 
         return read;
@@ -102,7 +105,8 @@ internal static class DispatcherIntegrationTestKit
 
         if (response is not Rwrite write)
         {
-            throw new Xunit.Sdk.XunitException($"Expected Rwrite, got {response.GetType().Name}");
+            string errMsg = response is Rerror err ? err.Ename : "";
+            throw new Xunit.Sdk.XunitException($"Expected Rwrite, got {response.GetType().Name} ({errMsg})");
         }
 
         return write;
@@ -117,7 +121,8 @@ internal static class DispatcherIntegrationTestKit
 
         if (response is not Ropen open)
         {
-            throw new Xunit.Sdk.XunitException($"Expected Ropen, got {response.GetType().Name}");
+            string errMsg = response is Rerror err ? err.Ename : "";
+            throw new Xunit.Sdk.XunitException($"Expected Ropen, got {response.GetType().Name} ({errMsg})");
         }
 
         return open;
@@ -132,7 +137,8 @@ internal static class DispatcherIntegrationTestKit
 
         if (response is not Rcreate create)
         {
-            throw new Xunit.Sdk.XunitException($"Expected Rcreate, got {response.GetType().Name}");
+            string errMsg = response is Rerror err ? err.Ename : "";
+            throw new Xunit.Sdk.XunitException($"Expected Rcreate, got {response.GetType().Name} ({errMsg})");
         }
 
         return create;
@@ -147,7 +153,8 @@ internal static class DispatcherIntegrationTestKit
 
         if (response is not Rstat stat)
         {
-            throw new Xunit.Sdk.XunitException($"Expected Rstat, got {response.GetType().Name}");
+            string errMsg = response is Rerror err ? err.Ename : "";
+            throw new Xunit.Sdk.XunitException($"Expected Rstat, got {response.GetType().Name} ({errMsg})");
         }
 
         return stat;
@@ -184,28 +191,7 @@ internal static class DispatcherIntegrationTestKit
     }
 }
 
-internal sealed class StubBackend : IProtocolBackend
-{
-    private readonly Func<INinePFileSystem> _factory;
-
-    internal StubBackend(string mountPath, Func<INinePFileSystem> factory)
-    {
-        MountPath = mountPath;
-        _factory = factory;
-    }
-
-    public string Name => MountPath.Trim('/');
-    public string MountPath { get; }
-
-    public Task InitializeAsync(IConfiguration configuration) => Task.CompletedTask;
-
-    public IBackendRuntime GetRuntime(X509Certificate2? certificate = null) => 
-        BackendTargetDescriptor.LocalRuntime(Name, MountPath, () => RuntimeFileSystemAdapter.ToRuntime(_factory())).CreateRuntime();
-
-    public IBackendRuntime GetRuntime(SecureString? credentials, X509Certificate2? certificate = null) => GetRuntime(certificate);
-}
-
-internal sealed class MarkerFileSystem : INinePFileSystem
+internal sealed class MarkerFileSystem : INinePRequestHandler
 {
     private readonly string _marker;
 
@@ -214,37 +200,30 @@ internal sealed class MarkerFileSystem : INinePFileSystem
         _marker = marker;
     }
 
-    public NinePDialect Dialect { get; set; } = NinePDialect.NineP2000;
-
-    public Task<Rwalk> WalkAsync(Twalk twalk)
+    public Task<Rwalk> WalkAsync(string[] relativePath, Twalk msg, CancellationToken ct)
     {
-        var qids = twalk.Wname.Select((_, i) => new Qid(QidType.QTFILE, 0, (ulong)(_marker.GetHashCode() + i + 1))).ToArray();
-        return Task.FromResult(new Rwalk(twalk.Tag, qids));
+        var qids = msg.Wname.Select((_, i) => new Qid(QidType.QTFILE, 0, (ulong)(_marker.GetHashCode() + i + 1))).ToArray();
+        return Task.FromResult(new Rwalk(msg.Tag, qids));
     }
 
-    public Task<Ropen> OpenAsync(Topen topen)
+    public Task<Ropen> OpenAsync(string[] relativePath, Topen msg, CancellationToken ct)
     {
-        return Task.FromResult(new Ropen(topen.Tag, new Qid(QidType.QTFILE, 0, (ulong)_marker.GetHashCode()), 0));
+        return Task.FromResult(new Ropen(msg.Tag, new Qid(QidType.QTFILE, 0, (ulong)_marker.GetHashCode()), 0));
     }
 
-    public Task<Rread> ReadAsync(Tread tread)
+    public Task<Rread> ReadAsync(string[] relativePath, Tread msg, CancellationToken ct)
     {
-        return Task.FromResult(new Rread(tread.Tag, Encoding.UTF8.GetBytes(_marker)));
+        return Task.FromResult(new Rread(msg.Tag, Encoding.UTF8.GetBytes(_marker)));
     }
 
-    public Task<Rwrite> WriteAsync(Twrite twrite) => NotSupported<Rwrite>();
-
-    public Task<Rclunk> ClunkAsync(Tclunk tclunk) => Task.FromResult(new Rclunk(tclunk.Tag));
-
-    public Task<Rstat> StatAsync(Tstat tstat) => NotSupported<Rstat>();
-
-    public Task<Rwstat> WstatAsync(Twstat twstat) => NotSupported<Rwstat>();
-
-    public Task<Rremove> RemoveAsync(Tremove tremove) => NotSupported<Rremove>();
-
-    public Task<Rcreate> CreateAsync(Tcreate tcreate) => NotSupported<Rcreate>();
-
-    public INinePFileSystem Clone() => new MarkerFileSystem(_marker) { Dialect = Dialect };
+    public Task<Rwrite> WriteAsync(string[] relativePath, Twrite msg, CancellationToken ct) => NotSupported<Rwrite>();
+    public Task<Rstat> StatAsync(string[] relativePath, Tstat msg, CancellationToken ct) => Task.FromResult(new Rstat(msg.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "")));
+    public Task<Rwstat> WstatAsync(string[] relativePath, Twstat msg, CancellationToken ct) => NotSupported<Rwstat>();
+    public Task<Rremove> RemoveAsync(string[] relativePath, Tremove msg, CancellationToken ct) => NotSupported<Rremove>();
+    public Task<Rcreate> CreateAsync(string[] relativePath, Tcreate msg, CancellationToken ct) => NotSupported<Rcreate>();
+    public Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct) => null;
+    public Task<byte[]> AuthReadAsync(uint afid, ulong offset, uint count, CancellationToken ct) => Task.FromResult(Array.Empty<byte>());
+    public Task<uint> AuthWriteAsync(uint afid, ulong offset, byte[] data, CancellationToken ct) => Task.FromResult((uint)data.Length);
 
     private static Task<T> NotSupported<T>()
     {
@@ -252,7 +231,7 @@ internal sealed class MarkerFileSystem : INinePFileSystem
     }
 }
 
-internal sealed class CreateTrackingFileSystem : INinePFileSystem
+internal sealed class CreateTrackingFileSystem : INinePRequestHandler
 {
     private readonly string _marker;
     private readonly List<string> _created = new();
@@ -262,41 +241,40 @@ internal sealed class CreateTrackingFileSystem : INinePFileSystem
         _marker = marker;
     }
 
-    public NinePDialect Dialect { get; set; } = NinePDialect.NineP2000;
-
-    public Task<Rwalk> WalkAsync(Twalk twalk)
+    public Task<Rwalk> WalkAsync(string[] relativePath, Twalk twalk, CancellationToken ct)
     {
         var qids = twalk.Wname.Select((_, i) => new Qid(QidType.QTFILE, 0, (ulong)(_marker.GetHashCode() + i + 1))).ToArray();
         return Task.FromResult(new Rwalk(twalk.Tag, qids));
     }
 
-    public Task<Ropen> OpenAsync(Topen topen)
+    public Task<Ropen> OpenAsync(string[] relativePath, Topen topen, CancellationToken ct)
         => Task.FromResult(new Ropen(topen.Tag, new Qid(QidType.QTFILE, 0, (ulong)_marker.GetHashCode()), 0));
 
-    public Task<Rread> ReadAsync(Tread tread)
+    public Task<Rread> ReadAsync(string[] relativePath, Tread tread, CancellationToken ct)
     {
         var payload = _created.Count == 0 ? _marker : string.Join(",", _created);
         return Task.FromResult(new Rread(tread.Tag, Encoding.UTF8.GetBytes(payload)));
     }
 
-    public Task<Rcreate> CreateAsync(Tcreate tcreate)
+    public Task<Rcreate> CreateAsync(string[] relativePath, Tcreate tcreate, CancellationToken ct)
     {
         _created.Add(tcreate.Name);
         ulong path = (ulong)Math.Abs((_marker + ":" + tcreate.Name).GetHashCode());
         return Task.FromResult(new Rcreate(tcreate.Tag, new Qid(QidType.QTFILE, 0, path), 8192));
     }
 
-    public Task<Rwrite> WriteAsync(Twrite twrite) => Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
-    public Task<Rclunk> ClunkAsync(Tclunk tclunk) => Task.FromResult(new Rclunk(tclunk.Tag));
-    public Task<Rstat> StatAsync(Tstat tstat) => NotSupported<Rstat>();
-    public Task<Rwstat> WstatAsync(Twstat twstat) => NotSupported<Rwstat>();
-    public Task<Rremove> RemoveAsync(Tremove tremove) => Task.FromResult(new Rremove(tremove.Tag));
-    public INinePFileSystem Clone() => new CreateTrackingFileSystem(_marker) { Dialect = Dialect };
+    public Task<Rwrite> WriteAsync(string[] relativePath, Twrite twrite, CancellationToken ct) => Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
+    public Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "")));
+    public Task<Rwstat> WstatAsync(string[] relativePath, Twstat twstat, CancellationToken ct) => NotSupported<Rwstat>();
+    public Task<Rremove> RemoveAsync(string[] relativePath, Tremove tremove, CancellationToken ct) => Task.FromResult(new Rremove(tremove.Tag));
+    public Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct) => null;
+    public Task<byte[]> AuthReadAsync(uint afid, ulong offset, uint count, CancellationToken ct) => Task.FromResult(Array.Empty<byte>());
+    public Task<uint> AuthWriteAsync(uint afid, ulong offset, byte[] data, CancellationToken ct) => Task.FromResult((uint)data.Length);
 
     private static Task<T> NotSupported<T>() => Task.FromException<T>(new NinePNotSupportedException());
 }
 
-internal sealed class DirectoryListingFileSystem : INinePFileSystem
+internal sealed class DirectoryListingFileSystem : INinePRequestHandler
 {
     private readonly string[] _entries;
 
@@ -305,24 +283,22 @@ internal sealed class DirectoryListingFileSystem : INinePFileSystem
         _entries = entries.ToArray();
     }
 
-    public NinePDialect Dialect { get; set; } = NinePDialect.NineP2000;
-
-    public Task<Rwalk> WalkAsync(Twalk twalk)
+    public Task<Rwalk> WalkAsync(string[] relativePath, Twalk twalk, CancellationToken ct)
     {
         var qids = twalk.Wname.Select((name, i) => new Qid(QidType.QTDIR, 0, (ulong)Math.Abs((name + i).GetHashCode()))).ToArray();
         return Task.FromResult(new Rwalk(twalk.Tag, qids));
     }
 
-    public Task<Ropen> OpenAsync(Topen topen)
+    public Task<Ropen> OpenAsync(string[] relativePath, Topen topen, CancellationToken ct)
         => Task.FromResult(new Ropen(topen.Tag, new Qid(QidType.QTDIR, 0, 1), 8192));
 
-    public Task<Rread> ReadAsync(Tread tread)
+    public Task<Rread> ReadAsync(string[] relativePath, Tread tread, CancellationToken ct)
     {
         var allStats = new List<byte>();
         foreach (var name in _entries)
         {
             var qid = new Qid(QidType.QTDIR, 0, (ulong)Math.Abs(name.GetHashCode()));
-            var stat = new Stat(0, 0, 0, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0755, 0, 0, 0, name, "none", "none", "none", dialect: Dialect);
+            var stat = new Stat(0, 0, 0, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0755, 0, 0, 0, name, "none", "none", "none");
             var buffer = new byte[stat.Size];
             int off = 0;
             stat.WriteTo(buffer, ref off);
@@ -335,38 +311,30 @@ internal sealed class DirectoryListingFileSystem : INinePFileSystem
         return Task.FromResult(new Rread(tread.Tag, allStats.GetRange(start, len).ToArray()));
     }
 
-    public Task<Rwrite> WriteAsync(Twrite twrite) => Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
-    public Task<Rclunk> ClunkAsync(Tclunk tclunk) => Task.FromResult(new Rclunk(tclunk.Tag));
-    public Task<Rstat> StatAsync(Tstat tstat) => NotSupported<Rstat>();
-    public Task<Rwstat> WstatAsync(Twstat twstat) => NotSupported<Rwstat>();
-    public Task<Rremove> RemoveAsync(Tremove tremove) => Task.FromResult(new Rremove(tremove.Tag));
-    public Task<Rcreate> CreateAsync(Tcreate tcreate) => NotSupported<Rcreate>();
-    public INinePFileSystem Clone() => new DirectoryListingFileSystem(_entries) { Dialect = Dialect };
+    public Task<Rwrite> WriteAsync(string[] relativePath, Twrite twrite, CancellationToken ct) => Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
+    public Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "")));
+    public Task<Rwstat> WstatAsync(string[] relativePath, Twstat twstat, CancellationToken ct) => NotSupported<Rwstat>();
+    public Task<Rremove> RemoveAsync(string[] relativePath, Tremove tremove, CancellationToken ct) => Task.FromResult(new Rremove(tremove.Tag));
+    public Task<Rcreate> CreateAsync(string[] relativePath, Tcreate tcreate, CancellationToken ct) => NotSupported<Rcreate>();
+    public Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct) => null;
+    public Task<byte[]> AuthReadAsync(uint afid, ulong offset, uint count, CancellationToken ct) => Task.FromResult(Array.Empty<byte>());
+    public Task<uint> AuthWriteAsync(uint afid, ulong offset, byte[] data, CancellationToken ct) => Task.FromResult((uint)data.Length);
 
     private static Task<T> NotSupported<T>() => Task.FromException<T>(new NinePNotSupportedException());
 }
 
-internal sealed class ExistingPathFileSystem : INinePFileSystem
+internal sealed class ExistingPathFileSystem : INinePRequestHandler
 {
     private readonly HashSet<string> _paths;
-    private List<string> _currentPath = new();
 
     internal ExistingPathFileSystem(IEnumerable<string> paths)
     {
         _paths = new HashSet<string>(paths.Select(NormalizePath), StringComparer.Ordinal) { "/" };
     }
 
-    private ExistingPathFileSystem(HashSet<string> paths, List<string> currentPath)
+    public Task<Rwalk> WalkAsync(string[] relativePath, Twalk twalk, CancellationToken ct)
     {
-        _paths = paths;
-        _currentPath = currentPath;
-    }
-
-    public NinePDialect Dialect { get; set; } = NinePDialect.NineP2000;
-
-    public Task<Rwalk> WalkAsync(Twalk twalk)
-    {
-        var temp = new List<string>(_currentPath);
+        var temp = new List<string>(relativePath);
         var qids = new List<Qid>();
 
         foreach (var segment in twalk.Wname)
@@ -392,23 +360,23 @@ internal sealed class ExistingPathFileSystem : INinePFileSystem
             qids.Add(new Qid(QidType.QTFILE, 0, (ulong)Math.Abs(path.GetHashCode())));
         }
 
-        _currentPath = temp;
         return Task.FromResult(new Rwalk(twalk.Tag, qids.ToArray()));
     }
 
-    public Task<Ropen> OpenAsync(Topen topen)
+    public Task<Ropen> OpenAsync(string[] relativePath, Topen topen, CancellationToken ct)
         => Task.FromResult(new Ropen(topen.Tag, new Qid(QidType.QTFILE, 0, 1), 8192));
 
-    public Task<Rread> ReadAsync(Tread tread)
-        => Task.FromResult(new Rread(tread.Tag, Encoding.UTF8.GetBytes(Normalize(_currentPath))));
+    public Task<Rread> ReadAsync(string[] relativePath, Tread tread, CancellationToken ct)
+        => Task.FromResult(new Rread(tread.Tag, Encoding.UTF8.GetBytes(Normalize(relativePath))));
 
-    public Task<Rwrite> WriteAsync(Twrite twrite) => Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
-    public Task<Rclunk> ClunkAsync(Tclunk tclunk) => Task.FromResult(new Rclunk(tclunk.Tag));
-    public Task<Rstat> StatAsync(Tstat tstat) => NotSupported<Rstat>();
-    public Task<Rwstat> WstatAsync(Twstat twstat) => NotSupported<Rwstat>();
-    public Task<Rremove> RemoveAsync(Tremove tremove) => Task.FromResult(new Rremove(tremove.Tag));
-    public Task<Rcreate> CreateAsync(Tcreate tcreate) => NotSupported<Rcreate>();
-    public INinePFileSystem Clone() => new ExistingPathFileSystem(_paths, new List<string>(_currentPath)) { Dialect = Dialect };
+    public Task<Rwrite> WriteAsync(string[] relativePath, Twrite twrite, CancellationToken ct) => Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
+    public Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "")));
+    public Task<Rwstat> WstatAsync(string[] relativePath, Twstat twstat, CancellationToken ct) => NotSupported<Rwstat>();
+    public Task<Rremove> RemoveAsync(string[] relativePath, Tremove tremove, CancellationToken ct) => Task.FromResult(new Rremove(tremove.Tag));
+    public Task<Rcreate> CreateAsync(string[] relativePath, Tcreate tcreate, CancellationToken ct) => NotSupported<Rcreate>();
+    public Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct) => null;
+    public Task<byte[]> AuthReadAsync(uint afid, ulong offset, uint count, CancellationToken ct) => Task.FromResult(Array.Empty<byte>());
+    public Task<uint> AuthWriteAsync(uint afid, ulong offset, byte[] data, CancellationToken ct) => Task.FromResult((uint)data.Length);
 
     private static string Normalize(IEnumerable<string> segments)
     {
@@ -429,7 +397,7 @@ internal sealed class ExistingPathFileSystem : INinePFileSystem
     private static Task<T> NotSupported<T>() => Task.FromException<T>(new NinePNotSupportedException());
 }
 
-internal sealed class SharedMutableFileSystem : INinePFileSystem
+internal sealed class SharedMutableFileSystem : INinePRequestHandler
 {
     private sealed class SharedState
     {
@@ -440,25 +408,17 @@ internal sealed class SharedMutableFileSystem : INinePFileSystem
     }
 
     private readonly SharedState _state;
-    private List<string> _currentPath = new();
 
     internal SharedMutableFileSystem()
-        : this(new SharedState())
     {
+        _state = new SharedState();
     }
 
-    private SharedMutableFileSystem(SharedState state)
+    private string GetFullPath(string[] rel) => rel.Length == 0 ? "/" : "/" + string.Join("/", rel);
+
+    public Task<Rwalk> WalkAsync(string[] relativePath, Twalk twalk, CancellationToken ct)
     {
-        _state = state;
-    }
-
-    public NinePDialect Dialect { get; set; } = NinePDialect.NineP2000;
-
-    private string GetFullPath() => _currentPath.Count == 0 ? "/" : "/" + string.Join("/", _currentPath);
-
-    public Task<Rwalk> WalkAsync(Twalk twalk)
-    {
-        var tempPath = new List<string>(_currentPath);
+        var tempPath = new List<string>(relativePath);
         var qids = new List<Qid>();
 
         foreach (var name in twalk.Wname)
@@ -480,20 +440,19 @@ internal sealed class SharedMutableFileSystem : INinePFileSystem
             qids.Add(new Qid(qidType, 0, (ulong)Math.Abs(path.GetHashCode())));
         }
 
-        _currentPath = tempPath;
         return Task.FromResult(new Rwalk(twalk.Tag, qids.ToArray()));
     }
 
-    public Task<Ropen> OpenAsync(Topen topen)
+    public Task<Ropen> OpenAsync(string[] relativePath, Topen topen, CancellationToken ct)
     {
-        string path = GetFullPath();
+        string path = GetFullPath(relativePath);
         var qidType = _state.Files.ContainsKey(path) ? QidType.QTFILE : QidType.QTDIR;
         return Task.FromResult(new Ropen(topen.Tag, new Qid(qidType, 0, (ulong)Math.Abs(path.GetHashCode())), 8192));
     }
 
-    public Task<Rread> ReadAsync(Tread tread)
+    public Task<Rread> ReadAsync(string[] relativePath, Tread tread, CancellationToken ct)
     {
-        string path = GetFullPath();
+        string path = GetFullPath(relativePath);
         if (!_state.Files.TryGetValue(path, out var data))
         {
             return Task.FromResult(new Rread(tread.Tag, Array.Empty<byte>()));
@@ -509,9 +468,9 @@ internal sealed class SharedMutableFileSystem : INinePFileSystem
         return Task.FromResult(new Rread(tread.Tag, data.AsSpan(offset, count).ToArray()));
     }
 
-    public Task<Rwrite> WriteAsync(Twrite twrite)
+    public Task<Rwrite> WriteAsync(string[] relativePath, Twrite twrite, CancellationToken ct)
     {
-        string path = GetFullPath();
+        string path = GetFullPath(relativePath);
         if (!_state.Files.TryGetValue(path, out var existing))
         {
             existing = Array.Empty<byte>();
@@ -526,30 +485,20 @@ internal sealed class SharedMutableFileSystem : INinePFileSystem
         return Task.FromResult(new Rwrite(twrite.Tag, (uint)incoming.Length));
     }
 
-    public Task<Rcreate> CreateAsync(Tcreate tcreate)
+    public Task<Rcreate> CreateAsync(string[] relativePath, Tcreate tcreate, CancellationToken ct)
     {
-        string parent = GetFullPath();
+        string parent = GetFullPath(relativePath);
         string path = parent == "/" ? "/" + tcreate.Name : parent + "/" + tcreate.Name;
         _state.Files[path] = Array.Empty<byte>();
-        _currentPath.Add(tcreate.Name);
         return Task.FromResult(new Rcreate(tcreate.Tag, new Qid(QidType.QTFILE, 0, (ulong)Math.Abs(path.GetHashCode())), 8192));
     }
 
-    public Task<Rclunk> ClunkAsync(Tclunk tclunk) => Task.FromResult(new Rclunk(tclunk.Tag));
-    public Task<Rstat> StatAsync(Tstat tstat) => NotSupported<Rstat>();
-    public Task<Rwstat> WstatAsync(Twstat twstat) => NotSupported<Rwstat>();
-    public Task<Rremove> RemoveAsync(Tremove tremove) => Task.FromResult(new Rremove(tremove.Tag));
-
-    public INinePFileSystem Clone()
-    {
-        var clone = new SharedMutableFileSystem(_state)
-        {
-            Dialect = Dialect,
-            _currentPath = new List<string>(_currentPath)
-        };
-
-        return clone;
-    }
-
+    public Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "")));
+    public Task<Rwstat> WstatAsync(string[] relativePath, Twstat twstat, CancellationToken ct) => NotSupported<Rwstat>();
+    public Task<Rremove> RemoveAsync(string[] relativePath, Tremove tremove, CancellationToken ct) => Task.FromResult(new Rremove(tremove.Tag));
+    public Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct) => null;
+    public Task<byte[]> AuthReadAsync(uint afid, ulong offset, uint count, CancellationToken ct) => Task.FromResult(Array.Empty<byte>());
+    public Task<uint> AuthWriteAsync(uint afid, ulong offset, byte[] data, CancellationToken ct) => Task.FromResult((uint)data.Length);
+    
     private static Task<T> NotSupported<T>() => Task.FromException<T>(new NinePNotSupportedException());
 }

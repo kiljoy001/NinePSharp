@@ -19,7 +19,7 @@ public interface IBackendRuntime
 
     Task<Rwalk> WalkAsync(string[] relativePath, NinePDialect dialect);
 
-    Task<Ropen> OpenAsync(string[] relativePath, Topen topen, NinePDialect dialect);
+    Task<Ropen> OpenAsync(string[] relativePath, Topen topen, NinePDialect dialect, CancellationToken ct = default);
 
     Task<Rread> ReadAsync(string[] relativePath, Tread tread, NinePDialect dialect, CancellationToken ct = default);
 
@@ -27,11 +27,11 @@ public interface IBackendRuntime
 
     Task<Rclunk> ClunkAsync(string[] relativePath, Tclunk tclunk, NinePDialect dialect);
 
-    Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, NinePDialect dialect);
+    Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, NinePDialect dialect, CancellationToken ct = default);
 
-    Task<Rwstat> WstatAsync(string[] relativePath, Twstat twstat, NinePDialect dialect);
+    Task<Rwstat> WstatAsync(string[] relativePath, Twstat twstat, NinePDialect dialect, CancellationToken ct = default);
 
-    Task<Rremove> RemoveAsync(string[] relativePath, Tremove tremove, NinePDialect dialect);
+    Task<Rremove> RemoveAsync(string[] relativePath, Tremove tremove, NinePDialect dialect, CancellationToken ct = default);
 
-    Task<Rcreate> CreateAsync(string[] parentRelativePath, Tcreate tcreate, NinePDialect dialect);
+    Task<Rcreate> CreateAsync(string[] parentRelativePath, Tcreate tcreate, NinePDialect dialect, CancellationToken ct = default);
 }

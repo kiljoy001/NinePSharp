@@ -23,7 +23,7 @@ type BindFlags =
     | MCREATE = 0x0004  // Allow creation in this mount
 
 type MountBranch =
-    { Target: BackendTargetDescriptor
+    { Target: string list
       Flags: BindFlags }
 
 /// <summary>
@@ -36,7 +36,7 @@ type MountKey =
 
 type ChannelTarget =
     | NamespaceNode
-    | BackendNode of BackendTargetDescriptor * string list
+    | BackendNode of string list
 
 /// <summary>
 /// Path state like 9front's Path structure.
@@ -59,7 +59,8 @@ and Channel =
       IsOpened: bool
       Umh: MountChain option  // mount head for union reads
       Umc: Channel option     // current chan in union iteration
-      Uri: int }              // union read index
+      Uri: int                // union read index
+      Cname: (uint16 * uint32 * Qid) list } // canonical name (sequence of Type, Dev, Qid)
     member this.InternalPath = this.PathState.VisiblePath
 and MountChain =
     { MountId: uint64

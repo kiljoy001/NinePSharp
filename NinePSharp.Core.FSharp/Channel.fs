@@ -38,7 +38,8 @@ module ChannelOps =
           IsOpened = false
           Umh = None
           Umc = None
-          Uri = 0 }
+          Uri = 0
+          Cname = [] }
 
     let createNamespaceNodeWithPathState qid pathState =
         let (typeValue, devValue) = namespaceTypeDevForPath pathState.VisiblePath
@@ -51,55 +52,64 @@ module ChannelOps =
           IsOpened = false
           Umh = None
           Umc = None
-          Uri = 0 }
+          Uri = 0
+          Cname = [] }
 
-    let createBackendNode qid (target: BackendTargetDescriptor) relativePath visiblePath =
+    let createBackendNode qid relativePath visiblePath =
         { Type = 1us
-          Dev = uint32 (hash (target.Id, target.MountPath) &&& System.Int32.MaxValue)
+          Dev = uint32 (hash relativePath &&& System.Int32.MaxValue)
           Qid = qid
           Offset = 0UL
-          Target = BackendNode(target, relativePath |> List.ofSeq)
+          Target = BackendNode(relativePath |> List.ofSeq)
           PathState = createPathState visiblePath
           IsOpened = false
           Umh = None
           Umc = None
-          Uri = 0 }
+          Uri = 0
+          Cname = [] }
 
-    let createBackendNodeWithPathState qid (target: BackendTargetDescriptor) relativePath pathState =
+    let createBackendNodeWithPathState qid relativePath pathState =
         { Type = 1us
-          Dev = uint32 (hash (target.Id, target.MountPath) &&& System.Int32.MaxValue)
+          Dev = uint32 (hash relativePath &&& System.Int32.MaxValue)
           Qid = qid
           Offset = 0UL
-          Target = BackendNode(target, relativePath |> List.ofSeq)
+          Target = BackendNode(relativePath |> List.ofSeq)
           PathState = pathState
           IsOpened = false
           Umh = None
           Umc = None
-          Uri = 0 }
+          Uri = 0
+          Cname = [] }
 
     /// Result of applying a segment - may cross mount boundary
     type private WalkStep =
         { Target: ChannelTarget
-          PathState: PathState }
+          PathState: PathState
+          Cname: (uint16 * uint32 * NinePSharp.Core.FSharp.Qid) list }
 
-    let private applySegmentFull (step: WalkStep) (segment: string) : WalkStep =
+    let private applySegmentFull (channelIdentity: uint16 * uint32 * NinePSharp.Core.FSharp.Qid) (step: WalkStep) (segment: string) : WalkStep =
         match segment with
         | "" -> step
         | "." -> step
         | ".." ->
+            let newCname =
+                if List.isEmpty step.Cname then []
+                else step.Cname |> List.take (step.Cname.Length - 1)
             match step.Target, step.PathState.Mtpt with
-            | BackendNode(_, relativePath), prevChan :: rest when List.isEmpty relativePath ->
+            | BackendNode(relativePath), prevChan :: rest when List.isEmpty relativePath ->
                 // Crossed a mount going down, now going back up - restore previous chan entirely
                 { Target = prevChan.Target
-                  PathState = { VisiblePath = prevChan.PathState.VisiblePath; Mtpt = rest } }
-            | BackendNode(target, relativePath), _ when not (List.isEmpty relativePath) ->
-                // Still inside backend, walk up within backend
-                { step with PathState = { step.PathState with VisiblePath = parentPath step.PathState.VisiblePath } }
+                  PathState = { VisiblePath = prevChan.PathState.VisiblePath; Mtpt = rest }
+                  Cname = newCname }
             | _ ->
-                // Namespace node or at namespace root
-                { step with PathState = { step.PathState with VisiblePath = parentPath step.PathState.VisiblePath } }
+                // Still inside backend or namespace node, walk up
+                { step with
+                    PathState = { step.PathState with VisiblePath = parentPath step.PathState.VisiblePath }
+                    Cname = newCname }
         | value ->
-            { step with PathState = { step.PathState with VisiblePath = step.PathState.VisiblePath @ [ value ] } }
+            { step with
+                PathState = { step.PathState with VisiblePath = step.PathState.VisiblePath @ [ value ] }
+                Cname = step.Cname @ [ channelIdentity ] }
 
     /// <summary>
     /// Walk returns a new immutable channel rooted at the updated internal path.
@@ -107,8 +117,8 @@ module ChannelOps =
     /// Updates Type/Dev/Qid for namespace nodes to match path (channel identity semantics).
     /// </summary>
     let walk (segments: string list) (channel: Channel) =
-        let initial = { Target = channel.Target; PathState = channel.PathState }
-        let final = segments |> List.fold applySegmentFull initial
+        let initial = { Target = channel.Target; PathState = channel.PathState; Cname = channel.Cname }
+        let final = segments |> List.fold (applySegmentFull (channel.Type, channel.Dev, channel.Qid)) initial
         // Update Type/Dev/Qid for namespace nodes to maintain channel identity
         let (newType, newDev, newQid) =
             match final.Target with
@@ -134,4 +144,5 @@ module ChannelOps =
             Offset = 0UL
             IsOpened = false
             Umc = None
-            Uri = 0 }
+            Uri = 0
+            Cname = final.Cname }
