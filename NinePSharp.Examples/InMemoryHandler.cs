@@ -5,7 +5,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NinePSharp.Constants;
-using NinePSharp.Server.Utils;
 using NinePSharp.Messages;
 using NinePSharp.Server.Interfaces;
 
@@ -44,6 +43,18 @@ public class InMemoryHandler : INinePRequestHandler
             Atime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             Mtime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds()
         };
+    }
+
+    public Task<IAuthHandler?> GetAuthHandlerAsync(Tauth msg, CancellationToken ct) => Task.FromResult<IAuthHandler?>(null);
+
+    public Task<Rattach> AttachAsync(Tattach msg, CancellationToken ct)
+    {
+        return Task.FromResult(new Rattach(msg.Tag, _root.Qid));
+    }
+
+    public Task<Rclunk> ClunkAsync(string[] relativePath, Tclunk msg, CancellationToken ct)
+    {
+        return Task.FromResult(new Rclunk(msg.Tag));
     }
 
     public void AddDirectory(string path)
@@ -118,7 +129,7 @@ public class InMemoryHandler : INinePRequestHandler
     {
         var node = GetNode(relativePath);
         if (node == null)
-            return Task.FromException<Rwalk>(new NinePProtocolException("File not found"));
+            return Task.FromException<Rwalk>(new Exception("File not found"));
 
         var qids = new List<Qid>();
         var current = node;
@@ -140,7 +151,7 @@ public class InMemoryHandler : INinePRequestHandler
     {
         var node = GetNode(relativePath);
         if (node == null)
-            return Task.FromException<Ropen>(new NinePProtocolException("File not found"));
+            return Task.FromException<Ropen>(new Exception("File not found"));
 
         return Task.FromResult(new Ropen(msg.Tag, node.Qid, 4096)); // Arbitrary iounit
     }
@@ -149,14 +160,11 @@ public class InMemoryHandler : INinePRequestHandler
     {
         var node = GetNode(relativePath);
         if (node == null)
-            return Task.FromException<Rread>(new NinePProtocolException("File not found"));
+            return Task.FromException<Rread>(new Exception("File not found"));
 
         if (node.IsDirectory)
         {
-            // Directory read - return error and let fall back to Treaddir if needed,
-            // or we could implement P9 directory reading here. For simplicity, we just
-            // implement pure ReaddirAsync and throw here.
-            return Task.FromException<Rread>(new NinePProtocolException("Is a directory"));
+            return Task.FromException<Rread>(new Exception("Is a directory"));
         }
 
         ulong offset = msg.Offset;
@@ -180,10 +188,10 @@ public class InMemoryHandler : INinePRequestHandler
     {
         var node = GetNode(relativePath);
         if (node == null)
-            return Task.FromException<Rwrite>(new NinePProtocolException("File not found"));
+            return Task.FromException<Rwrite>(new Exception("File not found"));
 
         if (node.IsDirectory)
-            return Task.FromException<Rwrite>(new NinePProtocolException("Is a directory"));
+            return Task.FromException<Rwrite>(new Exception("Is a directory"));
 
         var newLength = Math.Max((int)node.Length, (int)msg.Offset + msg.Data.Length);
         var newBuffer = new byte[newLength];
@@ -204,7 +212,7 @@ public class InMemoryHandler : INinePRequestHandler
     {
         var node = GetNode(relativePath);
         if (node == null)
-            return Task.FromException<Rstat>(new NinePProtocolException("File not found"));
+            return Task.FromException<Rstat>(new Exception("File not found"));
 
         var stat = new Stat(
             size: 0,
@@ -218,7 +226,8 @@ public class InMemoryHandler : INinePRequestHandler
             name: node.Name,
             uid: node.Uid,
             gid: node.Gid,
-            muid: node.Muid
+            muid: node.Muid,
+            dialect: NinePDialect.NineP2000L
         );
 
         return Task.FromResult(new Rstat(msg.Tag, stat));
@@ -228,11 +237,10 @@ public class InMemoryHandler : INinePRequestHandler
     {
         var node = GetNode(relativePath);
         if (node == null)
-            return Task.FromException<Rwstat>(new NinePProtocolException("File not found"));
+            return Task.FromException<Rwstat>(new Exception("File not found"));
 
         if (msg.Stat.Name != null && msg.Stat.Name.Length > 0)
         {
-            // Rename logic - requires parent node
             if (relativePath.Length > 0)
             {
                 var parentPath = relativePath.Take(relativePath.Length - 1).ToArray();
@@ -246,7 +254,7 @@ public class InMemoryHandler : INinePRequestHandler
             }
             else
             {
-                return Task.FromException<Rwstat>(new NinePProtocolException("Cannot rename root"));
+                return Task.FromException<Rwstat>(new Exception("Cannot rename root"));
             }
         }
 
@@ -267,10 +275,10 @@ public class InMemoryHandler : INinePRequestHandler
     {
         var parent = GetNode(parentPath);
         if (parent == null)
-            return Task.FromException<Rcreate>(new NinePProtocolException("Parent not found"));
+            return Task.FromException<Rcreate>(new Exception("Parent not found"));
 
         if (!parent.IsDirectory)
-            return Task.FromException<Rcreate>(new NinePProtocolException("Parent is not a directory"));
+            return Task.FromException<Rcreate>(new Exception("Parent is not a directory"));
 
         var isDir = (msg.Perm & (uint)NinePConstants.FileMode9P.DMDIR) != 0;
         var qidType = isDir ? QidType.QTDIR : QidType.QTFILE;
@@ -286,7 +294,7 @@ public class InMemoryHandler : INinePRequestHandler
         };
 
         if (!parent.Children.TryAdd(msg.Name, newNode))
-            return Task.FromException<Rcreate>(new NinePProtocolException("File already exists"));
+            return Task.FromException<Rcreate>(new Exception("File already exists"));
 
         return Task.FromResult(new Rcreate(msg.Tag, qid, 4096));
     }
@@ -294,16 +302,16 @@ public class InMemoryHandler : INinePRequestHandler
     public virtual Task<Rremove> RemoveAsync(string[] relativePath, Tremove msg, CancellationToken ct)
     {
         if (relativePath.Length == 0)
-            return Task.FromException<Rremove>(new NinePProtocolException("Cannot remove root"));
+            return Task.FromException<Rremove>(new Exception("Cannot remove root"));
 
         var parentPath = relativePath.Take(relativePath.Length - 1).ToArray();
         var parent = GetNode(parentPath);
         if (parent == null)
-            return Task.FromException<Rremove>(new NinePProtocolException("Parent not found"));
+            return Task.FromException<Rremove>(new Exception("Parent not found"));
 
         var name = relativePath.Last();
         if (!parent.Children.TryRemove(name, out _))
-            return Task.FromException<Rremove>(new NinePProtocolException("File not found"));
+            return Task.FromException<Rremove>(new Exception("File not found"));
 
         return Task.FromResult(new Rremove(msg.Tag));
     }
@@ -312,12 +320,12 @@ public class InMemoryHandler : INinePRequestHandler
     {
         var node = GetNode(relativePath);
         if (node == null || !node.IsDirectory)
-            return Task.FromException<Rreaddir>(new NinePProtocolException("Not a directory"));
+            return Task.FromException<Rreaddir>(new Exception("Not a directory"));
 
         var allStats = new List<byte>();
         foreach (var child in node.Children.Values)
         {
-            var stat = new Stat(0, 0, 0, child.Qid, child.Mode, child.Atime, child.Mtime, child.Length, child.Name, child.Uid, child.Gid, child.Muid);
+            var stat = new Stat(0, 0, 0, child.Qid, child.Mode, child.Atime, child.Mtime, child.Length, child.Name, child.Uid, child.Gid, child.Muid, NinePDialect.NineP2000L);
             var buffer = new byte[stat.Size];
             int off = 0;
             stat.WriteTo(buffer, ref off);
@@ -333,20 +341,14 @@ public class InMemoryHandler : INinePRequestHandler
         return Task.FromResult(new Rreaddir((uint)(NinePConstants.HeaderSize + 4 + data.Length), msg.Tag, (uint)data.Length, data));
     }
 
-    /// <summary>
-    /// Auth read stub - InMemoryHandler does not require authentication.
-    /// Returns empty data signaling "no auth required".
-    /// </summary>
-    public virtual Task<byte[]> AuthReadAsync(uint afid, ulong offset, uint count, CancellationToken ct)
-    {
-        return Task.FromResult(Array.Empty<byte>());
-    }
+    public Task<Rsymlink> SymlinkAsync(string[] relativePath, Tsymlink msg, CancellationToken ct) => throw new NotImplementedException();
+    public Task<Rreadlink> ReadlinkAsync(string[] relativePath, Treadlink msg, CancellationToken ct) => throw new NotImplementedException();
+    public Task<Rlink> LinkAsync(string[] relativePath, Tlink msg, CancellationToken ct) => throw new NotImplementedException();
 
-    /// <summary>
-    /// Auth write stub - accepts any auth data silently.
-    /// </summary>
-    public virtual Task<uint> AuthWriteAsync(uint afid, ulong offset, byte[] data, CancellationToken ct)
-    {
-        return Task.FromResult((uint)data.Length);
-    }
+    public Task<Rlerror> LockAsync(string[] relativePath, Tlock msg, CancellationToken ct) => throw new NotImplementedException();
+    public Task<Rgetlock> GetlockAsync(string[] relativePath, Tgetlock msg, CancellationToken ct) => throw new NotImplementedException();
+    public Task<Rxattrwalk> XattrwalkAsync(string[] relativePath, Txattrwalk msg, CancellationToken ct) => throw new NotImplementedException();
+    public Task<Rxattrcreate> XattrcreateAsync(string[] relativePath, Txattrcreate msg, CancellationToken ct) => throw new NotImplementedException();
+
+    public Task<Rflush> FlushAsync(Tflush msg, CancellationToken ct) => Task.FromResult(new Rflush(msg.Tag));
 }

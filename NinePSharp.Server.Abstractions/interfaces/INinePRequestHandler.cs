@@ -5,31 +5,41 @@ using NinePSharp.Messages;
 namespace NinePSharp.Server.Interfaces;
 
 /// <summary>
+/// Handles authentication handshakes for 9P sessions.
+/// </summary>
+public interface IAuthHandler
+{
+    /// <summary>
+    /// Read from the auth channel.
+    /// </summary>
+    Task<byte[]> ReadAsync(ulong offset, uint count, CancellationToken ct);
+
+    /// <summary>
+    /// Write to the auth channel.
+    /// </summary>
+    Task<uint> WriteAsync(ulong offset, byte[] data, CancellationToken ct);
+}
+
+/// <summary>
 /// The universal host interface for 9P request handling.
-///
-/// The core NinePSharp engine manages:
-/// - FID lifecycle and validation
-/// - Namespace traversal and mount crossing
-/// - Path resolution (from root through mounts to relative path)
-/// - Tflush cancellation coordination
-/// - Message encoding/decoding
-///
-/// The host implements this interface to handle actual I/O:
-/// - File/database/memory reads and writes
-/// - Directory enumeration
-/// - Stat queries
-/// - Authentication (if needed)
+/// Implementation is focused on mirroring the simplicity of go9p.
 /// </summary>
 public interface INinePRequestHandler
 {
     /// <summary>
-    /// Walk to a path within the backend.
-    /// The engine has already resolved namespace mounts; this is the final backend walk.
+    /// Optional: Return an auth handler for a given Tauth request.
+    /// Returns null if authentication is not required or supported.
     /// </summary>
-    /// <param name="relativePath">Path segments from backend root</param>
-    /// <param name="msg">Original Twalk message</param>
-    /// <param name="ct">Cancellation token (from Tflush)</param>
-    /// <returns>Rwalk with Qids for successfully walked segments</returns>
+    Task<IAuthHandler?> GetAuthHandlerAsync(Tauth msg, CancellationToken ct);
+
+    /// <summary>
+    /// Attach to a file tree (Tattach).
+    /// </summary>
+    Task<Rattach> AttachAsync(Tattach msg, CancellationToken ct);
+
+    /// <summary>
+    /// Walk to a path within the backend.
+    /// </summary>
     Task<Rwalk> WalkAsync(string[] relativePath, Twalk msg, CancellationToken ct);
 
     /// <summary>
@@ -39,8 +49,6 @@ public interface INinePRequestHandler
 
     /// <summary>
     /// Read from a file.
-    /// For directories: if backend supports readdir natively, return entries here.
-    /// Otherwise, return error and let Treaddir handle it.
     /// </summary>
     Task<Rread> ReadAsync(string[] relativePath, Tread msg, CancellationToken ct);
 
@@ -48,6 +56,11 @@ public interface INinePRequestHandler
     /// Write to a file.
     /// </summary>
     Task<Rwrite> WriteAsync(string[] relativePath, Twrite msg, CancellationToken ct);
+
+    /// <summary>
+    /// Close a fid (Tclunk).
+    /// </summary>
+    Task<Rclunk> ClunkAsync(string[] relativePath, Tclunk msg, CancellationToken ct);
 
     /// <summary>
     /// Get file/directory metadata.
@@ -62,8 +75,6 @@ public interface INinePRequestHandler
     /// <summary>
     /// Create a new file or directory.
     /// </summary>
-    /// <param name="parentPath">Path to parent directory</param>
-    /// <param name="msg">Tcreate with name and permissions</param>
     Task<Rcreate> CreateAsync(string[] parentPath, Tcreate msg, CancellationToken ct);
 
     /// <summary>
@@ -73,30 +84,20 @@ public interface INinePRequestHandler
 
     /// <summary>
     /// Read directory entries (9P2000.L Treaddir).
-    /// Optional: return null/throw to fall back to Tread-based readdir.
     /// </summary>
     Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct);
 
-    /// <summary>
-    /// Read from an auth file (afid). Called when Tread targets an auth fid
-    /// created by Tauth. Implement auth protocol exchange (e.g., p9any, p9sk1).
-    /// Per auth(2): the host reads challenges/results from the auth channel.
-    /// </summary>
-    /// <param name="afid">The auth fid number</param>
-    /// <param name="offset">Read offset</param>
-    /// <param name="count">Maximum bytes to read</param>
-    /// <param name="ct">Cancellation token (from Tflush)</param>
-    /// <returns>Auth protocol response data</returns>
-    Task<byte[]> AuthReadAsync(uint afid, ulong offset, uint count, CancellationToken ct);
+    Task<Rsymlink> SymlinkAsync(string[] relativePath, Tsymlink msg, CancellationToken ct);
+    Task<Rreadlink> ReadlinkAsync(string[] relativePath, Treadlink msg, CancellationToken ct);
+    Task<Rlink> LinkAsync(string[] relativePath, Tlink msg, CancellationToken ct);
 
-    /// <summary>
-    /// Write to an auth file (afid). Called when Twrite targets an auth fid.
-    /// Per auth(2): the host writes auth requests/challenges to the auth channel.
-    /// </summary>
-    /// <param name="afid">The auth fid number</param>
-    /// <param name="offset">Write offset</param>
-    /// <param name="data">Auth protocol request data</param>
-    /// <param name="ct">Cancellation token (from Tflush)</param>
-    /// <returns>Number of bytes consumed</returns>
-    Task<uint> AuthWriteAsync(uint afid, ulong offset, byte[] data, CancellationToken ct);
+    // 9P2000.L Locking
+    Task<Rlerror> LockAsync(string[] relativePath, Tlock msg, CancellationToken ct);
+    Task<Rgetlock> GetlockAsync(string[] relativePath, Tgetlock msg, CancellationToken ct);
+
+    // 9P2000.L Xattr
+    Task<Rxattrwalk> XattrwalkAsync(string[] relativePath, Txattrwalk msg, CancellationToken ct);
+    Task<Rxattrcreate> XattrcreateAsync(string[] relativePath, Txattrcreate msg, CancellationToken ct);
+
+    Task<Rflush> FlushAsync(Tflush msg, CancellationToken ct);
 }

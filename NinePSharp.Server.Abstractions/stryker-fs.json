@@ -1,0 +1,20 @@
+{
+  "stryker-config": {
+    "project": "NinePSharp.Server.Abstractions.csproj",
+    "solution": "../NinePSharp.sln",
+    "test-projects": [
+      "../NinePSharp.Client.Tests/NinePSharp.Client.Tests.csproj"
+    ],
+    "mutate": [
+        "FileSystem/*.cs"
+    ],
+    "mutation-level": "Standard",
+    "reporters": [
+      "progress",
+      "html",
+      "json"
+    ],
+    "concurrency": 4,
+    "verbosity": "info"
+  }
+}

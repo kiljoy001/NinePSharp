@@ -7,12 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.5.4" />
+    <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
-    <ProjectReference Include="..\NinePSharp.Client\NinePSharp.Client.csproj" />
+    <PackageReference Include="Microsoft.Coyote" Version="1.7.11" />
   </ItemGroup>
 
 </Project>

@@ -20,6 +20,33 @@ using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Tests.Helpers;
 
+internal abstract class TestHandlerBase : INinePRequestHandler
+{
+    public virtual Task<IAuthHandler?> GetAuthHandlerAsync(Tauth msg, CancellationToken ct) => Task.FromResult<IAuthHandler?>(null);
+    public virtual Task<Rattach> AttachAsync(Tattach msg, CancellationToken ct) => Task.FromResult(new Rattach(msg.Tag, new Qid(QidType.QTDIR, 0, 0)));
+    public abstract Task<Rwalk> WalkAsync(string[] relativePath, Twalk msg, CancellationToken ct);
+    public abstract Task<Ropen> OpenAsync(string[] relativePath, Topen msg, CancellationToken ct);
+    public abstract Task<Rread> ReadAsync(string[] relativePath, Tread msg, CancellationToken ct);
+    public abstract Task<Rwrite> WriteAsync(string[] relativePath, Twrite msg, CancellationToken ct);
+    public virtual Task<Rclunk> ClunkAsync(string[] relativePath, Tclunk msg, CancellationToken ct) => Task.FromResult(new Rclunk(msg.Tag));
+    public abstract Task<Rstat> StatAsync(string[] relativePath, Tstat msg, CancellationToken ct);
+    public virtual Task<Rwstat> WstatAsync(string[] relativePath, Twstat msg, CancellationToken ct) => throw new NotImplementedException();
+    public virtual Task<Rcreate> CreateAsync(string[] parentPath, Tcreate msg, CancellationToken ct) => throw new NotImplementedException();
+    public virtual Task<Rremove> RemoveAsync(string[] relativePath, Tremove msg, CancellationToken ct) => throw new NotImplementedException();
+    public virtual Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct) => null;
+
+    public virtual Task<Rsymlink> SymlinkAsync(string[] relativePath, Tsymlink msg, CancellationToken ct) => throw new NotImplementedException();
+    public virtual Task<Rreadlink> ReadlinkAsync(string[] relativePath, Treadlink msg, CancellationToken ct) => throw new NotImplementedException();
+    public virtual Task<Rlink> LinkAsync(string[] relativePath, Tlink msg, CancellationToken ct) => throw new NotImplementedException();
+
+    public virtual Task<Rlerror> LockAsync(string[] relativePath, Tlock msg, CancellationToken ct) => throw new NotImplementedException();
+    public virtual Task<Rgetlock> GetlockAsync(string[] relativePath, Tgetlock msg, CancellationToken ct) => throw new NotImplementedException();
+    public virtual Task<Rxattrwalk> XattrwalkAsync(string[] relativePath, Txattrwalk msg, CancellationToken ct) => throw new NotImplementedException();
+    public virtual Task<Rxattrcreate> XattrcreateAsync(string[] relativePath, Txattrcreate msg, CancellationToken ct) => throw new NotImplementedException();
+
+    public virtual Task<Rflush> FlushAsync(Tflush msg, CancellationToken ct) => Task.FromResult(new Rflush(msg.Tag));
+}
+
 internal static class DispatcherIntegrationTestKit
 {
     internal readonly record struct ReaddirEntry(QidType QidType, ulong NextOffset, string Name);
@@ -28,7 +55,8 @@ internal static class DispatcherIntegrationTestKit
     {
         return new NinePFSDispatcher(
             NullLogger<NinePFSDispatcher>.Instance,
-            handler);
+            new[] { new NinePSharp.Server.FileSystem.FileSystemProtocolBackend(new NinePSharp.Server.FileSystem.NinePDir("/")) }, // Dummy
+            new Mock<IRemoteMountProvider>().Object); // Use dummy for now since we disabled the engine
     }
 
     internal static async Task AttachRootAsync(NinePFSDispatcher dispatcher, ushort tag, uint fid)
@@ -191,7 +219,7 @@ internal static class DispatcherIntegrationTestKit
     }
 }
 
-internal sealed class MarkerFileSystem : INinePRequestHandler
+internal sealed class MarkerFileSystem : TestHandlerBase
 {
     private readonly string _marker;
 
@@ -200,38 +228,32 @@ internal sealed class MarkerFileSystem : INinePRequestHandler
         _marker = marker;
     }
 
-    public Task<Rwalk> WalkAsync(string[] relativePath, Twalk msg, CancellationToken ct)
+    public override Task<Rwalk> WalkAsync(string[] relativePath, Twalk msg, CancellationToken ct)
     {
         var qids = msg.Wname.Select((_, i) => new Qid(QidType.QTFILE, 0, (ulong)(_marker.GetHashCode() + i + 1))).ToArray();
         return Task.FromResult(new Rwalk(msg.Tag, qids));
     }
 
-    public Task<Ropen> OpenAsync(string[] relativePath, Topen msg, CancellationToken ct)
+    public override Task<Ropen> OpenAsync(string[] relativePath, Topen msg, CancellationToken ct)
     {
         return Task.FromResult(new Ropen(msg.Tag, new Qid(QidType.QTFILE, 0, (ulong)_marker.GetHashCode()), 0));
     }
 
-    public Task<Rread> ReadAsync(string[] relativePath, Tread msg, CancellationToken ct)
+    public override Task<Rread> ReadAsync(string[] relativePath, Tread msg, CancellationToken ct)
     {
         return Task.FromResult(new Rread(msg.Tag, Encoding.UTF8.GetBytes(_marker)));
     }
 
-    public Task<Rwrite> WriteAsync(string[] relativePath, Twrite msg, CancellationToken ct) => NotSupported<Rwrite>();
-    public Task<Rstat> StatAsync(string[] relativePath, Tstat msg, CancellationToken ct) => Task.FromResult(new Rstat(msg.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "")));
-    public Task<Rwstat> WstatAsync(string[] relativePath, Twstat msg, CancellationToken ct) => NotSupported<Rwstat>();
-    public Task<Rremove> RemoveAsync(string[] relativePath, Tremove msg, CancellationToken ct) => NotSupported<Rremove>();
-    public Task<Rcreate> CreateAsync(string[] relativePath, Tcreate msg, CancellationToken ct) => NotSupported<Rcreate>();
-    public Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct) => null;
-    public Task<byte[]> AuthReadAsync(uint afid, ulong offset, uint count, CancellationToken ct) => Task.FromResult(Array.Empty<byte>());
-    public Task<uint> AuthWriteAsync(uint afid, ulong offset, byte[] data, CancellationToken ct) => Task.FromResult((uint)data.Length);
+    public override Task<Rwrite> WriteAsync(string[] relativePath, Twrite msg, CancellationToken ct) => NotSupported<Rwrite>();
+    public override Task<Rstat> StatAsync(string[] relativePath, Tstat msg, CancellationToken ct) => Task.FromResult(new Rstat(msg.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000)));
 
     private static Task<T> NotSupported<T>()
     {
-        return Task.FromException<T>(new NinePNotSupportedException("Operation is not supported by MarkerFileSystem"));
+        return Task.FromException<T>(new Exception("Operation is not supported by MarkerFileSystem"));
     }
 }
 
-internal sealed class CreateTrackingFileSystem : INinePRequestHandler
+internal sealed class CreateTrackingFileSystem : TestHandlerBase
 {
     private readonly string _marker;
     private readonly List<string> _created = new();
@@ -241,40 +263,33 @@ internal sealed class CreateTrackingFileSystem : INinePRequestHandler
         _marker = marker;
     }
 
-    public Task<Rwalk> WalkAsync(string[] relativePath, Twalk twalk, CancellationToken ct)
+    public override Task<Rwalk> WalkAsync(string[] relativePath, Twalk twalk, CancellationToken ct)
     {
         var qids = twalk.Wname.Select((_, i) => new Qid(QidType.QTFILE, 0, (ulong)(_marker.GetHashCode() + i + 1))).ToArray();
         return Task.FromResult(new Rwalk(twalk.Tag, qids));
     }
 
-    public Task<Ropen> OpenAsync(string[] relativePath, Topen topen, CancellationToken ct)
+    public override Task<Ropen> OpenAsync(string[] relativePath, Topen topen, CancellationToken ct)
         => Task.FromResult(new Ropen(topen.Tag, new Qid(QidType.QTFILE, 0, (ulong)_marker.GetHashCode()), 0));
 
-    public Task<Rread> ReadAsync(string[] relativePath, Tread tread, CancellationToken ct)
+    public override Task<Rread> ReadAsync(string[] relativePath, Tread tread, CancellationToken ct)
     {
         var payload = _created.Count == 0 ? _marker : string.Join(",", _created);
         return Task.FromResult(new Rread(tread.Tag, Encoding.UTF8.GetBytes(payload)));
     }
 
-    public Task<Rcreate> CreateAsync(string[] relativePath, Tcreate tcreate, CancellationToken ct)
+    public override Task<Rcreate> CreateAsync(string[] relativePath, Tcreate tcreate, CancellationToken ct)
     {
         _created.Add(tcreate.Name);
         ulong path = (ulong)Math.Abs((_marker + ":" + tcreate.Name).GetHashCode());
         return Task.FromResult(new Rcreate(tcreate.Tag, new Qid(QidType.QTFILE, 0, path), 8192));
     }
 
-    public Task<Rwrite> WriteAsync(string[] relativePath, Twrite twrite, CancellationToken ct) => Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
-    public Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "")));
-    public Task<Rwstat> WstatAsync(string[] relativePath, Twstat twstat, CancellationToken ct) => NotSupported<Rwstat>();
-    public Task<Rremove> RemoveAsync(string[] relativePath, Tremove tremove, CancellationToken ct) => Task.FromResult(new Rremove(tremove.Tag));
-    public Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct) => null;
-    public Task<byte[]> AuthReadAsync(uint afid, ulong offset, uint count, CancellationToken ct) => Task.FromResult(Array.Empty<byte>());
-    public Task<uint> AuthWriteAsync(uint afid, ulong offset, byte[] data, CancellationToken ct) => Task.FromResult((uint)data.Length);
-
-    private static Task<T> NotSupported<T>() => Task.FromException<T>(new NinePNotSupportedException());
+    public override Task<Rwrite> WriteAsync(string[] relativePath, Twrite twrite, CancellationToken ct) => Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
+    public override Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000)));
 }
 
-internal sealed class DirectoryListingFileSystem : INinePRequestHandler
+internal sealed class DirectoryListingFileSystem : TestHandlerBase
 {
     private readonly string[] _entries;
 
@@ -283,22 +298,22 @@ internal sealed class DirectoryListingFileSystem : INinePRequestHandler
         _entries = entries.ToArray();
     }
 
-    public Task<Rwalk> WalkAsync(string[] relativePath, Twalk twalk, CancellationToken ct)
+    public override Task<Rwalk> WalkAsync(string[] relativePath, Twalk twalk, CancellationToken ct)
     {
         var qids = twalk.Wname.Select((name, i) => new Qid(QidType.QTDIR, 0, (ulong)Math.Abs((name + i).GetHashCode()))).ToArray();
         return Task.FromResult(new Rwalk(twalk.Tag, qids));
     }
 
-    public Task<Ropen> OpenAsync(string[] relativePath, Topen topen, CancellationToken ct)
+    public override Task<Ropen> OpenAsync(string[] relativePath, Topen topen, CancellationToken ct)
         => Task.FromResult(new Ropen(topen.Tag, new Qid(QidType.QTDIR, 0, 1), 8192));
 
-    public Task<Rread> ReadAsync(string[] relativePath, Tread tread, CancellationToken ct)
+    public override Task<Rread> ReadAsync(string[] relativePath, Tread tread, CancellationToken ct)
     {
         var allStats = new List<byte>();
         foreach (var name in _entries)
         {
             var qid = new Qid(QidType.QTDIR, 0, (ulong)Math.Abs(name.GetHashCode()));
-            var stat = new Stat(0, 0, 0, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0755, 0, 0, 0, name, "none", "none", "none");
+            var stat = new Stat(0, 0, 0, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0755, 0, 0, 0, name, "none", "none", "none", NinePDialect.NineP2000);
             var buffer = new byte[stat.Size];
             int off = 0;
             stat.WriteTo(buffer, ref off);
@@ -311,19 +326,11 @@ internal sealed class DirectoryListingFileSystem : INinePRequestHandler
         return Task.FromResult(new Rread(tread.Tag, allStats.GetRange(start, len).ToArray()));
     }
 
-    public Task<Rwrite> WriteAsync(string[] relativePath, Twrite twrite, CancellationToken ct) => Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
-    public Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "")));
-    public Task<Rwstat> WstatAsync(string[] relativePath, Twstat twstat, CancellationToken ct) => NotSupported<Rwstat>();
-    public Task<Rremove> RemoveAsync(string[] relativePath, Tremove tremove, CancellationToken ct) => Task.FromResult(new Rremove(tremove.Tag));
-    public Task<Rcreate> CreateAsync(string[] relativePath, Tcreate tcreate, CancellationToken ct) => NotSupported<Rcreate>();
-    public Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct) => null;
-    public Task<byte[]> AuthReadAsync(uint afid, ulong offset, uint count, CancellationToken ct) => Task.FromResult(Array.Empty<byte>());
-    public Task<uint> AuthWriteAsync(uint afid, ulong offset, byte[] data, CancellationToken ct) => Task.FromResult((uint)data.Length);
-
-    private static Task<T> NotSupported<T>() => Task.FromException<T>(new NinePNotSupportedException());
+    public override Task<Rwrite> WriteAsync(string[] relativePath, Twrite twrite, CancellationToken ct) => Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
+    public override Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000)));
 }
 
-internal sealed class ExistingPathFileSystem : INinePRequestHandler
+internal sealed class ExistingPathFileSystem : TestHandlerBase
 {
     private readonly HashSet<string> _paths;
 
@@ -332,7 +339,7 @@ internal sealed class ExistingPathFileSystem : INinePRequestHandler
         _paths = new HashSet<string>(paths.Select(NormalizePath), StringComparer.Ordinal) { "/" };
     }
 
-    public Task<Rwalk> WalkAsync(string[] relativePath, Twalk twalk, CancellationToken ct)
+    public override Task<Rwalk> WalkAsync(string[] relativePath, Twalk twalk, CancellationToken ct)
     {
         var temp = new List<string>(relativePath);
         var qids = new List<Qid>();
@@ -363,20 +370,14 @@ internal sealed class ExistingPathFileSystem : INinePRequestHandler
         return Task.FromResult(new Rwalk(twalk.Tag, qids.ToArray()));
     }
 
-    public Task<Ropen> OpenAsync(string[] relativePath, Topen topen, CancellationToken ct)
+    public override Task<Ropen> OpenAsync(string[] relativePath, Topen topen, CancellationToken ct)
         => Task.FromResult(new Ropen(topen.Tag, new Qid(QidType.QTFILE, 0, 1), 8192));
 
-    public Task<Rread> ReadAsync(string[] relativePath, Tread tread, CancellationToken ct)
+    public override Task<Rread> ReadAsync(string[] relativePath, Tread tread, CancellationToken ct)
         => Task.FromResult(new Rread(tread.Tag, Encoding.UTF8.GetBytes(Normalize(relativePath))));
 
-    public Task<Rwrite> WriteAsync(string[] relativePath, Twrite twrite, CancellationToken ct) => Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
-    public Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "")));
-    public Task<Rwstat> WstatAsync(string[] relativePath, Twstat twstat, CancellationToken ct) => NotSupported<Rwstat>();
-    public Task<Rremove> RemoveAsync(string[] relativePath, Tremove tremove, CancellationToken ct) => Task.FromResult(new Rremove(tremove.Tag));
-    public Task<Rcreate> CreateAsync(string[] relativePath, Tcreate tcreate, CancellationToken ct) => NotSupported<Rcreate>();
-    public Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct) => null;
-    public Task<byte[]> AuthReadAsync(uint afid, ulong offset, uint count, CancellationToken ct) => Task.FromResult(Array.Empty<byte>());
-    public Task<uint> AuthWriteAsync(uint afid, ulong offset, byte[] data, CancellationToken ct) => Task.FromResult((uint)data.Length);
+    public override Task<Rwrite> WriteAsync(string[] relativePath, Twrite twrite, CancellationToken ct) => Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
+    public override Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000)));
 
     private static string Normalize(IEnumerable<string> segments)
     {
@@ -393,11 +394,9 @@ internal sealed class ExistingPathFileSystem : INinePRequestHandler
 
         return Normalize(path.Split('/', StringSplitOptions.RemoveEmptyEntries));
     }
-
-    private static Task<T> NotSupported<T>() => Task.FromException<T>(new NinePNotSupportedException());
 }
 
-internal sealed class SharedMutableFileSystem : INinePRequestHandler
+internal sealed class SharedMutableFileSystem : TestHandlerBase
 {
     private sealed class SharedState
     {
@@ -416,7 +415,7 @@ internal sealed class SharedMutableFileSystem : INinePRequestHandler
 
     private string GetFullPath(string[] rel) => rel.Length == 0 ? "/" : "/" + string.Join("/", rel);
 
-    public Task<Rwalk> WalkAsync(string[] relativePath, Twalk twalk, CancellationToken ct)
+    public override Task<Rwalk> WalkAsync(string[] relativePath, Twalk twalk, CancellationToken ct)
     {
         var tempPath = new List<string>(relativePath);
         var qids = new List<Qid>();
@@ -443,14 +442,14 @@ internal sealed class SharedMutableFileSystem : INinePRequestHandler
         return Task.FromResult(new Rwalk(twalk.Tag, qids.ToArray()));
     }
 
-    public Task<Ropen> OpenAsync(string[] relativePath, Topen topen, CancellationToken ct)
+    public override Task<Ropen> OpenAsync(string[] relativePath, Topen topen, CancellationToken ct)
     {
         string path = GetFullPath(relativePath);
         var qidType = _state.Files.ContainsKey(path) ? QidType.QTFILE : QidType.QTDIR;
         return Task.FromResult(new Ropen(topen.Tag, new Qid(qidType, 0, (ulong)Math.Abs(path.GetHashCode())), 8192));
     }
 
-    public Task<Rread> ReadAsync(string[] relativePath, Tread tread, CancellationToken ct)
+    public override Task<Rread> ReadAsync(string[] relativePath, Tread tread, CancellationToken ct)
     {
         string path = GetFullPath(relativePath);
         if (!_state.Files.TryGetValue(path, out var data))
@@ -468,7 +467,7 @@ internal sealed class SharedMutableFileSystem : INinePRequestHandler
         return Task.FromResult(new Rread(tread.Tag, data.AsSpan(offset, count).ToArray()));
     }
 
-    public Task<Rwrite> WriteAsync(string[] relativePath, Twrite twrite, CancellationToken ct)
+    public override Task<Rwrite> WriteAsync(string[] relativePath, Twrite twrite, CancellationToken ct)
     {
         string path = GetFullPath(relativePath);
         if (!_state.Files.TryGetValue(path, out var existing))
@@ -485,7 +484,7 @@ internal sealed class SharedMutableFileSystem : INinePRequestHandler
         return Task.FromResult(new Rwrite(twrite.Tag, (uint)incoming.Length));
     }
 
-    public Task<Rcreate> CreateAsync(string[] relativePath, Tcreate tcreate, CancellationToken ct)
+    public override Task<Rcreate> CreateAsync(string[] relativePath, Tcreate tcreate, CancellationToken ct)
     {
         string parent = GetFullPath(relativePath);
         string path = parent == "/" ? "/" + tcreate.Name : parent + "/" + tcreate.Name;
@@ -493,12 +492,5 @@ internal sealed class SharedMutableFileSystem : INinePRequestHandler
         return Task.FromResult(new Rcreate(tcreate.Tag, new Qid(QidType.QTFILE, 0, (ulong)Math.Abs(path.GetHashCode())), 8192));
     }
 
-    public Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "")));
-    public Task<Rwstat> WstatAsync(string[] relativePath, Twstat twstat, CancellationToken ct) => NotSupported<Rwstat>();
-    public Task<Rremove> RemoveAsync(string[] relativePath, Tremove tremove, CancellationToken ct) => Task.FromResult(new Rremove(tremove.Tag));
-    public Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct) => null;
-    public Task<byte[]> AuthReadAsync(uint afid, ulong offset, uint count, CancellationToken ct) => Task.FromResult(Array.Empty<byte>());
-    public Task<uint> AuthWriteAsync(uint afid, ulong offset, byte[] data, CancellationToken ct) => Task.FromResult((uint)data.Length);
-    
-    private static Task<T> NotSupported<T>() => Task.FromException<T>(new NinePNotSupportedException());
+    public override Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000)));
 }

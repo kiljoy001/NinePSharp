@@ -206,6 +206,8 @@ public enum QidType : byte
 	QTMOUNT = 0x10,
 	/// <summary>Authentication file</summary>
 	QTAUTH = 0x08,
+	/// <summary>Symbolic link</summary>
+	QTSYMLINK = 0x02,
 	/// <summary>Temporary file</summary>
 	QTTMP = 0x40,
 	/// <summary>Plain file</summary>
