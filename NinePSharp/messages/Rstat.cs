@@ -6,6 +6,7 @@ using NinePSharp.Protocol;
 namespace NinePSharp.Messages;
 
 // size[4] Rstat tag[2] nstat[2] stat[nstat]
+// Note: nstat is the total size of the stat structure, which also starts with a 2-byte size.
 public readonly struct Rstat : ISerializable
 {
     public uint Size { get; }

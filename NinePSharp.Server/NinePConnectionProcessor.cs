@@ -19,14 +19,14 @@ using NinePSharp.Server.Interfaces;
 
 namespace NinePSharp.Server;
 
-internal interface INinePTransportSecurity
+public interface INinePTransportSecurity
 {
     Task<TransportSecurityResult> AuthenticateAsync(Stream transport, EndpointConfig endpoint, CancellationToken ct);
 }
 
-internal readonly record struct TransportSecurityResult(Stream Stream, X509Certificate2? ClientCertificate);
+public readonly record struct TransportSecurityResult(Stream Stream, X509Certificate2? ClientCertificate);
 
-internal sealed class DefaultNinePTransportSecurity : INinePTransportSecurity
+public sealed class DefaultNinePTransportSecurity : INinePTransportSecurity
 {
     public async Task<TransportSecurityResult> AuthenticateAsync(Stream transport, EndpointConfig endpoint, CancellationToken ct)
     {
@@ -45,14 +45,14 @@ internal sealed class DefaultNinePTransportSecurity : INinePTransportSecurity
     }
 }
 
-internal sealed class NinePConnectionProcessor
+public sealed class NinePConnectionProcessor
 {
     private readonly ILogger _logger;
     private readonly INinePFSDispatcher _dispatcher;
     private readonly IEmercoinAuthService _authService;
     private readonly INinePTransportSecurity _transportSecurity;
 
-    internal NinePConnectionProcessor(
+    public NinePConnectionProcessor(
         ILogger logger,
         INinePFSDispatcher dispatcher,
         IEmercoinAuthService authService,
@@ -64,7 +64,7 @@ internal sealed class NinePConnectionProcessor
         _transportSecurity = transportSecurity ?? new DefaultNinePTransportSecurity();
     }
 
-    internal sealed class ClientSession
+    public sealed class ClientSession
     {
         public ClientSession()
         {
@@ -84,7 +84,7 @@ internal sealed class NinePConnectionProcessor
         public SemaphoreSlim WriteLock { get; } = new(1, 1);
     }
 
-    internal async Task HandleClientAsync(TcpClient client, EndpointConfig endpoint, CancellationToken ct)
+    public async Task HandleClientAsync(TcpClient client, EndpointConfig endpoint, CancellationToken ct)
     {
         EndPoint? endPoint = client.Client.RemoteEndPoint;
         _logger.LogInformation("Client connected from {EndPoint}", endPoint);
@@ -108,7 +108,7 @@ internal sealed class NinePConnectionProcessor
         }
     }
 
-    internal async Task<Stream> AuthenticateTransportAsync(Stream transport, EndpointConfig endpoint, ClientSession session, EndPoint? endPoint, CancellationToken ct)
+    public async Task<Stream> AuthenticateTransportAsync(Stream transport, EndpointConfig endpoint, ClientSession session, EndPoint? endPoint, CancellationToken ct)
     {
         var secured = await _transportSecurity.AuthenticateAsync(transport, endpoint, ct);
         if (secured.ClientCertificate is X509Certificate2 certificate)
@@ -124,7 +124,7 @@ internal sealed class NinePConnectionProcessor
         return secured.Stream;
     }
 
-    internal async Task ProcessStreamAsync(Stream stream, EndPoint? endPoint, ClientSession session, CancellationToken ct)
+    public async Task ProcessStreamAsync(Stream stream, EndPoint? endPoint, ClientSession session, CancellationToken ct)
     {
         var headerBuffer = new byte[NinePConstants.HeaderSize];
 

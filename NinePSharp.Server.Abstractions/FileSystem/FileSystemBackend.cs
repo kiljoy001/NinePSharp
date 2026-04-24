@@ -34,7 +34,6 @@ public class FileSystemBackend : IBackendRuntime, IReaddirCapableBackendRuntime,
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         if (!_inFlightRequests.TryAdd(tag, cts))
         {
-             // Tag collision should be handled by protocol layer, but we'll protect here too
              _inFlightRequests[tag].Cancel();
              _inFlightRequests[tag] = cts;
         }
@@ -245,9 +244,9 @@ public class FileSystemBackend : IBackendRuntime, IReaddirCapableBackendRuntime,
 
     public Task<Rflush> FlushAsync(Tflush msg, CancellationToken ct)
     {
-        if (_inFlightRequests.TryGetValue(msg.OldTag, out var cts))
+        if (_inFlightRequests.TryGetValue(msg.OldTag, out var innerCts))
         {
-            cts.Cancel();
+            innerCts.Cancel();
         }
         return Task.FromResult(new Rflush(msg.Tag));
     }
@@ -318,7 +317,7 @@ public class FileSystemProtocolBackend : IProtocolBackend
     }
 }
 
-internal class FileSystemWrapper : INinePFileSystem, IReaddirCapableBackendRuntime
+internal class FileSystemWrapper : INinePFileSystem, IReaddirCapableBackendRuntime, INinePRequestHandler
 {
     private readonly FileSystemBackend _inner;
     public FileSystemWrapper(FileSystemBackend inner) => _inner = inner;
@@ -326,6 +325,19 @@ internal class FileSystemWrapper : INinePFileSystem, IReaddirCapableBackendRunti
     public string Id => _inner.Id;
     public string MountPath => _inner.MountPath;
     public NinePDialect Dialect { get => _inner.Dialect; set => _inner.Dialect = value; }
+
+    public Task<IAuthHandler?> GetAuthHandlerAsync(Tauth msg, CancellationToken ct) => _inner.GetAuthHandlerAsync(msg, ct);
+    public Task<Rattach> AttachAsync(Tattach msg, CancellationToken ct) => _inner.AttachAsync(msg, ct);
+    public Task<Rwalk> WalkAsync(string[] relativePath, Twalk msg, CancellationToken ct) => _inner.WalkAsync(relativePath, msg, ct);
+    public Task<Ropen> OpenAsync(string[] relativePath, Topen msg, CancellationToken ct) => _inner.OpenAsync(relativePath, msg, ct);
+    public Task<Rread> ReadAsync(string[] relativePath, Tread msg, CancellationToken ct) => _inner.ReadAsync(relativePath, msg, ct);
+    public Task<Rwrite> WriteAsync(string[] relativePath, Twrite msg, CancellationToken ct) => _inner.WriteAsync(relativePath, msg, ct);
+    public Task<Rclunk> ClunkAsync(string[] relativePath, Tclunk msg, CancellationToken ct) => _inner.ClunkAsync(relativePath, msg, ct);
+    public Task<Rstat> StatAsync(string[] relativePath, Tstat msg, CancellationToken ct) => _inner.StatAsync(relativePath, msg, ct);
+    public Task<Rwstat> WstatAsync(string[] relativePath, Twstat msg, CancellationToken ct) => _inner.WstatAsync(relativePath, msg, ct);
+    public Task<Rcreate> CreateAsync(string[] parentPath, Tcreate msg, CancellationToken ct) => _inner.CreateAsync(parentPath, msg, ct);
+    public Task<Rremove> RemoveAsync(string[] relativePath, Tremove msg, CancellationToken ct) => _inner.RemoveAsync(relativePath, msg, ct);
+    public Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct) => _inner.ReaddirAsync(relativePath, msg, ct);
 
     public Task<Rwalk> WalkAsync(string[] relativePath, NinePDialect dialect) => _inner.WalkAsync(relativePath, dialect);
     public Task<Ropen> OpenAsync(string[] relativePath, Topen topen, NinePDialect dialect, CancellationToken ct = default) => _inner.OpenAsync(relativePath, topen, dialect, ct);

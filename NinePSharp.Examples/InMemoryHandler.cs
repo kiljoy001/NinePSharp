@@ -4,8 +4,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Buffers.Binary;
 using NinePSharp.Constants;
 using NinePSharp.Messages;
+using NinePSharp.Protocol;
 using NinePSharp.Server.Interfaces;
 
 namespace NinePSharp.Examples;
@@ -156,32 +158,46 @@ public class InMemoryHandler : INinePRequestHandler
         return Task.FromResult(new Ropen(msg.Tag, node.Qid, 4096)); // Arbitrary iounit
     }
 
-    public virtual Task<Rread> ReadAsync(string[] relativePath, Tread msg, CancellationToken ct)
+    public virtual async Task<Rread> ReadAsync(string[] relativePath, Tread msg, CancellationToken ct)
     {
         var node = GetNode(relativePath);
         if (node == null)
-            return Task.FromException<Rread>(new Exception("File not found"));
+            return await Task.FromException<Rread>(new Exception("File not found"));
 
+        byte[] data;
         if (node.IsDirectory)
         {
-            return Task.FromException<Rread>(new Exception("Is a directory"));
+            var allStats = new List<byte>();
+            foreach (var child in node.Children.Values)
+            {
+                var stat = new Stat(0, 0, 0, child.Qid, child.Mode, child.Atime, child.Mtime, child.Length, child.Name, child.Uid, child.Gid, child.Muid, NinePDialect.NineP2000);
+                var buffer = new byte[stat.Size];
+                int off = 0;
+                stat.WriteTo(buffer, ref off);
+                allStats.AddRange(buffer);
+            }
+            data = allStats.ToArray();
+        }
+        else
+        {
+            data = node.Content;
         }
 
         ulong offset = msg.Offset;
         uint count = msg.Count;
 
-        if (offset >= (ulong)node.Content.Length)
+        if (offset >= (ulong)data.Length)
         {
-            return Task.FromResult(new Rread(msg.Tag, Array.Empty<byte>()));
+            return new Rread(msg.Tag, Array.Empty<byte>());
         }
 
-        var available = (uint)(node.Content.Length - (int)offset);
+        var available = (uint)(data.Length - (int)offset);
         var toRead = Math.Min(count, available);
 
-        var data = new byte[toRead];
-        Array.Copy(node.Content, (int)offset, data, 0, (int)toRead);
+        var result = new byte[toRead];
+        Array.Copy(data, (int)offset, result, 0, (int)toRead);
 
-        return Task.FromResult(new Rread(msg.Tag, data));
+        return new Rread(msg.Tag, result);
     }
 
     public virtual Task<Rwrite> WriteAsync(string[] relativePath, Twrite msg, CancellationToken ct)
@@ -227,7 +243,7 @@ public class InMemoryHandler : INinePRequestHandler
             uid: node.Uid,
             gid: node.Gid,
             muid: node.Muid,
-            dialect: NinePDialect.NineP2000L
+            dialect: NinePDialect.NineP2000
         );
 
         return Task.FromResult(new Rstat(msg.Tag, stat));
@@ -322,22 +338,34 @@ public class InMemoryHandler : INinePRequestHandler
         if (node == null || !node.IsDirectory)
             return Task.FromException<Rreaddir>(new Exception("Not a directory"));
 
-        var allStats = new List<byte>();
+        var allEntries = new List<byte>();
+        ulong offset = 0;
         foreach (var child in node.Children.Values)
         {
-            var stat = new Stat(0, 0, 0, child.Qid, child.Mode, child.Atime, child.Mtime, child.Length, child.Name, child.Uid, child.Gid, child.Muid, NinePDialect.NineP2000L);
-            var buffer = new byte[stat.Size];
+            // 9P2000.L readdir: qid[13] offset[8] type[1] name[s]
+            var nameBytes = System.Text.Encoding.UTF8.GetBytes(child.Name);
+            int entrySize = 13 + 8 + 1 + 2 + nameBytes.Length;
+            var buffer = new byte[entrySize];
             int off = 0;
-            stat.WriteTo(buffer, ref off);
-            allStats.AddRange(buffer);
+            var span = buffer.AsSpan();
+            span.WriteQid(child.Qid, ref off);
+            
+            offset += (ulong)entrySize;
+            BinaryPrimitives.WriteUInt64LittleEndian(span.Slice(off, 8), offset);
+            off += 8;
+            
+            span[off++] = (byte)(child.Qid.Type);
+            span.WriteString(child.Name, ref off);
+            
+            allEntries.AddRange(buffer);
         }
 
-        if (msg.Offset >= (ulong)allStats.Count)
+        if (msg.Offset >= (ulong)allEntries.Count)
             return Task.FromResult(new Rreaddir((uint)(NinePConstants.HeaderSize + 4), msg.Tag, 0, Array.Empty<byte>()));
 
         int start = (int)msg.Offset;
-        int len = (int)Math.Min(msg.Count, (uint)(allStats.Count - start));
-        var data = allStats.GetRange(start, len).ToArray();
+        int len = (int)Math.Min(msg.Count, (uint)(allEntries.Count - start));
+        var data = allEntries.GetRange(start, len).ToArray();
         return Task.FromResult(new Rreaddir((uint)(NinePConstants.HeaderSize + 4 + data.Length), msg.Tag, (uint)data.Length, data));
     }
 

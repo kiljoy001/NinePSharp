@@ -22,6 +22,7 @@ public class RemoteFsTests
         var (clientStream, serverStream) = LoopbackStream.CreatePair();
         using var client = new NinePClient(clientStream);
 
+        // Persistent Server loop
         var serverTask = Task.Run(async () => {
             try {
                 while (true) {

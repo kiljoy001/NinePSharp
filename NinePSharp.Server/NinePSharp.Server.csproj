@@ -4,6 +4,7 @@
     <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
     <ProjectReference Include="..\NinePSharp.Parser\NinePSharp.Parser.fsproj" />
     <ProjectReference Include="..\NinePSharp.Core.FSharp\NinePSharp.Core.FSharp.fsproj" />
+    <ProjectReference Include="..\NinePSharp.Server.FSharp\NinePSharp.Server.FSharp.fsproj" />
     <ProjectReference Include="..\NinePSharp.Server.Abstractions\NinePSharp.Server.Abstractions.csproj" />
   </ItemGroup>
 
