@@ -120,3 +120,25 @@ let ``Parser gracefully returns Error when receiving truncated valid payload`` (
     match NinePParser.parse dialect (ReadOnlyMemory truncated) with
     | Error _ -> true
     | Ok _ -> false
+
+[<Fact>]
+let ``Validation rejects undersized msize`` () =
+    match Validation.validate (MsgTversion(Tversion(1us, uint32 (int NinePConstants.HeaderSize - 1), "9P2000"))) with
+    | Error err -> Assert.Contains("MSize too small", err)
+    | Ok () -> Assert.Fail("Expected validation failure for undersized msize")
+
+[<Fact>]
+let ``Validation rejects oversized auth strings`` () =
+    let oversized = String.replicate (Validation.MaxStringLength + 1) "a"
+
+    match Validation.validate (MsgTauth(Tauth(1us, 10u, oversized, "", Nullable()))) with
+    | Error err -> Assert.Contains("Invalid uname", err)
+    | Ok () -> Assert.Fail("Expected validation failure for oversized uname")
+
+[<Fact>]
+let ``Validation rejects too many walk components`` () =
+    let walk = Twalk(1us, 1u, 2u, Array.init 17 (fun i -> $"p{i}"))
+
+    match Validation.validate (MsgTwalk walk) with
+    | Error err -> Assert.Contains("Too many walk components", err)
+    | Ok () -> Assert.Fail("Expected validation failure for oversized walk")

@@ -80,9 +80,9 @@ The `since` feature in `stryker-config.json`:
 
 **Example:**
 ```bash
-# You modify NinePSharp.Server/utils/LuxVault.cs
+# You modify NinePSharp.Client/NinePClient.cs
 # Stryker automatically detects this via git
-# Only LuxVault.cs gets mutated (not the other 100+ files)
+# Only NinePClient.cs gets mutated (not the other 100+ files)
 # Result: 5 minutes instead of 2 hours
 ```
 

@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,7 +16,6 @@ using NinePSharp.Interfaces;
 using NinePSharp.Messages;
 using NinePSharp.Protocol;
 using NinePSharp.Server.Configuration.Models;
-using NinePSharp.Server.Interfaces;
 
 namespace NinePSharp.Server;
 
@@ -35,9 +35,20 @@ public sealed class DefaultNinePTransportSecurity : INinePTransportSecurity
             return new TransportSecurityResult(transport, null);
         }
 
+        if (string.IsNullOrWhiteSpace(endpoint.ServerCertificatePath))
+        {
+            throw new InvalidOperationException("TLS endpoints require a configured server certificate path.");
+        }
+
         var sslStream = new SslStream(transport, false);
+        var serverCertificate = X509CertificateLoader.LoadPkcs12FromFile(
+            endpoint.ServerCertificatePath,
+            endpoint.ServerCertificatePassword,
+            X509KeyStorageFlags.DefaultKeySet,
+            Pkcs12LoaderLimits.Defaults);
         await sslStream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
         {
+            ServerCertificate = serverCertificate,
             ClientCertificateRequired = true,
         }, ct);
 
@@ -49,18 +60,15 @@ public sealed class NinePConnectionProcessor
 {
     private readonly ILogger _logger;
     private readonly INinePFSDispatcher _dispatcher;
-    private readonly IEmercoinAuthService _authService;
     private readonly INinePTransportSecurity _transportSecurity;
 
     public NinePConnectionProcessor(
         ILogger logger,
         INinePFSDispatcher dispatcher,
-        IEmercoinAuthService authService,
         INinePTransportSecurity? transportSecurity = null)
     {
         _logger = logger;
         _dispatcher = dispatcher;
-        _authService = authService;
         _transportSecurity = transportSecurity ?? new DefaultNinePTransportSecurity();
     }
 
@@ -114,11 +122,6 @@ public sealed class NinePConnectionProcessor
         if (secured.ClientCertificate is X509Certificate2 certificate)
         {
             session.State = TransportSessionOps.withTransport(session.State.Protocol.Dialect, certificate, session.State);
-            bool authorized = await _authService.IsCertificateAuthorizedAsync(certificate);
-            if (!authorized)
-            {
-                _logger.LogWarning("Client {EndPoint} failed Emercoin authorization.", endPoint);
-            }
         }
 
         return secured.Stream;

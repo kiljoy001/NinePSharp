@@ -28,11 +28,3 @@ Important:
 Reference upstream:
 - https://github.com/chaos/diod
 - https://sources.debian.org/src/diod/
-
-## Monocypher
-
-This repository vendors Monocypher sources under `NinePSharp.Server/external/monocypher/`.
-
-Monocypher is dual-licensed by its author. See headers in:
-- `NinePSharp.Server/external/monocypher/monocypher.c`
-- `NinePSharp.Server/external/monocypher/monocypher.h`

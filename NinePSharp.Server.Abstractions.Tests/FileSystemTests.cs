@@ -64,6 +64,85 @@ public class FileSystemTests
     }
 
     [Fact]
+    public async Task FileSystemBackend_StatAsync_UsesDialectArgument()
+    {
+        var root = new NinePDir("/");
+        root.AddChild(new NinePFile("dialect.txt"));
+
+        var backend = new FileSystemBackend(root)
+        {
+            Dialect = NinePDialect.NineP2000,
+        };
+
+        var rstat = await backend.StatAsync(new[] { "dialect.txt" }, new Tstat(1, 1), NinePDialect.NineP2000L);
+
+        Assert.Equal(NinePDialect.NineP2000L, rstat.Stat.Dialect);
+        Assert.Equal(uint.MaxValue, rstat.Stat.NUid);
+    }
+
+    [Fact]
+    public async Task NinePNode_WstatAsync_UpdatesWritableFields()
+    {
+        var file = new NinePFile("before.txt");
+        var qid = file.GetStat(NinePDialect.NineP2000).Qid;
+        var updated = new Stat(
+            0,
+            0,
+            0,
+            qid,
+            0600,
+            10,
+            20,
+            99,
+            "after.txt",
+            "root",
+            "root",
+            "root",
+            NinePDialect.NineP2000);
+
+        await file.WstatAsync(updated, default);
+
+        Assert.Equal("after.txt", file.Name);
+        Assert.Equal((uint)0600, file.Mode);
+        Assert.Equal(10u, file.Atime);
+        Assert.Equal(20u, file.Mtime);
+        Assert.Equal(99ul, file.Length);
+    }
+
+    [Fact]
+    public async Task FileSystemBackend_ResolvePath_IgnoresDotSegments()
+    {
+        var root = new NinePDir("/");
+        var sub = new NinePDir("sub");
+        root.AddChild(sub);
+        sub.AddChild(new NinePFile("file.txt"));
+
+        var backend = new FileSystemBackend(root)
+        {
+            Dialect = NinePDialect.NineP2000L,
+        };
+
+        var rstat = await backend.StatAsync(new[] { ".", "sub", ".", "file.txt" }, new Tstat(1, 1), NinePDialect.NineP2000L);
+
+        Assert.Equal("file.txt", rstat.Stat.Name);
+    }
+
+    [Fact]
+    public async Task FileSystemBackend_ResolvePath_ThrowsForMissingSegment()
+    {
+        var root = new NinePDir("/");
+        root.AddChild(new NinePDir("sub"));
+
+        var backend = new FileSystemBackend(root)
+        {
+            Dialect = NinePDialect.NineP2000L,
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            backend.StatAsync(new[] { "sub", "missing.txt" }, new Tstat(1, 1), NinePDialect.NineP2000L));
+    }
+
+    [Fact]
     public async Task NinePNode_Symlink_Works()
     {
         var root = new NinePDir("/");

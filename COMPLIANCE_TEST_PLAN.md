@@ -28,13 +28,12 @@ All compliance testing is measured against the following references in the `9fro
 - **Goal:** Catch protocol state machine drifts.
 - **Approach:** Use a randomized sequence generator to compare NinePSharp behavior against a simplified abstract model of a 9P server.
 
-### 2.3 Namespace & Union Semantics (Property-Based)
-- **Goal:** Ensure `namec`-style lookups and union mounts work correctly.
+### 2.3 Path Walk Semantics (Property-Based)
+- **Goal:** Ensure path traversal and FID evolution stay consistent across equivalent walk sequences.
 - **Key Invariants:**
     - `walk(A/B/C)` must be equivalent to `walk(A) -> walk(B) -> walk(C)`.
-    - `walk(..)` from a mount point must correctly unwind to the parent in the mounting namespace.
-    - `union read` must merge directory entries from all branches with stable continuation.
-    - `MCREATE` must target the first writable branch in a union.
+    - `walk(..)` and `walk(.)` must behave consistently with the active backend path.
+    - Partial walk failure must preserve the exact number of successfully resolved elements.
 
 ### 2.4 Race Condition & Concurrency Testing
 - **Goal:** Ensure thread safety and protocol atomicity.
@@ -50,7 +49,7 @@ All compliance testing is measured against the following references in the `9fro
 - **Goal:** Detect crashes or memory corruption from malformed inputs.
 - **Targets:**
     - Message parsing (F# Parser).
-    - Path resolution (Namespace kernel).
+    - Path resolution and traversal state.
 
 ## 3. Compliance Matrix (9P2000 Core)
 

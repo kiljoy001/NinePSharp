@@ -5,35 +5,42 @@ open NinePSharp.Constants
 open System
 
 module Classic =
+    let private createParsers is9u =
+        dict [
+            byte MessageTypes.Tversion, fun (data: ReadOnlyMemory<byte>) -> MsgTversion(new Tversion(data.Span))
+            byte MessageTypes.Rversion, fun data -> MsgRversion(new Rversion(data.Span))
+            byte MessageTypes.Tauth, fun data -> MsgTauth(new Tauth(data.Span, is9u))
+            byte MessageTypes.Rauth, fun data -> MsgRauth(new Rauth(data.Span))
+            byte MessageTypes.Tattach, fun data -> MsgTattach(new Tattach(data.Span, is9u))
+            byte MessageTypes.Rattach, fun data -> MsgRattach(new Rattach(data.Span))
+            byte MessageTypes.Rerror, fun data -> MsgRerror(new Rerror(data.Span, is9u))
+            byte MessageTypes.Topen, fun data -> MsgTopen(new Topen(data.Span))
+            byte MessageTypes.Ropen, fun data -> MsgRopen(new Ropen(data.Span))
+            byte MessageTypes.Tcreate, fun data -> MsgTcreate(new Tcreate(data.Span))
+            byte MessageTypes.Rcreate, fun data -> MsgRcreate(new Rcreate(data.Span))
+            byte MessageTypes.Tread, fun data -> MsgTread(new Tread(data.Span))
+            byte MessageTypes.Rread, fun data -> MsgRread(new Rread(data))
+            byte MessageTypes.Twrite, fun data -> MsgTwrite(new Twrite(data))
+            byte MessageTypes.Rwrite, fun data -> MsgRwrite(new Rwrite(data.Span))
+            byte MessageTypes.Tclunk, fun data -> MsgTclunk(new Tclunk(data.Span))
+            byte MessageTypes.Rclunk, fun data -> MsgRclunk(new Rclunk(data.Span))
+            byte MessageTypes.Tremove, fun data -> MsgTremove(new Tremove(data.Span))
+            byte MessageTypes.Rremove, fun data -> MsgRremove(new Rremove(data.Span))
+            byte MessageTypes.Tstat, fun data -> MsgTstat(new Tstat(data.Span))
+            byte MessageTypes.Rstat, fun data -> MsgRstat(new Rstat(data.Span))
+            byte MessageTypes.Twstat, fun data -> MsgTwstat(new Twstat(data.Span))
+            byte MessageTypes.Rwstat, fun data -> MsgRwstat(new Rwstat(data.Span))
+            byte MessageTypes.Twalk, fun data -> MsgTwalk(new Twalk(data.Span))
+            byte MessageTypes.Rwalk, fun data -> MsgRwalk(new Rwalk(data.Span))
+            byte MessageTypes.Tflush, fun data -> MsgTflush(new Tflush(data.Span))
+            byte MessageTypes.Rflush, fun data -> MsgRflush(new Rflush(data.Span))
+        ]
+
+    let private classicParsers = createParsers false
+    let private nineP2000uParsers = createParsers true
+
     let parse (msgType: byte) (data: ReadOnlyMemory<byte>) (dialect: NinePDialect) =
-        let span = data.Span
-        let is9u = Dialect.is9u dialect
-        match msgType with
-        | t when t = byte MessageTypes.Tversion -> Ok (MsgTversion(new Tversion(span)))
-        | t when t = byte MessageTypes.Rversion -> Ok (MsgRversion(new Rversion(span)))
-        | t when t = byte MessageTypes.Tauth -> Ok (MsgTauth(new Tauth(span, is9u)))
-        | t when t = byte MessageTypes.Rauth -> Ok (MsgRauth(new Rauth(span)))
-        | t when t = byte MessageTypes.Tattach -> Ok (MsgTattach(new Tattach(span, is9u)))
-        | t when t = byte MessageTypes.Rattach -> Ok (MsgRattach(new Rattach(span)))
-        | t when t = byte MessageTypes.Rerror -> Ok (MsgRerror(new Rerror(span, is9u)))
-        | t when t = byte MessageTypes.Topen -> Ok (MsgTopen(new Topen(span)))
-        | t when t = byte MessageTypes.Ropen -> Ok (MsgRopen(new Ropen(span)))
-        | t when t = byte MessageTypes.Tcreate -> Ok (MsgTcreate(new Tcreate(span)))
-        | t when t = byte MessageTypes.Rcreate -> Ok (MsgRcreate(new Rcreate(span)))
-        | t when t = byte MessageTypes.Tread -> Ok (MsgTread(new Tread(span)))
-        | t when t = byte MessageTypes.Rread -> Ok (MsgRread(new Rread(data)))
-        | t when t = byte MessageTypes.Twrite -> Ok (MsgTwrite(new Twrite(data)))
-        | t when t = byte MessageTypes.Rwrite -> Ok (MsgRwrite(new Rwrite(span)))
-        | t when t = byte MessageTypes.Tclunk -> Ok (MsgTclunk(new Tclunk(span)))
-        | t when t = byte MessageTypes.Rclunk -> Ok (MsgRclunk(new Rclunk(span)))
-        | t when t = byte MessageTypes.Tremove -> Ok (MsgTremove(new Tremove(span)))
-        | t when t = byte MessageTypes.Rremove -> Ok (MsgRremove(new Rremove(span)))
-        | t when t = byte MessageTypes.Tstat -> Ok (MsgTstat(new Tstat(span)))
-        | t when t = byte MessageTypes.Rstat -> Ok (MsgRstat(new Rstat(span)))
-        | t when t = byte MessageTypes.Twstat -> Ok (MsgTwstat(new Twstat(span)))
-        | t when t = byte MessageTypes.Rwstat -> Ok (MsgRwstat(new Rwstat(span)))
-        | t when t = byte MessageTypes.Twalk -> Ok (MsgTwalk(new Twalk(span)))
-        | t when t = byte MessageTypes.Rwalk -> Ok (MsgRwalk(new Rwalk(span)))
-        | t when t = byte MessageTypes.Tflush -> Ok (MsgTflush(new Tflush(span)))
-        | t when t = byte MessageTypes.Rflush -> Ok (MsgRflush(new Rflush(span)))
-        | _ -> Error (UnknownMessageType msgType)
+        let parsers = if Dialect.is9u dialect then nineP2000uParsers else classicParsers
+        match parsers.TryGetValue msgType with
+        | true, parser -> Ok (parser data)
+        | false, _ -> Error (UnknownMessageType msgType)

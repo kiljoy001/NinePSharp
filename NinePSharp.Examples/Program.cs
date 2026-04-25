@@ -8,15 +8,9 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using NinePSharp.Examples;
 using NinePSharp.Server;
-using NinePSharp.Server.Interfaces;
 using NinePSharp.Server.FSharp;
 
 namespace NinePSharp.Examples;
-
-class DummyAuthService : IEmercoinAuthService
-{
-    public Task<bool> IsCertificateAuthorizedAsync(X509Certificate2 certificate) => Task.FromResult(true);
-}
 
 public class Program
 {
@@ -40,8 +34,7 @@ public class Program
 
         var processor = new NinePConnectionProcessor(
             logger,
-            dispatcher,
-            new DummyAuthService()
+            dispatcher
         );
 
         var listener = new TcpListener(IPAddress.Any, 5640); // Use 5640 to avoid permission issues

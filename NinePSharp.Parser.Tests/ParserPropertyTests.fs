@@ -118,6 +118,49 @@ module ParserPropertyTests =
         | MsgTwstat _
         | MsgRwstat _ -> true
         | _ -> false
+
+    let private isLinuxMessage (msg: NinePMessage) =
+        match msg with
+        | MsgTstatfs _
+        | MsgRstatfs _
+        | MsgTlopen _
+        | MsgRlopen _
+        | MsgTlcreate _
+        | MsgRlcreate _
+        | MsgTsymlink _
+        | MsgRsymlink _
+        | MsgTmknod _
+        | MsgRmknod _
+        | MsgTrename _
+        | MsgRrename _
+        | MsgTreadlink _
+        | MsgRreadlink _
+        | MsgTgetattr _
+        | MsgRgetattr _
+        | MsgTsetattr _
+        | MsgRsetattr _
+        | MsgTxattrwalk _
+        | MsgRxattrwalk _
+        | MsgTxattrcreate _
+        | MsgRxattrcreate _
+        | MsgTreaddir _
+        | MsgRreaddir _
+        | MsgTfsync _
+        | MsgRfsync _
+        | MsgTlock _
+        | MsgRlock _
+        | MsgTgetlock _
+        | MsgRgetlock _
+        | MsgTlink _
+        | MsgRlink _
+        | MsgTmkdir _
+        | MsgRmkdir _
+        | MsgTrenameat _
+        | MsgRrenameat _
+        | MsgTunlinkat _
+        | MsgRunlinkat _
+        | MsgRlerror _ -> true
+        | _ -> false
     
     [<Property(Arbitrary = [| typeof<Generators.NinePArb> |], MaxTest = 1000)>]
     let ``Parser round-trip consistency`` (msg: NinePMessage) =
@@ -132,3 +175,17 @@ module ParserPropertyTests =
                 Assert.Equal<byte>(originalBytes, parsedBytes)
             | Error err -> 
                 Assert.Fail(sprintf "Parse failed for message %A: %s" msg err)
+
+    [<Property(Arbitrary = [| typeof<Generators.NinePArb> |], MaxTest = 1000)>]
+    let ``Parser Linux round-trip consistency`` (msg: NinePMessage) =
+        if isLinuxMessage msg then
+            let data = Serializer.serialize msg
+            let result = NinePParser.parse NinePDialect.NineP2000L (ReadOnlyMemory<byte>(data))
+
+            match result with
+            | Ok parsedMsg ->
+                let originalBytes = Serializer.serialize msg
+                let parsedBytes = Serializer.serialize parsedMsg
+                Assert.Equal<byte>(originalBytes, parsedBytes)
+            | Error err ->
+                Assert.Fail(sprintf "Linux parse failed for message %A: %s" msg err)

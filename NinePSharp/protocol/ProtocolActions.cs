@@ -33,7 +33,7 @@ public static class ProtocolActions
     /// <returns>The string read from the span.</returns>
     public static string ReadString(this ReadOnlySpan<byte> data, ref int byteIndex)
     {
-        if (byteIndex + 2 > data.Length) throw new IndexOutOfRangeException();
+        if (byteIndex + 2 > data.Length) throw new InvalidOperationException("Insufficient bytes to read the string length.");
         var len = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(byteIndex, 2));
         byteIndex += 2;
         

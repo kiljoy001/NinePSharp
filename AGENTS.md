@@ -1,17 +1,17 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`NinePSharp/` contains core 9P message types and constants (C#). `NinePSharp.Messages.FSharp/` and `NinePSharp.Parser/` provide F# protocol helpers and parsing. `NinePSharp.Server/` is the executable host with backend adapters (`backends/`), cluster code (`cluster/`), and configuration binding (`configuration/`).  
-Tests are split into `NinePSharp.Tests/` (C# unit/property/security tests) and `NinePSharp.Parser.Tests/` (F# parser tests). `NinePSharp.Fuzzer/` holds SharpFuzz entry points. Treat `publish_out/`, `*.vlt`, and log files as generated artifacts, not source.
+`NinePSharp/` contains core 9P message types and constants (C#). `NinePSharp.Messages.FSharp/` and `NinePSharp.Parser/` provide F# protocol helpers and parsing. `NinePSharp.Server/` is the embeddable runtime library with backend adapters and configuration binding. `NinePSharp.Examples/` is the runnable sample host.  
+Tests are split into `NinePSharp.Tests/` (C# unit/property/security tests) and `NinePSharp.Parser.Tests/` (F# parser tests). `NinePSharp.Fuzzer/` holds SharpFuzz entry points. Treat `publish_out/`, `TestResults/`, and log files as generated artifacts, not source.
 
 ## Build, Test, and Development Commands
-The root `NinePSharp.slnx` currently has no project entries, so use project-targeted commands:
+Prefer the solution for full validation, or project-targeted commands when iterating:
 
-- `dotnet build NinePSharp.Server/NinePSharp.Server.csproj -c Debug` builds the server and copies runtime config.
-- `dotnet run --project NinePSharp.Server/NinePSharp.Server.csproj` starts the 9P server locally.
+- `dotnet build NinePSharp.sln -c Debug` builds the repo.
+- `dotnet run --project NinePSharp.Examples/NinePSharp.Examples.csproj` starts the sample host locally.
 - `dotnet test NinePSharp.Tests/NinePSharp.Tests.csproj` runs C# unit/property/security tests.
 - `dotnet test NinePSharp.Parser.Tests/NinePSharp.Parser.Tests.fsproj` runs F# parser tests.
-- `dotnet test NinePSharp.Tests/NinePSharp.Tests.csproj --collect:"XPlat Code Coverage"` collects coverage via Coverlet.
+- `bash scripts/run-quality.sh` runs the analyzer/test quality gate.
 - `bash test_integration.sh` runs the integration script (expects `/usr/local/bin/9p`).
 
 ## Coding Style & Naming Conventions
@@ -29,4 +29,4 @@ Recent commits use imperative, scope-first subjects (for example "Implement and 
 PRs should include: change summary, affected modules, exact test commands run, and any config/runtime prerequisites. Link issues when available.
 
 ## Security & Configuration Tips
-Server settings live in `NinePSharp.Server/config.json`; keep secrets out of committed config. Use the protected secret/vault patterns already in the server code for sensitive data handling, and avoid committing generated vault artifacts (`secret_*.vlt`).
+Server settings live in `NinePSharp.Server/config.json`; keep secrets out of committed config. TLS endpoints now depend on explicit certificate settings in config rather than embedded secret-management helpers.

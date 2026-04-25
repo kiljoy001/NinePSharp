@@ -1,46 +1,20 @@
 namespace NinePSharp.Core.FSharp
 
-open System.Security
 open System.Security.Cryptography.X509Certificates
 open NinePSharp.Constants
-open NinePSharp.Server.Interfaces
 
 type ProtocolSession =
     { SessionId: string
-      UserName: string
-      Process: Plan9Process
       Fids: Map<uint32, Channel>
-      AuthFids: Map<uint32, SecureString>
       Dialect: NinePDialect
       Certificate: X509Certificate2 option }
 
 module ProtocolSessionOps =
-    let private rootQid = { Type = QidType.QTDIR; Version = 0u; Path = 0UL }
-    let private rootChannel = ChannelOps.createNamespaceNode rootQid []
-
     let create (sessionId: string) (dialect: NinePDialect) (certificate: X509Certificate2) =
         { SessionId = sessionId
-          UserName = "none"
-          Process = Process.create 0 NamespaceOps.empty rootChannel
           Fids = Map.empty
-          AuthFids = Map.empty
           Dialect = dialect
           Certificate = Option.ofObj certificate }
-
-    let withNamespace (ns: Namespace) (session: ProtocolSession) =
-        { session with Process = { session.Process with Namespace = ns } }
-
-    let withProcessRoot (root: Channel) (session: ProtocolSession) =
-        { session with Process = { session.Process with Dot = root; Slash = root } }
-
-    let withUserName (userName: string) (session: ProtocolSession) =
-        let normalized =
-            match userName with
-            | null
-            | "" -> "none"
-            | value -> value
-
-        { session with UserName = normalized }
 
     let withTransport (dialect: NinePDialect) (certificate: X509Certificate2) (session: ProtocolSession) =
         { session with
@@ -49,18 +23,6 @@ module ProtocolSessionOps =
 
     let certificateOrNull (session: ProtocolSession) =
         session.Certificate |> Option.toObj
-
-    let addAuthFid (fid: uint32) (secure: SecureString) (session: ProtocolSession) =
-        { session with AuthFids = session.AuthFids |> Map.add fid secure }
-
-    let tryFindAuthFid (fid: uint32) (session: ProtocolSession) =
-        session.AuthFids |> Map.tryFind fid
-
-    let removeAuthFid (fid: uint32) (session: ProtocolSession) =
-        { session with AuthFids = session.AuthFids |> Map.remove fid }
-
-    let containsFid (fid: uint32) (session: ProtocolSession) =
-        session.Fids |> Map.containsKey fid
 
     let tryFindFid (fid: uint32) (session: ProtocolSession) =
         session.Fids |> Map.tryFind fid
@@ -71,73 +33,15 @@ module ProtocolSessionOps =
     let removeFid (fid: uint32) (session: ProtocolSession) =
         { session with Fids = session.Fids |> Map.remove fid }
 
-    /// Compute channel identity (Type, Dev) from ChannelTarget.
-    /// Matches logic in ChannelOps.createNamespaceNode / createBackendNode
-    /// so that MountKeyModule.fromChannel produces consistent mount table keys.
-    let private channelIdentity (target: ChannelTarget) (visiblePath: string list) =
-        match target with
-        | NamespaceNode ->
-            // Match ChannelOps.namespaceTypeDevForPath: Type='#', Dev=path-hash
-            let typeValue = uint16 '#'
-            let devValue =
-                if List.isEmpty visiblePath then 0u
-                else uint32 (int64 (PathHash.stableHash 'D' visiblePath) &&& 0xFFFFFFFFL)
-            (typeValue, devValue)
-        | BackendNode(relativePath) ->
-            // Match ChannelOps.createBackendNode: Type=1, Dev=target-hash
-            (1us, uint32 (hash relativePath &&& System.Int32.MaxValue))
-
     let createBinding
         (target: ChannelTarget)
         (qidType: QidType)
         (qidVersion: uint32)
         (qidPath: uint64)
         (visiblePath: seq<string>) =
-        let pathState = ChannelOps.createPathState visiblePath
-        let (typeValue, devValue) = channelIdentity target pathState.VisiblePath
-        { Type = typeValue
-          Dev = devValue
-          Qid = { Type = qidType; Version = qidVersion; Path = qidPath }
+        { Qid = { Type = qidType; Version = qidVersion; Path = qidPath }
           Offset = 0UL
           Target = target
-          PathState = pathState
+          InternalPath = visiblePath |> List.ofSeq
           IsOpened = false
-          Umh = None
-          Umc = None
-          Uri = 0
-          Cname = [] }
-
-    let createBindingWithPathState
-        (target: ChannelTarget)
-        (qidType: QidType)
-        (qidVersion: uint32)
-        (qidPath: uint64)
-        (pathState: PathState) =
-        let (typeValue, devValue) = channelIdentity target pathState.VisiblePath
-        { Type = typeValue
-          Dev = devValue
-          Qid = { Type = qidType; Version = qidVersion; Path = qidPath }
-          Offset = 0UL
-          Target = target
-          PathState = pathState
-          IsOpened = false
-          Umh = None
-          Umc = None
-          Uri = 0
-          Cname = [] }
-
-    let namespaceOf (session: ProtocolSession) =
-        session.Process.Namespace
-
-    let rootOf (session: ProtocolSession) =
-        session.Process.Slash
-
-    let walkChannel
-        (segments: seq<string>)
-        (qidType: QidType)
-        (qidVersion: uint32)
-        (qidPath: uint64)
-        (channel: Channel) =
-        let walked = channel |> ChannelOps.walk (segments |> List.ofSeq)
-        { walked with
-            Qid = { Type = qidType; Version = qidVersion; Path = qidPath } }
+        }

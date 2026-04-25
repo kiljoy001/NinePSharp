@@ -1,23 +1,21 @@
 # NinePSharp
 
-NinePSharp is a modular .NET 9P toolkit and server. It lets you expose heterogeneous systems (databases, cloud services, RPC endpoints, and blockchain providers) through a unified 9P filesystem interface.
+NinePSharp is a modular .NET 9P toolkit and server. It lets you expose local or service-backed resources through a unified 9P filesystem interface.
 
 ## Why NinePSharp
 
 - Core 9P protocol primitives and message types in reusable packages.
 - Batteries-included server runtime with dependency injection and backend routing.
 - Plugin-style backends so deployments only load what they need.
-- Security-focused secret handling via transient session keys and encrypted vault files.
-- Cluster-ready host components for multi-node deployments.
+- Runnable example host for embedded or local server scenarios.
 
 ## Repository Layout
 
 - `NinePSharp/` - core protocol constants, message types, serialization helpers.
 - `NinePSharp.Parser/` - F# parser implementation.
 - `NinePSharp.Server.Abstractions/` - shared interfaces/contracts for backends.
-- `NinePSharp.Backends.*` - optional backend plugins:
-  - `Database`, `Cloud`, `JsonRpc`, `Websocket`, `Mqtt`, `Rest`, `Soap`, `Grpc`, `Blockchain`
-- `NinePSharp.Server/` - runtime host/server (not shipped as a NuGet package).
+- `NinePSharp.Server/` - runtime library and transport host components.
+- `NinePSharp.Examples/` - runnable sample host with an in-memory handler.
 - `NinePSharp.Tests/` and `NinePSharp.Parser.Tests/` - test suites.
 
 ## Quick Start
@@ -25,14 +23,14 @@ NinePSharp is a modular .NET 9P toolkit and server. It lets you expose heterogen
 Prerequisites:
 - .NET SDK 10.x
 
-Build and run the server:
+Build the library and run the example host:
 
 ```bash
 dotnet build NinePSharp.Server/NinePSharp.Server.csproj -c Release
-dotnet run --project NinePSharp.Server/NinePSharp.Server.csproj
+dotnet run --project NinePSharp.Examples/NinePSharp.Examples.csproj
 ```
 
-Default server endpoint is configured in `NinePSharp.Server/config.json` (`127.0.0.1:5641`).
+`NinePSharp.Server` is the embeddable runtime library. `NinePSharp.Examples` is the current runnable sample host.
 
 ## Tests
 
@@ -46,6 +44,14 @@ Integration script (requires a local `9p` CLI):
 ```bash
 bash test_integration.sh
 ```
+
+## Quality
+
+```bash
+bash scripts/run-quality.sh
+```
+
+This runs the main test projects, repo-wide .NET analyzers, and the custom Semgrep rules in `quality/semgrep.yml`.
 
 ## NuGet Packages
 
@@ -68,8 +74,6 @@ Each package folder includes its own `README.NUGET.md`.
 ## Configuration & Security
 
 - Main runtime config: `NinePSharp.Server/config.json`
-- Cluster config: `NinePSharp.Server/cluster.conf`
-- Vault/secret handling is designed for minimized plaintext exposure and startup/shutdown cleanup.
 
 ## License
 

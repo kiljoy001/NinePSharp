@@ -16,7 +16,6 @@ using NinePSharp.Parser;
 using NinePSharp.Protocol;
 using NinePSharp.Server;
 using NinePSharp.Server.Interfaces;
-using NinePSharp.Server.Utils;
 
 namespace NinePSharp.Tests.Helpers;
 
@@ -74,16 +73,9 @@ internal static class DispatcherIntegrationTestKit
 
     internal static NinePFSDispatcher CreateDispatcher(INinePRequestHandler handler)
     {
-        var mockBackend = new Mock<IProtocolBackend>();
-        mockBackend.Setup(b => b.MountPath).Returns("/");
-        
-        var fs = (INinePFileSystem)handler;
-        mockBackend.Setup(b => b.GetFileSystem(It.IsAny<X509Certificate2>())).Returns(fs);
-
         return new NinePFSDispatcher(
             NullLogger<NinePFSDispatcher>.Instance,
-            new[] { mockBackend.Object },
-            new Mock<IRemoteMountProvider>().Object);
+            handler);
     }
 
     internal static async Task AttachRootAsync(NinePFSDispatcher dispatcher, ushort tag, uint fid)

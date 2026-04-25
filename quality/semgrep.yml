@@ -1,0 +1,24 @@
+rules:
+  - id: ninepsharp-no-lock-this
+    message: Use a private lock object instead of lock(this).
+    severity: ERROR
+    languages:
+      - csharp
+    paths:
+      include:
+        - NinePSharp.Client/**
+        - NinePSharp.Server/**
+        - NinePSharp.Server.Abstractions/**
+    pattern: lock (this) { ... }
+
+  - id: ninepsharp-no-generic-exception
+    message: Throw a more specific exception type in production code.
+    severity: ERROR
+    languages:
+      - csharp
+    paths:
+      include:
+        - NinePSharp.Client/**
+        - NinePSharp.Server/**
+        - NinePSharp.Server.Abstractions/**
+    pattern: throw new Exception(...)

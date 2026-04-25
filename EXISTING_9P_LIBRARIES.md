@@ -32,7 +32,7 @@ dotnet add package Sharp9P --version 0.1.6.29
 **Probably does NOT include:**
 - 9P2000.L support (Linux extensions)
 - Modern async/await patterns (written in 2016)
-- Your specific use cases (Emercoin, LuxVault, etc.)
+- Your specific runtime shape and backend model
 
 ---
 
@@ -97,7 +97,7 @@ Your Architecture:
 │ Sharp9P (Message Parsing)           │ ← Use this if good
 ├─────────────────────────────────────┤
 │ Your Backends:                      │ ← You write this
-│  - EmercoinAuth                     │
+│  - Custom Request Handlers          │
 │  - SimpleSecureStorage              │
 │  - MockFileSystem (testing)         │
 └─────────────────────────────────────┘
@@ -106,7 +106,7 @@ Your Architecture:
 **This gives you:**
 - ✓ Working protocol layer (Sharp9P)
 - ✓ Control over architecture (your Session management)
-- ✓ Your unique features (Emercoin, deniability, etc.)
+- ✓ Your runtime decisions and backend surface
 
 ---
 
@@ -119,7 +119,7 @@ Your Architecture:
 **Sharp9P won't give you:**
 - Session isolation (you need to build this)
 - Backend abstraction (you need to build this)
-- Emercoin integration (you need to build this)
+- Your backend integrations (you need to build these)
 - Modern async patterns (might need to wrap/update)
 
 **It's a foundation, not a complete solution.**
@@ -185,7 +185,7 @@ You still need to:
 - Design session management ✗ (library doesn't do this)
 - Handle FID isolation ✗ (library doesn't do this)
 - Build backends ✗ (library doesn't do this)
-- Integrate Emercoin ✗ (library doesn't do this)
+- Integrate your own backends ✗ (library doesn't do this)
 
 **What the library MIGHT give you:**
 - Message parsing ✓ (saves weeks)

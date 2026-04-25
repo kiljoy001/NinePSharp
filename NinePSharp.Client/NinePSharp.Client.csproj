@@ -10,8 +10,4 @@
     <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Coyote" Version="1.7.11" />
-  </ItemGroup>
-
 </Project>

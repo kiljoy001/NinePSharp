@@ -80,6 +80,10 @@ type NinePFSDispatcherEngine(handler: INinePRequestHandler) =
     let bindFid (fid: uint32) (channel: Channel) (session: SessionBox) : unit =
         withLock session.Gate (fun () -> session.State <- ProtocolSessionOps.bindFid fid channel session.State)
 
+    let relativePath (channel: Channel) =
+        let (BackendNode path) = channel.Target
+        path
+
     let withInFlightTracking (tag: uint16) (session: SessionBox) (action: CancellationToken -> Task<obj>) : Task<obj> =
         task {
             let cts = new CancellationTokenSource()
@@ -113,6 +117,191 @@ type NinePFSDispatcherEngine(handler: INinePRequestHandler) =
             finally for i = gates.Length - 1 downto 0 do gates.[i].Release() |> ignore
         }
 
+    let removeFid (fid: uint32) (session: SessionBox) : unit =
+        withLock session.Gate (fun () -> session.State <- ProtocolSessionOps.removeFid fid session.State)
+
+    let relativePathArray (channel: Channel) = relativePath channel |> List.toArray
+
+    let getChannelAndPath (fid: uint32) (session: SessionBox) =
+        let channel = getChannelOrThrow fid session
+        channel, relativePathArray channel
+
+    let emptyReaddirResponse (tag: uint16) =
+        Rreaddir((uint)(NinePConstants.HeaderSize + 4), tag, 0u, ReadOnlyMemory.Empty) :> obj
+
+    let handleVersion (t: Tversion) : Task<obj> =
+        Task.FromResult(Rversion(t.Tag, t.MSize, t.Version) :> obj)
+
+    let handleAuth (session: SessionBox) (t: Tauth) : Task<obj> =
+        withFidLocks session [ t.Afid ] (fun () ->
+            task {
+                let! authHandler = handler.GetAuthHandlerAsync(t, CancellationToken.None)
+                if not (isNull (box authHandler)) then
+                    session.AuthHandlers.[t.Afid] <- authHandler
+                return Rauth(t.Tag, Qid(QidType.QTAUTH, 0u, uint64 t.Afid)) :> obj
+            })
+
+    let handleAttach (session: SessionBox) (t: Tattach) : Task<obj> =
+        withFidLocks session [ t.Fid ] (fun () ->
+            task {
+                let! rattach = handler.AttachAsync(t, CancellationToken.None)
+                let rootChan = ProtocolSessionOps.createBinding (BackendNode []) rattach.Qid.Type rattach.Qid.Version rattach.Qid.Path []
+                bindFid t.Fid rootChan session
+                return rattach :> obj
+            })
+
+    let handleWalk (session: SessionBox) (t: Twalk) : Task<obj> =
+        withFidLocks session [ t.Fid; t.NewFid ] (fun () ->
+            task {
+                let channel = getChannelOrThrow t.Fid session
+                let relPath = relativePath channel
+                let! rwalk = handler.WalkAsync(relPath |> List.toArray, t, CancellationToken.None)
+
+                if isNull (box rwalk) then
+                    return (raise (Exception("Walk failed")) : obj)
+                elif t.Wname.Length > 0 && (isNull rwalk.Wqid || rwalk.Wqid.Length = 0) then
+                    return (raise (Exception("File not found")) : obj)
+                else
+                    if t.Wname.Length = 0 || (not (isNull rwalk.Wqid) && rwalk.Wqid.Length = t.Wname.Length) then
+                        let mutable currentPath = relPath
+                        let count = if isNull rwalk.Wqid then 0 else rwalk.Wqid.Length
+                        for i in 0 .. count - 1 do
+                            currentPath <- currentPath @ [ t.Wname.[i] ]
+
+                        let finalQid =
+                            if count = 0 then channel.Qid
+                            else
+                                { Type = rwalk.Wqid.[count - 1].Type
+                                  Version = rwalk.Wqid.[count - 1].Version
+                                  Path = rwalk.Wqid.[count - 1].Path }
+
+                        let walkedChan =
+                            ProtocolSessionOps.createBinding
+                                (BackendNode currentPath)
+                                finalQid.Type
+                                finalQid.Version
+                                finalQid.Path
+                                currentPath
+
+                        bindFid t.NewFid walkedChan session
+
+                    return rwalk :> obj
+            })
+
+    let handleOpen (session: SessionBox) (t: Topen) : Task<obj> =
+        withFidLocks session [ t.Fid ] (fun () ->
+            task {
+                let channel, relPath = getChannelAndPath t.Fid session
+                let! ropen = handler.OpenAsync(relPath, t, CancellationToken.None)
+                let openedChan =
+                    { channel with
+                        IsOpened = true
+                        Qid =
+                            { Type = ropen.Qid.Type
+                              Version = ropen.Qid.Version
+                              Path = ropen.Qid.Path } }
+                bindFid t.Fid openedChan session
+                return ropen :> obj
+            })
+
+    let handleRead (session: SessionBox) (t: Tread) : Task<obj> =
+        withInFlightTracking t.Tag session (fun ct ->
+            withFidLocks session [ t.Fid ] (fun () ->
+                task {
+                    let mutable authHandler = Unchecked.defaultof<IAuthHandler>
+                    if session.AuthHandlers.TryGetValue(t.Fid, &authHandler) then
+                        let! data = authHandler.ReadAsync(t.Offset, t.Count, ct)
+                        return Rread(t.Tag, data) :> obj
+                    else
+                        let _, relPath = getChannelAndPath t.Fid session
+                        let! rread = handler.ReadAsync(relPath, t, ct)
+                        return rread :> obj
+                }))
+
+    let handleWrite (session: SessionBox) (t: Twrite) : Task<obj> =
+        withInFlightTracking t.Tag session (fun ct ->
+            withFidLocks session [ t.Fid ] (fun () ->
+                task {
+                    let mutable authHandler = Unchecked.defaultof<IAuthHandler>
+                    if session.AuthHandlers.TryGetValue(t.Fid, &authHandler) then
+                        let! count = authHandler.WriteAsync(t.Offset, t.Data.ToArray(), ct)
+                        return Rwrite(t.Tag, count) :> obj
+                    else
+                        let _, relPath = getChannelAndPath t.Fid session
+                        let! rwrite = handler.WriteAsync(relPath, t, ct)
+                        return rwrite :> obj
+                }))
+
+    let handleClunk (session: SessionBox) (t: Tclunk) : Task<obj> =
+        withFidLocks session [ t.Fid ] (fun () ->
+            task {
+                let mutable authHandler = Unchecked.defaultof<IAuthHandler>
+                if session.AuthHandlers.TryRemove(t.Fid, &authHandler) then
+                    return Rclunk(t.Tag) :> obj
+                else
+                    let _, relPath = getChannelAndPath t.Fid session
+                    let! rclunk = handler.ClunkAsync(relPath, t, CancellationToken.None)
+                    removeFid t.Fid session
+                    return rclunk :> obj
+            })
+
+    let handleFlush (session: SessionBox) (t: Tflush) : Task<obj> =
+        task {
+            match session.InFlightRequests.TryGetValue(t.OldTag) with
+            | true, inFlight ->
+                inFlight.Cts.Cancel()
+                do! inFlight.Completion.Task
+            | false, _ -> ()
+            return Rflush(t.Tag) :> obj
+        }
+
+    let handleStat (session: SessionBox) (t: Tstat) : Task<obj> =
+        withFidLocks session [ t.Fid ] (fun () ->
+            task {
+                let _, relPath = getChannelAndPath t.Fid session
+                let! rstat = handler.StatAsync(relPath, t, CancellationToken.None)
+                return rstat :> obj
+            })
+
+    let handleReaddir (session: SessionBox) (t: Treaddir) : Task<obj> =
+        withInFlightTracking t.Tag session (fun ct ->
+            withFidLocks session [ t.Fid ] (fun () ->
+                task {
+                    let channel, relPath = getChannelAndPath t.Fid session
+                    if not channel.IsOpened then
+                        return raise (Exception("Fid not opened")) :> obj
+                    else
+                        let readdirTask = handler.ReaddirAsync(relPath, t, ct)
+                        if isNull (box readdirTask) then
+                            return emptyReaddirResponse t.Tag
+                        else
+                            let! result = readdirTask
+                            if isNull (box result) then
+                                return emptyReaddirResponse t.Tag
+                            else
+                                return result :> obj
+                }))
+
+    let handleCreate (session: SessionBox) (t: Tcreate) : Task<obj> =
+        withFidLocks session [ t.Fid ] (fun () ->
+            task {
+                let _, relPath = getChannelAndPath t.Fid session
+                let! rcreate = handler.CreateAsync(relPath, t, CancellationToken.None)
+                let newPath = List.ofArray relPath @ [ t.Name ]
+                let createdChan = ProtocolSessionOps.createBinding (BackendNode newPath) rcreate.Qid.Type rcreate.Qid.Version rcreate.Qid.Path newPath
+                bindFid t.Fid { createdChan with IsOpened = true } session
+                return rcreate :> obj
+            })
+
+    let handleRemove (session: SessionBox) (t: Tremove) : Task<obj> =
+        withFidLocks session [ t.Fid ] (fun () ->
+            task {
+                let _, relPath = getChannelAndPath t.Fid session
+                let! rremove = handler.RemoveAsync(relPath, t, CancellationToken.None)
+                removeFid t.Fid session
+                return rremove :> obj
+            })
+
     interface INinePFSDispatcher with
         member _.DispatchAsync(sessionId, message, dialect, certificate) : Task<obj> =
             task {
@@ -121,167 +310,19 @@ type NinePFSDispatcherEngine(handler: INinePRequestHandler) =
 
                 try
                     match message with
-                    | NinePMessage.MsgTversion t ->
-                        return Rversion(t.Tag, t.MSize, t.Version) :> obj
-
-                    | NinePMessage.MsgTauth t ->
-                        return! withFidLocks session [ t.Afid ] (fun () ->
-                            task {
-                                let! authHandler = handler.GetAuthHandlerAsync(t, CancellationToken.None)
-                                if box authHandler <> null then
-                                    session.AuthHandlers.[t.Afid] <- authHandler
-                                return Rauth(t.Tag, Qid(QidType.QTAUTH, 0u, uint64 t.Afid)) :> obj
-                            })
-
-                    | NinePMessage.MsgTattach t ->
-                        return! withFidLocks session [ t.Fid ] (fun () ->
-                            task {
-                                let! rattach = handler.AttachAsync(t, CancellationToken.None)
-                                let rootChan = ProtocolSessionOps.createBinding (BackendNode []) rattach.Qid.Type rattach.Qid.Version rattach.Qid.Path []
-                                bindFid t.Fid rootChan session
-                                return rattach :> obj
-                            })
-
-                    | NinePMessage.MsgTwalk t ->
-                        return! withFidLocks session [ t.Fid; t.NewFid ] (fun () ->
-                            task {
-                                let channel = getChannelOrThrow t.Fid session
-                                let relPath = match channel.Target with | BackendNode p -> p | _ -> []
-                                let! rwalk = handler.WalkAsync(relPath |> List.toArray, t, CancellationToken.None)
-                                
-                                if box rwalk = null then
-                                    return raise (Exception("Walk failed")) :> obj
-                                else
-                                    if t.Wname.Length > 0 && (isNull rwalk.Wqid || rwalk.Wqid.Length = 0) then
-                                        return raise (Exception("File not found")) :> obj
-                                    else
-                                        if t.Wname.Length = 0 || (not (isNull rwalk.Wqid) && rwalk.Wqid.Length = t.Wname.Length) then
-                                            let mutable currentPath = relPath
-                                            let count = if isNull rwalk.Wqid then 0 else rwalk.Wqid.Length
-                                            for i in 0 .. count - 1 do
-                                                currentPath <- currentPath @ [ t.Wname.[i] ]
-                                            
-                                            let finalQid = if count = 0 then channel.Qid else { Type = rwalk.Wqid.[count - 1].Type; Version = rwalk.Wqid.[count - 1].Version; Path = rwalk.Wqid.[count - 1].Path }
-                                            let walkedChan = ProtocolSessionOps.createBinding (BackendNode currentPath) finalQid.Type finalQid.Version finalQid.Path currentPath
-                                            bindFid t.NewFid walkedChan session
-                                        
-                                        return rwalk :> obj
-                            })
-
-                    | NinePMessage.MsgTopen t ->
-                        return! withFidLocks session [ t.Fid ] (fun () ->
-                            task {
-                                let channel = getChannelOrThrow t.Fid session
-                                let relPath = match channel.Target with | BackendNode p -> p | _ -> []
-                                let! ropen = handler.OpenAsync(relPath |> List.toArray, t, CancellationToken.None)
-                                let openedChan = { channel with IsOpened = true; Qid = { Type = ropen.Qid.Type; Version = ropen.Qid.Version; Path = ropen.Qid.Path } }
-                                bindFid t.Fid openedChan session
-                                return ropen :> obj
-                            })
-
-                    | NinePMessage.MsgTread t ->
-                        return! withInFlightTracking t.Tag session (fun ct ->
-                            withFidLocks session [ t.Fid ] (fun () ->
-                                task {
-                                    if session.AuthHandlers.ContainsKey(t.Fid) then
-                                        let auth = session.AuthHandlers.[t.Fid]
-                                        let! data = auth.ReadAsync(t.Offset, t.Count, ct)
-                                        return Rread(t.Tag, data) :> obj
-                                    else
-                                        let channel = getChannelOrThrow t.Fid session
-                                        let relPath = match channel.Target with | BackendNode p -> p | _ -> []
-                                        let! rread = handler.ReadAsync(relPath |> List.toArray, t, ct)
-                                        return rread :> obj
-                                }))
-
-                    | NinePMessage.MsgTwrite t ->
-                        return! withInFlightTracking t.Tag session (fun ct ->
-                            withFidLocks session [ t.Fid ] (fun () ->
-                                task {
-                                    if session.AuthHandlers.ContainsKey(t.Fid) then
-                                        let auth = session.AuthHandlers.[t.Fid]
-                                        let! count = auth.WriteAsync(t.Offset, t.Data.ToArray(), ct)
-                                        return Rwrite(t.Tag, count) :> obj
-                                    else
-                                        let channel = getChannelOrThrow t.Fid session
-                                        let relPath = match channel.Target with | BackendNode p -> p | _ -> []
-                                        let! rwrite = handler.WriteAsync(relPath |> List.toArray, t, ct)
-                                        return rwrite :> obj
-                                }))
-
-                    | NinePMessage.MsgTclunk t ->
-                        return! withFidLocks session [ t.Fid ] (fun () ->
-                            task {
-                                let mutable auth = null
-                                if session.AuthHandlers.TryRemove(t.Fid, &auth) then
-                                    return Rclunk(t.Tag) :> obj
-                                else
-                                    let channel = getChannelOrThrow t.Fid session
-                                    let relPath = match channel.Target with | BackendNode p -> p | _ -> []
-                                    let! rclunk = handler.ClunkAsync(relPath |> List.toArray, t, CancellationToken.None)
-                                    withLock session.Gate (fun () -> session.State <- ProtocolSessionOps.removeFid t.Fid session.State)
-                                    return rclunk :> obj
-                            })
-
-                    | NinePMessage.MsgTflush t ->
-                        match session.InFlightRequests.TryGetValue(t.OldTag) with
-                        | true, inFlight ->
-                            inFlight.Cts.Cancel()
-                            do! inFlight.Completion.Task
-                            return Rflush(t.Tag) :> obj
-                        | false, _ ->
-                            return Rflush(t.Tag) :> obj
-
-                    | NinePMessage.MsgTstat t ->
-                         return! withFidLocks session [ t.Fid ] (fun () ->
-                            task {
-                                let channel = getChannelOrThrow t.Fid session
-                                let relPath = match channel.Target with | BackendNode p -> p | _ -> []
-                                let! rstat = handler.StatAsync(relPath |> List.toArray, t, CancellationToken.None)
-                                return rstat :> obj
-                            })
-
-                    | NinePMessage.MsgTreaddir t ->
-                        return! withInFlightTracking t.Tag session (fun ct ->
-                            withFidLocks session [ t.Fid ] (fun () ->
-                                task {
-                                    let channel = getChannelOrThrow t.Fid session
-                                    if not channel.IsOpened then
-                                        return raise (Exception("Fid not opened")) :> obj
-                                    else
-                                        let relPath = match channel.Target with | BackendNode p -> p | _ -> []
-                                        let task = handler.ReaddirAsync(relPath |> List.toArray, t, ct)
-                                        if box task = null then
-                                            return Rreaddir((uint)(NinePConstants.HeaderSize + 4), t.Tag, 0u, ReadOnlyMemory.Empty) :> obj
-                                        else
-                                            let! result = task
-                                            if box result = null then
-                                                return Rreaddir((uint)(NinePConstants.HeaderSize + 4), t.Tag, 0u, ReadOnlyMemory.Empty) :> obj
-                                            else
-                                                return result :> obj
-                                }))
-
-                    | NinePMessage.MsgTcreate t ->
-                        return! withFidLocks session [ t.Fid ] (fun () ->
-                            task {
-                                let channel = getChannelOrThrow t.Fid session
-                                let relPath = match channel.Target with | BackendNode p -> p | _ -> []
-                                let! rcreate = handler.CreateAsync(relPath |> List.toArray, t, CancellationToken.None)
-                                let newPath = relPath @ [ t.Name ]
-                                let createdChan = ProtocolSessionOps.createBinding (BackendNode newPath) rcreate.Qid.Type rcreate.Qid.Version rcreate.Qid.Path newPath
-                                bindFid t.Fid { createdChan with IsOpened = true } session
-                                return rcreate :> obj
-                            })
-
-                    | NinePMessage.MsgTremove t ->
-                        return! withFidLocks session [ t.Fid ] (fun () ->
-                            task {
-                                let channel = getChannelOrThrow t.Fid session
-                                let relPath = match channel.Target with | BackendNode p -> p | _ -> []
-                                let! rremove = handler.RemoveAsync(relPath |> List.toArray, t, CancellationToken.None)
-                                withLock session.Gate (fun () -> session.State <- ProtocolSessionOps.removeFid t.Fid session.State)
-                                return rremove :> obj
-                            })
+                    | NinePMessage.MsgTversion t -> return! handleVersion t
+                    | NinePMessage.MsgTauth t -> return! handleAuth session t
+                    | NinePMessage.MsgTattach t -> return! handleAttach session t
+                    | NinePMessage.MsgTwalk t -> return! handleWalk session t
+                    | NinePMessage.MsgTopen t -> return! handleOpen session t
+                    | NinePMessage.MsgTread t -> return! handleRead session t
+                    | NinePMessage.MsgTwrite t -> return! handleWrite session t
+                    | NinePMessage.MsgTclunk t -> return! handleClunk session t
+                    | NinePMessage.MsgTflush t -> return! handleFlush session t
+                    | NinePMessage.MsgTstat t -> return! handleStat session t
+                    | NinePMessage.MsgTreaddir t -> return! handleReaddir session t
+                    | NinePMessage.MsgTcreate t -> return! handleCreate session t
+                    | NinePMessage.MsgTremove t -> return! handleRemove session t
 
                     | _ ->
                         return raise (Exception("Message type not implemented"))

@@ -67,4 +67,49 @@ public class LocalFileSystemTests : IDisposable
         await localDir.RemoveAsync("newfile.txt", default);
         Assert.False(File.Exists(Path.Combine(_testRoot, "newfile.txt")));
     }
+
+    [Fact]
+    public async Task LocalDir_Walk_ReturnsParentAndNullForMissingEntries()
+    {
+        var childPath = Path.Combine(_testRoot, "subdir");
+        Directory.CreateDirectory(childPath);
+
+        var childDir = new LocalDir(new DirectoryInfo(childPath));
+
+        var parent = await childDir.WalkAsync("..", default);
+        var missing = await childDir.WalkAsync("missing.txt", default);
+
+        Assert.NotNull(parent);
+        Assert.Equal(new DirectoryInfo(_testRoot).Name, parent!.Name);
+        Assert.Null(missing);
+    }
+
+    [Fact]
+    public async Task LocalNode_Wstat_RenamesUnderlyingFile()
+    {
+        var oldPath = Path.Combine(_testRoot, "before.txt");
+        File.WriteAllText(oldPath, "content");
+
+        var localFile = new LocalFile(new FileInfo(oldPath));
+        var qid = localFile.GetStat(NinePDialect.NineP2000).Qid;
+        var stat = new Stat(
+            0,
+            0,
+            0,
+            qid,
+            uint.MaxValue,
+            uint.MaxValue,
+            uint.MaxValue,
+            ulong.MaxValue,
+            "after.txt",
+            "root",
+            "root",
+            "root",
+            NinePDialect.NineP2000);
+
+        await localFile.WstatAsync(stat, default);
+
+        Assert.False(File.Exists(oldPath));
+        Assert.True(File.Exists(Path.Combine(_testRoot, "after.txt")));
+    }
 }

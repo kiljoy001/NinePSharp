@@ -8,7 +8,7 @@ NinePSharp provides a unified filesystem interface to various backend services, 
 
 - **Multi-Backend Support:** Native integrations for Ethereum, AWS, Azure, GCP, Databases, and more.
 - **Grid Computing:** WASM and PowerShell-based remote compute execution.
-- **Security First:** LuxVault technology providing zero-exposure secret management.
+- **Lean Runtime:** Focused on protocol handling, transport, and backend dispatch.
 - **Performance:** Hybrid C#/F# architecture with zero-copy protocol parsing.
 
 ## Getting Started

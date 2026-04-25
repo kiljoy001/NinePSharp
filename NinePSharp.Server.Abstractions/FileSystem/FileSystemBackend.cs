@@ -66,13 +66,16 @@ public class FileSystemBackend : IBackendRuntime, IReaddirCapableBackendRuntime,
         {
             if (string.IsNullOrEmpty(segment) || segment == ".") continue;
             var next = await current.WalkAsync(segment, ct);
-            if (next == null) throw new Exception($"Path not found: {segment}");
+            if (next == null) throw new InvalidOperationException($"Path not found: {segment}");
             current = next;
         }
         return current;
     }
 
     public async Task<Rwalk> WalkAsync(string[] relativePath, Twalk msg, CancellationToken ct)
+        => await WalkAsync(relativePath, msg, Dialect, ct);
+
+    private async Task<Rwalk> WalkAsync(string[] relativePath, Twalk msg, NinePDialect dialect, CancellationToken ct)
     {
         return await WithCancellation(msg.Tag, ct, async (token) => {
             var wqids = new List<Qid>();
@@ -81,7 +84,7 @@ public class FileSystemBackend : IBackendRuntime, IReaddirCapableBackendRuntime,
             {
                 var next = await current.WalkAsync(segment, token);
                 if (next == null) break;
-                wqids.Add(next.GetStat(Dialect).Qid);
+                wqids.Add(next.GetStat(dialect).Qid);
                 current = next;
             }
             return new Rwalk(msg.Tag, wqids.ToArray());
@@ -89,18 +92,21 @@ public class FileSystemBackend : IBackendRuntime, IReaddirCapableBackendRuntime,
     }
 
     public async Task<Rwalk> WalkAsync(string[] relativePath, NinePDialect dialect) 
-        => await WalkAsync(relativePath, new Twalk(0, 0, 0, Array.Empty<string>()), CancellationToken.None);
+        => await WalkAsync(relativePath, new Twalk(0, 0, 0, Array.Empty<string>()), dialect, CancellationToken.None);
 
     public async Task<Ropen> OpenAsync(string[] relativePath, Topen msg, CancellationToken ct)
+        => await OpenCoreAsync(relativePath, msg, Dialect, ct);
+
+    private async Task<Ropen> OpenCoreAsync(string[] relativePath, Topen msg, NinePDialect dialect, CancellationToken ct)
     {
         return await WithCancellation(msg.Tag, ct, async (token) => {
             var node = await ResolveNode(relativePath, token);
-            return new Ropen(msg.Tag, node.GetStat(Dialect).Qid, 0);
+            return new Ropen(msg.Tag, node.GetStat(dialect).Qid, 0);
         });
     }
 
     public async Task<Ropen> OpenAsync(string[] relativePath, Topen topen, NinePDialect dialect, CancellationToken ct = default)
-        => await OpenAsync(relativePath, topen, ct);
+        => await OpenCoreAsync(relativePath, topen, dialect, ct);
 
     public async Task<Rread> ReadAsync(string[] relativePath, Tread msg, CancellationToken ct)
     {
@@ -135,15 +141,18 @@ public class FileSystemBackend : IBackendRuntime, IReaddirCapableBackendRuntime,
         => ClunkAsync(relativePath, tclunk, CancellationToken.None);
 
     public async Task<Rstat> StatAsync(string[] relativePath, Tstat msg, CancellationToken ct)
+        => await StatCoreAsync(relativePath, msg, Dialect, ct);
+
+    private async Task<Rstat> StatCoreAsync(string[] relativePath, Tstat msg, NinePDialect dialect, CancellationToken ct)
     {
         return await WithCancellation(msg.Tag, ct, async (token) => {
             var node = await ResolveNode(relativePath, token);
-            return new Rstat(msg.Tag, node.GetStat(Dialect));
+            return new Rstat(msg.Tag, node.GetStat(dialect));
         });
     }
 
     public async Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, NinePDialect dialect, CancellationToken ct = default)
-        => await StatAsync(relativePath, tstat, ct);
+        => await StatCoreAsync(relativePath, tstat, dialect, ct);
 
     public async Task<Rwstat> WstatAsync(string[] relativePath, Twstat msg, CancellationToken ct)
     {
@@ -160,7 +169,7 @@ public class FileSystemBackend : IBackendRuntime, IReaddirCapableBackendRuntime,
     public async Task<Rremove> RemoveAsync(string[] relativePath, Tremove msg, CancellationToken ct)
     {
         return await WithCancellation(msg.Tag, ct, async (token) => {
-            if (relativePath.Length == 0) throw new Exception("Cannot remove root.");
+            if (relativePath.Length == 0) throw new InvalidOperationException("Cannot remove root.");
             var parentPath = relativePath.Take(relativePath.Length - 1).ToArray();
             var name = relativePath.Last();
             var parent = await ResolveNode(parentPath, token);
@@ -173,25 +182,31 @@ public class FileSystemBackend : IBackendRuntime, IReaddirCapableBackendRuntime,
         => await RemoveAsync(relativePath, tremove, ct);
 
     public async Task<Rcreate> CreateAsync(string[] parentPath, Tcreate msg, CancellationToken ct)
+        => await CreateCoreAsync(parentPath, msg, Dialect, ct);
+
+    private async Task<Rcreate> CreateCoreAsync(string[] parentPath, Tcreate msg, NinePDialect dialect, CancellationToken ct)
     {
         return await WithCancellation(msg.Tag, ct, async (token) => {
             var parent = await ResolveNode(parentPath, token);
             var newNode = await parent.CreateAsync(msg.Name, msg.Perm, msg.Mode, token);
-            return new Rcreate(msg.Tag, newNode.GetStat(Dialect).Qid, 0);
+            return new Rcreate(msg.Tag, newNode.GetStat(dialect).Qid, 0);
         });
     }
 
     public async Task<Rcreate> CreateAsync(string[] parentRelativePath, Tcreate tcreate, NinePDialect dialect, CancellationToken ct = default)
-        => await CreateAsync(parentRelativePath, tcreate, ct);
+        => await CreateCoreAsync(parentRelativePath, tcreate, dialect, ct);
 
     public async Task<Rsymlink> SymlinkAsync(string[] relativePath, Tsymlink msg, CancellationToken ct)
+        => await SymlinkAsync(relativePath, msg, Dialect, ct);
+
+    private async Task<Rsymlink> SymlinkAsync(string[] relativePath, Tsymlink msg, NinePDialect dialect, CancellationToken ct)
     {
         return await WithCancellation(msg.Tag, ct, async (token) => {
             var parent = await ResolveNode(relativePath, token);
             await parent.SymlinkAsync(msg.Name, msg.Symtgt, token);
             var linkNode = await parent.WalkAsync(msg.Name, token);
             uint size = (uint)(NinePConstants.HeaderSize + 13);
-            return new Rsymlink(size, msg.Tag, linkNode!.GetStat(Dialect).Qid);
+            return new Rsymlink(size, msg.Tag, linkNode!.GetStat(dialect).Qid);
         });
     }
 
@@ -252,6 +267,9 @@ public class FileSystemBackend : IBackendRuntime, IReaddirCapableBackendRuntime,
     }
 
     public async Task<Rreaddir> ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct)
+        => await ReaddirCoreAsync(relativePath, msg, Dialect, ct);
+
+    private async Task<Rreaddir> ReaddirCoreAsync(string[] relativePath, Treaddir msg, NinePDialect dialect, CancellationToken ct)
     {
         return await WithCancellation(msg.Tag, ct, async (token) => {
             var node = await ResolveNode(relativePath, token);
@@ -261,7 +279,7 @@ public class FileSystemBackend : IBackendRuntime, IReaddirCapableBackendRuntime,
             ulong currentOffset = 0;
             foreach (var entry in entries)
             {
-                var stat = entry.GetStat(Dialect);
+                var stat = entry.GetStat(dialect);
                 var nameBytes = System.Text.Encoding.UTF8.GetBytes(stat.Name);
                 var entryBuffer = new byte[13 + 8 + 1 + 2 + nameBytes.Length];
                 int offset = 0;
@@ -282,10 +300,10 @@ public class FileSystemBackend : IBackendRuntime, IReaddirCapableBackendRuntime,
     }
 
     public Task<Rreaddir> ReaddirAsync(string[] relativePath, Treaddir treaddir, NinePDialect dialect, CancellationToken ct = default)
-        => ReaddirAsync(relativePath, treaddir, ct);
+        => ReaddirCoreAsync(relativePath, treaddir, dialect, ct);
 
     public Task<Rreaddir> ReaddirCompatAsync(string[] relativePath, Treaddir treaddir, NinePDialect dialect, CancellationToken ct = default)
-        => ReaddirAsync(relativePath, treaddir, ct);
+        => ReaddirCoreAsync(relativePath, treaddir, dialect, ct);
 }
 
 public class FileSystemProtocolBackend : IProtocolBackend
@@ -309,11 +327,6 @@ public class FileSystemProtocolBackend : IProtocolBackend
     public INinePFileSystem GetFileSystem(X509Certificate2? certificate = null)
     {
         return new FileSystemWrapper(new FileSystemBackend(_root, MountPath));
-    }
-
-    public INinePFileSystem GetFileSystem(SecureString? credentials, X509Certificate2? certificate = null)
-    {
-        return GetFileSystem(certificate);
     }
 }
 

@@ -19,8 +19,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="backends/**/*.cs" />
-    <Compile Remove="configuration/models/SecretBackendConfig.cs" />
     <None Update="config.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

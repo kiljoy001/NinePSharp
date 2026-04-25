@@ -18,7 +18,9 @@ public class ConfigParserTests
         var inMemorySettings = new Dictionary<string, string?> {
             {"Server:Endpoints:0:Address", "127.0.0.1"},
             {"Server:Endpoints:0:Port", "5640"},
-            {"Server:Endpoints:0:Protocol", "tcp"}
+            {"Server:Endpoints:0:Protocol", "tls"},
+            {"Server:Endpoints:0:ServerCertificatePath", "/tmp/server.pfx"},
+            {"Server:Endpoints:0:ServerCertificatePassword", "changeit"}
         };
 
         IConfiguration configuration = new ConfigurationBuilder()
@@ -34,7 +36,9 @@ public class ConfigParserTests
         Assert.Single(config.Endpoints);
         Assert.Equal("127.0.0.1", config.Endpoints[0].Address);
         Assert.Equal(5640, config.Endpoints[0].Port);
-        Assert.Equal("tcp", config.Endpoints[0].Protocol);
+        Assert.Equal("tls", config.Endpoints[0].Protocol);
+        Assert.Equal("/tmp/server.pfx", config.Endpoints[0].ServerCertificatePath);
+        Assert.Equal("changeit", config.Endpoints[0].ServerCertificatePassword);
     }
 
     [Fact]

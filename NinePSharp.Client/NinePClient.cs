@@ -17,11 +17,37 @@ public class NinePException : Exception
 
 public class NinePClient : IDisposable
 {
+    private static readonly IReadOnlyDictionary<MessageTypes, Func<byte[], object>> ResponseParsers =
+        new Dictionary<MessageTypes, Func<byte[], object>>
+        {
+            [MessageTypes.Rversion] = message => new Rversion(message),
+            [MessageTypes.Rauth] = message => new Rauth(message),
+            [MessageTypes.Rattach] = message => new Rattach(message),
+            [MessageTypes.Rerror] = message => new Rerror(message),
+            [MessageTypes.Rlerror] = message => new Rlerror(message),
+            [MessageTypes.Rwalk] = message => new Rwalk(message),
+            [MessageTypes.Ropen] = message => new Ropen(message),
+            [MessageTypes.Rcreate] = message => new Rcreate(message),
+            [MessageTypes.Rread] = message => new Rread(message),
+            [MessageTypes.Rwrite] = message => new Rwrite(message),
+            [MessageTypes.Rclunk] = message => new Rclunk(message),
+            [MessageTypes.Rremove] = message => new Rremove(message),
+            [MessageTypes.Rstat] = message => new Rstat(message),
+            [MessageTypes.Rwstat] = message => new Rwstat(message),
+            [MessageTypes.Rreaddir] = message => new Rreaddir(message),
+            [MessageTypes.Rsymlink] = message => new Rsymlink(message),
+            [MessageTypes.Rreadlink] = message => new Rreadlink(message),
+            [MessageTypes.Rlink] = message => new Rlink(message),
+            [MessageTypes.Rflush] = message => new Rflush(message),
+        };
+
     private readonly TcpClient? _tcpClient;
     private readonly Stream _stream;
     private readonly PipeReader _reader;
+    private readonly object _stateGate = new();
     private readonly ConcurrentDictionary<ushort, TaskCompletionSource<object>> _pendingRequests = new();
     private readonly CancellationTokenSource _cts = new();
+    private readonly Task _readLoopTask;
     private ushort _nextTag = 1;
     private uint _nextFid = 1;
     private uint _msize = 8192;
@@ -32,14 +58,14 @@ public class NinePClient : IDisposable
         _tcpClient = new TcpClient(host, port);
         _stream = _tcpClient.GetStream();
         _reader = PipeReader.Create(_stream);
-        _ = Task.Run(ReadLoopAsync);
+        _readLoopTask = Task.Run(ReadLoopAsync);
     }
 
     public NinePClient(Stream stream)
     {
         _stream = stream;
         _reader = PipeReader.Create(_stream);
-        _ = Task.Run(ReadLoopAsync);
+        _readLoopTask = Task.Run(ReadLoopAsync);
     }
 
     public uint MSize => _msize;
@@ -54,7 +80,7 @@ public class NinePClient : IDisposable
 
     public uint GetNextFid()
     {
-        lock (this)
+        lock (_stateGate)
         {
             return _nextFid++;
         }
@@ -164,7 +190,7 @@ public class NinePClient : IDisposable
 
     private ushort GetNextTag()
     {
-        lock (this)
+        lock (_stateGate)
         {
             var tag = _nextTag++;
             if (_nextTag == NinePConstants.NoTag) _nextTag = 1;
@@ -217,6 +243,65 @@ public class NinePClient : IDisposable
         }
     }
 
+    private static bool TryReadFrame(ref ReadOnlySequence<byte> buffer, out byte[] fullMessage, out MessageTypes type, out ushort tag)
+    {
+        fullMessage = Array.Empty<byte>();
+        type = default;
+        tag = default;
+
+        if (buffer.Length < NinePConstants.HeaderSize)
+        {
+            return false;
+        }
+
+        var header = buffer.Slice(0, NinePConstants.HeaderSize).ToArray();
+        uint size = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(0, 4));
+        if (buffer.Length < size)
+        {
+            return false;
+        }
+
+        type = (MessageTypes)header[4];
+        tag = BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(5, 2));
+        fullMessage = buffer.Slice(0, size).ToArray();
+        buffer = buffer.Slice(size);
+        return true;
+    }
+
+    private static object ParseResponse(MessageTypes type, byte[] fullMessage)
+    {
+        if (ResponseParsers.TryGetValue(type, out var parser))
+        {
+            return parser(fullMessage);
+        }
+
+        throw new NotSupportedException($"Unsupported message type: {type}");
+    }
+
+    private void CompletePendingRequest(ushort tag, object response)
+    {
+        if (_pendingRequests.TryGetValue(tag, out var tcs))
+        {
+            tcs.TrySetResult(response);
+        }
+    }
+
+    private void FailPendingRequests(Exception exception)
+    {
+        foreach (var tcs in _pendingRequests.Values)
+        {
+            tcs.TrySetException(exception);
+        }
+    }
+
+    private void CancelPendingRequests()
+    {
+        foreach (var tcs in _pendingRequests.Values)
+        {
+            tcs.TrySetCanceled();
+        }
+    }
+
     private async Task ReadLoopAsync()
     {
         try
@@ -226,46 +311,9 @@ public class NinePClient : IDisposable
                 ReadResult result = await _reader.ReadAsync(_cts.Token);
                 ReadOnlySequence<byte> buffer = result.Buffer;
 
-                while (buffer.Length >= NinePConstants.HeaderSize)
+                while (TryReadFrame(ref buffer, out var fullMessage, out var type, out var tag))
                 {
-                    uint size = BinaryPrimitives.ReadUInt32LittleEndian(buffer.Slice(0, 4).ToArray());
-                    if (buffer.Length < size) break;
-
-                    byte type = buffer.Slice(4, 1).ToArray()[0];
-                    ushort tag = BinaryPrimitives.ReadUInt16LittleEndian(buffer.Slice(5, 2).ToArray());
-
-                    byte[] fullMessage = buffer.Slice(0, size).ToArray();
-
-                    object response = (MessageTypes)type switch
-                    {
-                        MessageTypes.Rversion => new Rversion(fullMessage),
-                        MessageTypes.Rauth => new Rauth(fullMessage),
-                        MessageTypes.Rattach => new Rattach(fullMessage),
-                        MessageTypes.Rerror => new Rerror(fullMessage),
-                        MessageTypes.Rlerror => new Rlerror(fullMessage),
-                        MessageTypes.Rwalk => new Rwalk(fullMessage),
-                        MessageTypes.Ropen => new Ropen(fullMessage),
-                        MessageTypes.Rcreate => new Rcreate(fullMessage),
-                        MessageTypes.Rread => new Rread(fullMessage),
-                        MessageTypes.Rwrite => new Rwrite(fullMessage),
-                        MessageTypes.Rclunk => new Rclunk(fullMessage),
-                        MessageTypes.Rremove => new Rremove(fullMessage),
-                        MessageTypes.Rstat => new Rstat(fullMessage),
-                        MessageTypes.Rwstat => new Rwstat(fullMessage),
-                        MessageTypes.Rreaddir => new Rreaddir(fullMessage),
-                        MessageTypes.Rsymlink => new Rsymlink(fullMessage),
-                        MessageTypes.Rreadlink => new Rreadlink(fullMessage),
-                        MessageTypes.Rlink => new Rlink(fullMessage),
-                        MessageTypes.Rflush => new Rflush(fullMessage),
-                        _ => throw new NotSupportedException($"Unsupported message type: {(MessageTypes)type}")
-                    };
-
-                    if (_pendingRequests.TryGetValue(tag, out var tcs))
-                    {
-                        tcs.TrySetResult(response);
-                    }
-
-                    buffer = buffer.Slice(size);
+                    CompletePendingRequest(tag, ParseResponse(type, fullMessage));
                 }
 
                 _reader.AdvanceTo(buffer.Start, buffer.End);
@@ -275,18 +323,12 @@ public class NinePClient : IDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            foreach (var tcs in _pendingRequests.Values)
-            {
-                tcs.TrySetException(ex);
-            }
+            FailPendingRequests(ex);
         }
         finally
         {
              _reader.Complete();
-             foreach (var tcs in _pendingRequests.Values)
-             {
-                 tcs.TrySetCanceled();
-             }
+             CancelPendingRequests();
         }
     }
 
@@ -297,6 +339,13 @@ public class NinePClient : IDisposable
         _cts.Cancel();
         _stream.Dispose();
         _tcpClient?.Dispose();
+        try
+        {
+            _readLoopTask.GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException)
+        {
+        }
         _cts.Dispose();
     }
 }

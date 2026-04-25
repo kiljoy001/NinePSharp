@@ -9,7 +9,6 @@ using NinePSharp.Constants;
 using NinePSharp.Messages;
 using NinePSharp.Parser;
 using NinePSharp.Server;
-using NinePSharp.Server.Interfaces;
 using NinePSharp.Tests.Helpers;
 using Xunit;
 
@@ -108,40 +107,6 @@ public sealed class ProtocolAdherenceTests
         await DispatcherIntegrationTestKit.OpenAsync(dispatcher, 3, 1);
         var afterOpen = await DispatcherIntegrationTestKit.ReaddirAsync(dispatcher, 4, 1, 0, 256);
         afterOpen.Count.Should().BeGreaterThan(0);
-    }
-
-    [Fact(Skip = "TODO: Update for INinePRequestHandler - Phase 5")]
-    public async Task Remove_On_MountPoint_Removes_Only_The_Most_Recent_Binding()
-    {
-        // TODO: Refactor this test to use InMemoryHandler with multiple mounts
-        var dispatcher = DispatcherIntegrationTestKit.CreateDispatcher(null!);
-
-        await DispatcherIntegrationTestKit.AttachRootAsync(dispatcher, 1, 1);
-
-        var firstWalk = await DispatcherIntegrationTestKit.WalkAsync(dispatcher, 2, 1, 2, new[] { "test" });
-        firstWalk.Wqid.Should().HaveCount(1);
-
-        var firstRemove = await dispatcher.DispatchAsync(
-            "test-session",
-            NinePMessage.NewMsgTremove(new Tremove(3, 2)),
-            NinePDialect.NineP2000);
-        firstRemove.Should().BeOfType<Rremove>();
-
-        var secondWalk = await DispatcherIntegrationTestKit.WalkAsync(dispatcher, 4, 1, 3, new[] { "test" });
-        secondWalk.Wqid.Should().HaveCount(1);
-
-        var secondRemove = await dispatcher.DispatchAsync(
-            "test-session",
-            NinePMessage.NewMsgTremove(new Tremove(5, 3)),
-            NinePDialect.NineP2000);
-        secondRemove.Should().BeOfType<Rremove>();
-
-        var finalWalk = await dispatcher.DispatchAsync(
-            "test-session",
-            NinePMessage.NewMsgTwalk(new Twalk(6, 1, 4, new[] { "test" })),
-            NinePDialect.NineP2000);
-
-        finalWalk.Should().BeOfType<Rerror>();
     }
 
     [Property(MaxTest = 40)]
