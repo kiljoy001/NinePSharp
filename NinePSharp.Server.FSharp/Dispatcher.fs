@@ -293,6 +293,72 @@ type NinePFSDispatcherEngine(handler: INinePRequestHandler) =
                 return rcreate :> obj
             })
 
+    let handleWstat (session: SessionBox) (t: Twstat) : Task<obj> =
+        withFidLocks session [ t.Fid ] (fun () ->
+            task {
+                let _, relPath = getChannelAndPath t.Fid session
+                let! rwstat = handler.WstatAsync(relPath, t, CancellationToken.None)
+                return rwstat :> obj
+            })
+
+    let handleSymlink (session: SessionBox) (t: Tsymlink) : Task<obj> =
+        withFidLocks session [ t.Fid ] (fun () ->
+            task {
+                let _, relPath = getChannelAndPath t.Fid session
+                let! rsymlink = handler.SymlinkAsync(relPath, t, CancellationToken.None)
+                return rsymlink :> obj
+            })
+
+    let handleReadlink (session: SessionBox) (t: Treadlink) : Task<obj> =
+        withFidLocks session [ t.Fid ] (fun () ->
+            task {
+                let _, relPath = getChannelAndPath t.Fid session
+                let! rreadlink = handler.ReadlinkAsync(relPath, t, CancellationToken.None)
+                return rreadlink :> obj
+            })
+
+    let handleLink (session: SessionBox) (t: Tlink) : Task<obj> =
+        withFidLocks session [ t.Dfid; t.Fid ] (fun () ->
+            task {
+                let _, relPath = getChannelAndPath t.Dfid session
+                getChannelOrThrow t.Fid session |> ignore
+                let! rlink = handler.LinkAsync(relPath, t, CancellationToken.None)
+                return rlink :> obj
+            })
+
+    let handleLock (session: SessionBox) (t: Tlock) : Task<obj> =
+        withFidLocks session [ t.Fid ] (fun () ->
+            task {
+                let _, relPath = getChannelAndPath t.Fid session
+                let! rlock = handler.LockAsync(relPath, t, CancellationToken.None)
+                return rlock :> obj
+            })
+
+    let handleGetlock (session: SessionBox) (t: Tgetlock) : Task<obj> =
+        withFidLocks session [ t.Fid ] (fun () ->
+            task {
+                let _, relPath = getChannelAndPath t.Fid session
+                let! rgetlock = handler.GetlockAsync(relPath, t, CancellationToken.None)
+                return rgetlock :> obj
+            })
+
+    let handleXattrwalk (session: SessionBox) (t: Txattrwalk) : Task<obj> =
+        withFidLocks session [ t.Fid; t.NewFid ] (fun () ->
+            task {
+                let channel, relPath = getChannelAndPath t.Fid session
+                let! rxattrwalk = handler.XattrwalkAsync(relPath, t, CancellationToken.None)
+                bindFid t.NewFid { channel with IsOpened = false } session
+                return rxattrwalk :> obj
+            })
+
+    let handleXattrcreate (session: SessionBox) (t: Txattrcreate) : Task<obj> =
+        withFidLocks session [ t.Fid ] (fun () ->
+            task {
+                let _, relPath = getChannelAndPath t.Fid session
+                let! rxattrcreate = handler.XattrcreateAsync(relPath, t, CancellationToken.None)
+                return rxattrcreate :> obj
+            })
+
     let handleRemove (session: SessionBox) (t: Tremove) : Task<obj> =
         withFidLocks session [ t.Fid ] (fun () ->
             task {
@@ -322,7 +388,15 @@ type NinePFSDispatcherEngine(handler: INinePRequestHandler) =
                     | NinePMessage.MsgTstat t -> return! handleStat session t
                     | NinePMessage.MsgTreaddir t -> return! handleReaddir session t
                     | NinePMessage.MsgTcreate t -> return! handleCreate session t
+                    | NinePMessage.MsgTwstat t -> return! handleWstat session t
                     | NinePMessage.MsgTremove t -> return! handleRemove session t
+                    | NinePMessage.MsgTsymlink t -> return! handleSymlink session t
+                    | NinePMessage.MsgTreadlink t -> return! handleReadlink session t
+                    | NinePMessage.MsgTlink t -> return! handleLink session t
+                    | NinePMessage.MsgTlock t -> return! handleLock session t
+                    | NinePMessage.MsgTgetlock t -> return! handleGetlock session t
+                    | NinePMessage.MsgTxattrwalk t -> return! handleXattrwalk session t
+                    | NinePMessage.MsgTxattrcreate t -> return! handleXattrcreate session t
 
                     | _ ->
                         return raise (Exception("Message type not implemented"))

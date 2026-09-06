@@ -23,7 +23,7 @@ namespace NinePSharp.Fuzzer
                 RunSmokeTest(args.Length > 1 ? args[1] : null);
                 return;
             }
-            
+
             if (args.Length > 0 && args[0] == "corpus-smoke")
             {
                 RunCorpusSmoke(args.Length > 1 ? args[1] : "corpus/backend");
@@ -54,7 +54,7 @@ namespace NinePSharp.Fuzzer
 
             var files = Directory.GetFiles(directory);
             Console.WriteLine($"Smoking {files.Length} files from {directory}...");
-            
+
             foreach (var file in files)
             {
                 try

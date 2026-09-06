@@ -36,7 +36,7 @@ public class BackendStream : Stream
     {
         var data = new byte[count];
         Array.Copy(buffer, offset, data, 0, count);
-        
+
         // Parse message
         // For simplicity, let's assume we are in net10.0 and can use the parser
         var msgResult = NinePParser.parse(NinePDialect.NineP2000L, data.AsMemory());
@@ -44,7 +44,7 @@ public class BackendStream : Stream
 
         object? response = null;
         var msg = msgResult.ResultValue;
-        
+
         // This is a minimal dispatcher for the test stream
         if (msg is NinePMessage.MsgTversion t) response = new Rversion(t.Item.Tag, 8192, "9P2000.L");
         else if (msg is NinePMessage.MsgTattach a) response = await _handler.AttachAsync(a.Item, ct);

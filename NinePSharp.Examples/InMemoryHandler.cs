@@ -349,14 +349,14 @@ public class InMemoryHandler : INinePRequestHandler
             int off = 0;
             var span = buffer.AsSpan();
             span.WriteQid(child.Qid, ref off);
-            
+
             offset += (ulong)entrySize;
             BinaryPrimitives.WriteUInt64LittleEndian(span.Slice(off, 8), offset);
             off += 8;
-            
+
             span[off++] = (byte)(child.Qid.Type);
             span.WriteString(child.Name, ref off);
-            
+
             allEntries.AddRange(buffer);
         }
 

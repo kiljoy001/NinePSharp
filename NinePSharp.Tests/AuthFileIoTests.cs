@@ -17,7 +17,7 @@ public class AuthFileIoTests
     {
         public byte[] LastWritten { get; private set; } = System.Array.Empty<byte>();
 
-        public override Task<IAuthHandler?> GetAuthHandlerAsync(Tauth msg, CancellationToken ct) 
+        public override Task<IAuthHandler?> GetAuthHandlerAsync(Tauth msg, CancellationToken ct)
             => Task.FromResult<IAuthHandler?>(this);
 
         public Task<byte[]> ReadAsync(ulong offset, uint count, CancellationToken ct)

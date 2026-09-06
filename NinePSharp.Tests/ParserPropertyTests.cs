@@ -19,7 +19,7 @@ public class ParserPropertyTests
             // Fuzzing logic: feed random bytes to the parser
             // We expect Ok or Error, but NO Exceptions.
             var result = NinePParser.parse(NinePDialect.NineP2000, data.AsMemory());
-            
+
             // If it returns Ok, the data happened to be a valid message.
             // If it returns Error, it handled the malformed data correctly.
             // The property holds true in both cases.

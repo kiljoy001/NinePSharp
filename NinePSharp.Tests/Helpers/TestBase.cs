@@ -14,10 +14,10 @@ public abstract class TestBase
         var original = instantiator();
         var buffer = new byte[size];
         serializer(original, buffer);
-        
+
         var msgSize = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan()[..4]);
         Assert.Equal(size, msgSize);
-        
+
         var msgTag = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan().Slice(5, 2));
         Assert.Equal(tag, msgTag);
 

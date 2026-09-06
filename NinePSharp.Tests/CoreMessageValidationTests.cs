@@ -7,12 +7,164 @@ using FsCheck.Xunit;
 using NinePSharp.Messages;
 using NinePSharp.Generators;
 using NinePSharp.Parser;
+using NinePSharp.Protocol;
 using Xunit;
 
 namespace NinePSharp.Tests;
 
 public class CoreMessageValidationTests
 {
+    [Fact]
+    public void ReadString_Throws_When_LengthPrefix_Is_Truncated()
+    {
+        byte[] buffer = [0x01];
+        var offset = 0;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => buffer.AsSpan().ReadString(ref offset));
+        Assert.Equal("Insufficient bytes to read the string length.", ex.Message);
+        Assert.Equal(0, offset);
+    }
+
+    [Fact]
+    public void ReadString_Throws_When_Payload_Is_Truncated_And_Does_Not_Advance()
+    {
+        byte[] buffer = [0x03, 0x00, (byte)'a'];
+        var offset = 0;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => buffer.AsSpan().ReadString(ref offset));
+        Assert.Equal("Insufficient bytes to read the string payload.", ex.Message);
+        Assert.Equal(0, offset);
+    }
+
+    [Fact]
+    public void ReadString_Throws_When_Offset_Is_Negative()
+    {
+        byte[] buffer = [0x00, 0x00];
+        var offset = -1;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => buffer.AsSpan().ReadString(ref offset));
+        Assert.Equal("Cannot read the string length at a negative offset.", ex.Message);
+        Assert.Equal(-1, offset);
+    }
+
+    [Fact]
+    public void ReadString_Reads_Empty_String_From_Exact_Length_Buffer()
+    {
+        byte[] buffer = [0x00, 0x00];
+        var offset = 0;
+
+        var value = buffer.AsSpan().ReadString(ref offset);
+
+        Assert.Equal(string.Empty, value);
+        Assert.Equal(2, offset);
+    }
+
+    [Fact]
+    public void WriteString_Throws_When_Value_Is_Null()
+    {
+        byte[] buffer = new byte[2];
+        var offset = 0;
+
+        var ex = Assert.Throws<ArgumentNullException>(() => buffer.AsSpan().WriteString(null!, ref offset));
+        Assert.Equal("value", ex.ParamName);
+        Assert.Equal(0, offset);
+    }
+
+    [Fact]
+    public void WriteString_Throws_When_Utf8_Byte_Count_Exceeds_Protocol_Limit()
+    {
+        var value = new string('a', ushort.MaxValue + 1);
+        byte[] buffer = new byte[ushort.MaxValue + 3];
+        var offset = 0;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => buffer.AsSpan().WriteString(value, ref offset));
+        Assert.Equal("9P string exceeds the 65535-byte length limit.", ex.Message);
+        Assert.Equal(0, offset);
+    }
+
+    [Fact]
+    public void WriteString_Throws_When_Destination_Is_Truncated_And_Does_Not_Advance()
+    {
+        byte[] buffer = new byte[3];
+        var offset = 0;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => buffer.AsSpan().WriteString("abcd", ref offset));
+        Assert.Equal("Insufficient bytes to write the string.", ex.Message);
+        Assert.Equal(0, offset);
+    }
+
+    [Fact]
+    public void WriteString_Throws_When_Positive_Offset_Destination_Is_Truncated()
+    {
+        byte[] buffer = new byte[6];
+        var offset = 2;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => buffer.AsSpan().WriteString("abcd", ref offset));
+        Assert.Equal("Insufficient bytes to write the string.", ex.Message);
+        Assert.Equal(2, offset);
+        Assert.All(buffer, value => Assert.Equal(0, value));
+    }
+
+    [Fact]
+    public void WriteString_Throws_When_Offset_Is_Negative()
+    {
+        byte[] buffer = new byte[2];
+        var offset = -1;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => buffer.AsSpan().WriteString("", ref offset));
+        Assert.Equal("Cannot write the string at a negative offset.", ex.Message);
+        Assert.Equal(-1, offset);
+    }
+
+    [Fact]
+    public void ReadQid_Throws_When_Payload_Is_Truncated_And_Does_Not_Advance()
+    {
+        byte[] buffer = new byte[12];
+        var offset = 0;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => buffer.AsSpan().ReadQid(ref offset));
+        Assert.Equal("Insufficient bytes to read the QID.", ex.Message);
+        Assert.Equal(0, offset);
+    }
+
+    [Fact]
+    public void ReadQid_Reads_From_Exact_Length_Buffer()
+    {
+        byte[] buffer = new byte[13];
+        var offset = 0;
+        var expected = new Qid(QidType.QTFILE, 1, 2);
+        buffer.AsSpan().WriteQid(expected, ref offset);
+        offset = 0;
+
+        var actual = buffer.AsSpan().ReadQid(ref offset);
+
+        Assert.Equal(expected.Type, actual.Type);
+        Assert.Equal(expected.Version, actual.Version);
+        Assert.Equal(expected.Path, actual.Path);
+        Assert.Equal(13, offset);
+    }
+
+    [Fact]
+    public void WriteQid_Throws_When_Destination_Is_Truncated_And_Does_Not_Advance()
+    {
+        byte[] buffer = new byte[12];
+        var offset = 0;
+        var qid = new Qid(QidType.QTFILE, 1, 2);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => buffer.AsSpan().WriteQid(qid, ref offset));
+        Assert.Equal("Insufficient bytes to write the QID.", ex.Message);
+        Assert.Equal(0, offset);
+    }
+
+    [Fact]
+    public void WriteHeaders_Throws_When_Destination_Is_Truncated()
+    {
+        byte[] buffer = new byte[NinePConstants.HeaderSize - 1];
+
+        var ex = Assert.Throws<InvalidOperationException>(() => buffer.AsSpan().WriteHeaders(7, 1, MessageTypes.Tversion));
+        Assert.Equal("Insufficient bytes to write the 9P header.", ex.Message);
+    }
+
     [Property]
     public void Twalk_Fields_Preserved(ushort tag, uint fid, uint newFid, string[] wname)
     {
@@ -110,7 +262,7 @@ public class CoreMessageValidationTests
         Assert.Equal(stat.Mode, reparsed.Mode);
         Assert.Equal(stat.Length, reparsed.Length);
         Assert.Equal(stat.Qid.Path, reparsed.Qid.Path);
-        
+
         bool is9u = dialect == NinePDialect.NineP2000U || dialect == NinePDialect.NineP2000L;
         if (is9u)
         {
@@ -157,7 +309,7 @@ public class CoreMessageValidationTests
     {
         uint size = 67; // Header(7) + 5*4 + 5*8
         var t = new Tsetattr(size, tag, fid, valid, mode, uid, gid, fileSize, atimeSec, atimeNsec, mtimeSec, mtimeNsec);
-        
+
         var buffer = new byte[t.Size];
         t.WriteTo(buffer);
 

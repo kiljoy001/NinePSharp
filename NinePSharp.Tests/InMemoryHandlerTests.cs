@@ -110,7 +110,7 @@ public class InMemoryHandlerTests
         var act = async () => await handler.WalkAsync(System.Array.Empty<string>(), walkMsg, ct);
 
         // First segment will be "todelete.txt", which is missing. Since it's the very first
-        // segment of the root, Walk returns fewer items normally, but wait, if root exists, 
+        // segment of the root, Walk returns fewer items normally, but wait, if root exists,
         // asking for missing children just stops and returns empty Qids.
         var walkResult = await act();
         walkResult.Wqid.Should().BeEmpty();

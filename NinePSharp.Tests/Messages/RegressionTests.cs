@@ -18,7 +18,7 @@ public class RegressionTests : TestBase
     {
         ushort tag = 100;
         var stat = new Stat(0, 1, 0, new Qid(QidType.QTFILE, 0, 1), 0644, 0, 0, 0, "test", "uid", "gid", "muid");
-        
+
         // Rstat size = Header(7) + nstat(2) + stat.Size
         uint expectedSize = 7 + 2 + (uint)stat.Size;
         var buf = new byte[expectedSize];
@@ -34,7 +34,7 @@ public class RegressionTests : TestBase
         ushort writtenStatSize = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(buf.AsSpan().Slice(9, 2));
         Assert.Equal(stat.Size, nstat);
         Assert.Equal((ushort)(stat.Size - 2), writtenStatSize);
-        
+
         // Total bytes written should exactly match expectedSize.
         Assert.Equal((int)expectedSize, offset);
 
@@ -55,7 +55,7 @@ public class RegressionTests : TestBase
         ushort tag = 101;
         uint fid = 50;
         var stat = new Stat(0, 1, 0, new Qid(QidType.QTFILE, 0, 1), 0644, 0, 0, 0, "test", "uid", "gid", "muid");
-        
+
         // Twstat size = Header(7) + fid(4) + nstat(2) + stat.Size
         uint expectedSize = 7 + 4 + 2 + (uint)stat.Size;
         var buf = new byte[expectedSize];
@@ -73,7 +73,7 @@ public class RegressionTests : TestBase
         ushort writtenStatSize = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(buf.AsSpan().Slice(13, 2));
         Assert.Equal(stat.Size, nstat);
         Assert.Equal((ushort)(stat.Size - 2), writtenStatSize);
-        
+
         Assert.Equal((int)expectedSize, offset);
 
         // Deserialization check

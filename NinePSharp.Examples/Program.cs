@@ -23,7 +23,7 @@ public class Program
         });
 
         var logger = loggerFactory.CreateLogger("9P-Server");
-        
+
         var handler = new InMemoryHandler();
         handler.AddDirectory("docs");
         handler.AddFile("docs/readme.txt", "This is an in-memory 9P server example.");

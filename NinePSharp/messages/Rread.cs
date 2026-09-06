@@ -37,7 +37,7 @@ public readonly struct Rread : ISerializable
         // Zero-copy: Reference the existing memory slice
         Data = data.Slice(offset, (int)Count);
     }
-    
+
     public Rread(uint size, ushort tag, uint count, ReadOnlyMemory<byte> data)
     {
         Size = size;

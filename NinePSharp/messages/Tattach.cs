@@ -38,7 +38,7 @@ public readonly struct Tattach : ISerializable
         int offset = NinePConstants.HeaderSize;
         Fid = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
         offset += 4;
-        
+
         Afid = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
         offset += 4;
 

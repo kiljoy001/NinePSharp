@@ -14,18 +14,18 @@ public interface INinePNode
     IUser User { get; }
     IGroup Group { get; }
     Stat GetStat(NinePDialect dialect);
-    
+
     Task<byte[]> ReadAsync(ulong offset, uint count, CancellationToken ct);
     Task<uint> WriteAsync(ulong offset, byte[] data, CancellationToken ct);
-    
+
     // For directories
     Task<INinePNode?> WalkAsync(string name, CancellationToken ct);
     Task<IEnumerable<INinePNode>> ReaddirAsync(CancellationToken ct);
-    
+
     Task<INinePNode> CreateAsync(string name, uint perm, byte mode, CancellationToken ct);
     Task RemoveAsync(string name, CancellationToken ct);
     Task WstatAsync(Stat stat, CancellationToken ct);
-    
+
     Task SymlinkAsync(string name, string target, CancellationToken ct);
     Task<string> ReadlinkAsync(CancellationToken ct);
     Task LinkAsync(string name, INinePNode target, CancellationToken ct);

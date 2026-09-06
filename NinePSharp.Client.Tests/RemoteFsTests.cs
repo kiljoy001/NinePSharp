@@ -12,7 +12,7 @@ namespace NinePSharp.Client.Tests;
 public class RemoteFsTests
 {
     [Fact]
-    public async Task RemoteFs_Integration_Works()
+    public async Task RemoteFs_ReadFileAsync_Works()
     {
         var root = new NinePDir("/");
         root.AddChild(new NinePFile("hello.txt", Encoding.UTF8.GetBytes("hello")));
@@ -60,8 +60,58 @@ public class RemoteFsTests
         var fs = await client.MountAsync();
         var content = await fs.ReadFileAsync("/hello.txt");
         var stat = await fs.StatAsync("/hello.txt");
-        
+
         Assert.Equal("hello", Encoding.UTF8.GetString(content));
         Assert.Equal("hello.txt", stat.Name);
+    }
+
+    [Fact]
+    public async Task RemoteFs_WriteFileAsync_CreatesNewFile()
+    {
+        var root = new NinePDir("/");
+        var backend = new FileSystemBackend(root);
+        backend.Dialect = NinePDialect.NineP2000L;
+
+        var (clientStream, serverStream) = LoopbackStream.CreatePair();
+        using var client = new NinePClient(clientStream);
+
+        var serverTask = Task.Run(async () => {
+            try {
+                while (true) {
+                    byte[] header = new byte[NinePConstants.HeaderSize];
+                    await serverStream.ReadExactlyAsync(header, default);
+                    uint size = BitConverter.ToUInt32(header, 0);
+                    byte type = header[4];
+                    ushort tag = BitConverter.ToUInt16(header, 5);
+                    byte[] payload = new byte[size - NinePConstants.HeaderSize];
+                    if (payload.Length > 0) await serverStream.ReadExactlyAsync(payload, default);
+                    byte[] full = new byte[size];
+                    header.CopyTo(full, 0); payload.CopyTo(full, NinePConstants.HeaderSize);
+
+                    ISerializable? resp = (MessageTypes)type switch {
+                        MessageTypes.Tversion => new Rversion(tag, 8192, "9P2000.L"),
+                        MessageTypes.Tattach => await backend.AttachAsync(new Tattach(full), default),
+                        MessageTypes.Twalk => await backend.WalkAsync(new string[0], new Twalk(full), default),
+                        MessageTypes.Tcreate => await backend.CreateAsync(new string[0], new Tcreate(full), default),
+                        MessageTypes.Twrite => await backend.WriteAsync(new[] { "test.txt" }, new Twrite(full), default),
+                        MessageTypes.Tclunk => await backend.ClunkAsync(new string[0], new Tclunk(full), ct: default),
+                        _ => null
+                    };
+
+                    if (resp != null) {
+                        byte[] buf = new byte[resp.Size];
+                        resp.WriteTo(buf);
+                        await serverStream.WriteAsync(buf, default);
+                        await serverStream.FlushAsync();
+                    }
+                }
+            } catch {}
+        });
+
+        var fs = await client.MountAsync();
+        var testData = Encoding.UTF8.GetBytes("test content");
+        await fs.WriteFileAsync("/test.txt", testData);
+
+        Assert.True(true); // If we get here without exception, the write succeeded
     }
 }

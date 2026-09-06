@@ -85,6 +85,90 @@ public class NinePConnectionProcessorTests
         Assert.Equal((ushort)7, BinaryPrimitives.ReadUInt16LittleEndian(written.AsSpan(5, 2)));
     }
 
+    [Fact]
+    public async Task ProcessStreamAsync_EOF_ExitsCleanly()
+    {
+        var dispatcher = new Mock<INinePFSDispatcher>(MockBehavior.Strict);
+        var processor = CreateProcessor(dispatcher, new StubTransportSecurity());
+        var session = new NinePConnectionProcessor.ClientSession();
+
+        using var stream = new ScriptedDuplexStream(Array.Empty<byte>());
+        await processor.ProcessStreamAsync(stream, null, session, CancellationToken.None);
+
+        var written = stream.Written.ToArray();
+        Assert.Empty(written);
+    }
+
+    [Fact]
+    public async Task ProcessStreamAsync_PartialHeader_ExitsWithoutResponse()
+    {
+        var dispatcher = new Mock<INinePFSDispatcher>(MockBehavior.Strict);
+        var processor = CreateProcessor(dispatcher, new StubTransportSecurity());
+        var session = new NinePConnectionProcessor.ClientSession();
+
+        var partialHeader = new byte[] { 0x13, 0x00, 0x00 };
+        using var stream = new ScriptedDuplexStream(partialHeader);
+        await processor.ProcessStreamAsync(stream, null, session, CancellationToken.None);
+
+        var written = stream.Written.ToArray();
+        Assert.Empty(written);
+    }
+
+    [Fact]
+    public async Task ProcessStreamAsync_InvalidSize_ExitsWithoutResponse()
+    {
+        var dispatcher = new Mock<INinePFSDispatcher>(MockBehavior.Strict);
+        var processor = CreateProcessor(dispatcher, new StubTransportSecurity());
+        var session = new NinePConnectionProcessor.ClientSession();
+
+        var invalidFrame = new byte[7];
+        BinaryPrimitives.WriteUInt32LittleEndian(invalidFrame.AsSpan(0, 4), 3);
+        invalidFrame[4] = (byte)MessageTypes.Tflush;
+
+        using var stream = new ScriptedDuplexStream(invalidFrame);
+        await processor.ProcessStreamAsync(stream, null, session, CancellationToken.None);
+
+        var written = stream.Written.ToArray();
+        Assert.Empty(written);
+    }
+
+    [Fact]
+    public async Task ProcessStreamAsync_OversizedFrame_ExitsWithoutResponse()
+    {
+        var dispatcher = new Mock<INinePFSDispatcher>(MockBehavior.Strict);
+        var processor = CreateProcessor(dispatcher, new StubTransportSecurity());
+        var session = new NinePConnectionProcessor.ClientSession();
+
+        var oversizedFrame = new byte[NinePConstants.HeaderSize];
+        BinaryPrimitives.WriteUInt32LittleEndian(oversizedFrame.AsSpan(0, 4), session.MSize + 1);
+        oversizedFrame[4] = (byte)MessageTypes.Tflush;
+
+        using var stream = new ScriptedDuplexStream(oversizedFrame);
+        await processor.ProcessStreamAsync(stream, null, session, CancellationToken.None);
+
+        var written = stream.Written.ToArray();
+        Assert.Empty(written);
+    }
+
+    [Fact]
+    public async Task ProcessStreamAsync_PartialPayload_ExitsWithoutResponse()
+    {
+        var dispatcher = new Mock<INinePFSDispatcher>(MockBehavior.Strict);
+        var processor = CreateProcessor(dispatcher, new StubTransportSecurity());
+        var session = new NinePConnectionProcessor.ClientSession();
+
+        var partialFrame = new byte[NinePConstants.HeaderSize + 2];
+        BinaryPrimitives.WriteUInt32LittleEndian(partialFrame.AsSpan(0, 4), 20);
+        partialFrame[4] = (byte)MessageTypes.Tflush;
+
+        using var stream = new ScriptedDuplexStream(partialFrame);
+        await processor.ProcessStreamAsync(stream, null, session, CancellationToken.None);
+
+        var written = stream.Written.ToArray();
+        Assert.Empty(written);
+    }
+
+
     private static NinePConnectionProcessor CreateProcessor(
         Mock<INinePFSDispatcher> dispatcher,
         INinePTransportSecurity security)

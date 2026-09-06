@@ -20,7 +20,7 @@ public class ParserRobustnessTests
         {
             var partial = fullBytes.AsMemory(0, i);
             var result = NinePParser.parse(NinePDialect.NineP2000U, partial);
-            
+
             // Should return Error (too short), never crash
             Assert.True(result.IsError, $"Parser should return Error for length {i}, but was {result}");
         }
@@ -50,7 +50,7 @@ public class ParserRobustnessTests
         var buffer = new byte[7];
         System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(buffer, 6); // Invalid size < 7
         buffer[4] = (byte)Constants.MessageTypes.Tversion;
-        
+
         var result = NinePParser.parse(NinePDialect.NineP2000U, buffer.AsMemory());
         Assert.True(result.IsError);
     }
@@ -67,7 +67,7 @@ public class ParserRobustnessTests
         {
             int offset = rnd.Next(0, buffer.Length - 100);
             int len = rnd.Next(1, 100);
-            
+
             // Should not crash
             NinePParser.parse(NinePDialect.NineP2000U, buffer.AsMemory(offset, len));
         }

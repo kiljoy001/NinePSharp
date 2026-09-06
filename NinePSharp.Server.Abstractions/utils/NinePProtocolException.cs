@@ -32,7 +32,7 @@ public class NinePNotSupportedException : NinePProtocolException
 {
     /// <summary>Initializes a new instance of the <see cref="NinePNotSupportedException"/> class.</summary>
     /// <param name="message">The error message.</param>
-    public NinePNotSupportedException(string message = "Operation not supported") 
+    public NinePNotSupportedException(string message = "Operation not supported")
         : base(message, 95) { }
 }
 
@@ -44,7 +44,7 @@ public class NinePPermissionDeniedException : NinePProtocolException
 {
     /// <summary>Initializes a new instance of the <see cref="NinePPermissionDeniedException"/> class.</summary>
     /// <param name="message">The error message.</param>
-    public NinePPermissionDeniedException(string message = "Permission denied") 
+    public NinePPermissionDeniedException(string message = "Permission denied")
         : base(message, 13) { }
 }
 
@@ -56,7 +56,7 @@ public class NinePNotFoundException : NinePProtocolException
 {
     /// <summary>Initializes a new instance of the <see cref="NinePNotFoundException"/> class.</summary>
     /// <param name="message">The error message.</param>
-    public NinePNotFoundException(string message = "File not found") 
+    public NinePNotFoundException(string message = "File not found")
         : base(message, 2) { }
 }
 
@@ -68,6 +68,6 @@ public class NinePInvalidOperationException : NinePProtocolException
 {
     /// <summary>Initializes a new instance of the <see cref="NinePInvalidOperationException"/> class.</summary>
     /// <param name="message">The error message.</param>
-    public NinePInvalidOperationException(string message = "Invalid operation") 
+    public NinePInvalidOperationException(string message = "Invalid operation")
         : base(message, 22) { }
 }

@@ -49,9 +49,13 @@ bash test_integration.sh
 
 ```bash
 bash scripts/run-quality.sh
+bash scripts/run-quality.sh --full
+FUZZ_SECONDS=30 bash scripts/fuzz.sh parser
 ```
 
-This runs the main test projects, repo-wide .NET analyzers, and the custom Semgrep rules in `quality/semgrep.yml`.
+The standard gate runs a Release build, StyleCop/.NET analyzers, all main xUnit/FsCheck suites, merged Coverlet coverage, stale-coverage checks, coverage thresholds, CRAP scoring, and the custom Semgrep rules in `quality/semgrep.yml` when Semgrep is installed.
+
+`--full` also runs the scoped Stryker mutation gate (`MIN_MUTATION=90` by default) and bounded SharpFuzz/AFL++ parser and filesystem campaigns. Coverage defaults can be tuned with `MIN_LINE` and `MIN_BRANCH`; CRAP failure is controlled by `CRAP_LIMIT`.
 
 ## NuGet Packages
 

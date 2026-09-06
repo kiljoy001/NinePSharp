@@ -1,0 +1,33 @@
+{
+  "stryker-config": {
+    "project": "NinePSharp.csproj",
+    "test-projects": [
+      "NinePSharp.Tests.csproj"
+    ],
+    "mutate": [
+      "protocol/ProtocolActions.cs",
+      "messages/Tversion.cs",
+      "messages/Rversion.cs",
+      "messages/Tread.cs",
+      "messages/Rread.cs",
+      "messages/Twrite.cs",
+      "messages/Rwrite.cs"
+    ],
+    "mutation-level": "Standard",
+    "ignore-mutations": [
+      "String",
+      "Regex"
+    ],
+    "reporters": [
+      "progress",
+      "html",
+      "json"
+    ],
+    "thresholds": {
+      "high": 95,
+      "low": 90,
+      "break": 90
+    },
+    "concurrency": 4
+  }
+}

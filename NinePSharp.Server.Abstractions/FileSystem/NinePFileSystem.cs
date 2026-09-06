@@ -11,7 +11,7 @@ namespace NinePSharp.Server.FileSystem;
 public abstract class NinePNodeBase : INinePNode
 {
     private static long _nextPath = 1;
-    
+
     public string Name { get; set; }
     public Qid Qid { get; protected set; }
     public uint Mode { get; set; }
@@ -36,7 +36,7 @@ public abstract class NinePNodeBase : INinePNode
         return new Stat(0, 0, 0, Qid, Mode, Atime, Mtime, Length, Name, User.Name, Group.Name, Muid, dialect);
     }
 
-    public virtual Task<byte[]> ReadAsync(ulong offset, uint count, CancellationToken ct) 
+    public virtual Task<byte[]> ReadAsync(ulong offset, uint count, CancellationToken ct)
         => throw new NotSupportedException("Read not supported on this node.");
 
     public virtual Task<uint> WriteAsync(ulong offset, byte[] data, CancellationToken ct)
@@ -165,7 +165,7 @@ public class NinePDir : NinePNodeBase
     {
         return Task.FromResult<IEnumerable<INinePNode>>(_children);
     }
-    
+
     public override Task<INinePNode> CreateAsync(string name, uint perm, byte mode, CancellationToken ct)
     {
         INinePNode newNode;

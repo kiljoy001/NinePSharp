@@ -71,7 +71,7 @@ public class MultiplexingRobustnessTests
             BitConverter.TryWriteBytes(resp, (uint)NinePConstants.HeaderSize);
             resp[4] = 255;
             BitConverter.TryWriteBytes(resp.AsSpan(5), tag);
-            
+
             await serverStream.WriteAsync(resp);
         });
 

@@ -91,7 +91,7 @@ public class FileSystemBackend : IBackendRuntime, IReaddirCapableBackendRuntime,
         });
     }
 
-    public async Task<Rwalk> WalkAsync(string[] relativePath, NinePDialect dialect) 
+    public async Task<Rwalk> WalkAsync(string[] relativePath, NinePDialect dialect)
         => await WalkAsync(relativePath, new Twalk(0, 0, 0, Array.Empty<string>()), dialect, CancellationToken.None);
 
     public async Task<Ropen> OpenAsync(string[] relativePath, Topen msg, CancellationToken ct)
@@ -274,7 +274,7 @@ public class FileSystemBackend : IBackendRuntime, IReaddirCapableBackendRuntime,
         return await WithCancellation(msg.Tag, ct, async (token) => {
             var node = await ResolveNode(relativePath, token);
             var entries = await node.ReaddirAsync(token);
-            
+
             var fullBuffer = new List<byte>();
             ulong currentOffset = 0;
             foreach (var entry in entries)

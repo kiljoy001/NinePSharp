@@ -13,10 +13,10 @@ public class FileSystemTests
     {
         var file = new NinePFile("test.txt");
         var content = Encoding.UTF8.GetBytes("Hello World");
-        
+
         await file.WriteAsync(0, content, default);
         var read = await file.ReadAsync(0, 5, default);
-        
+
         Assert.Equal("Hello", Encoding.UTF8.GetString(read));
     }
 
@@ -26,7 +26,7 @@ public class FileSystemTests
         var root = new NinePDir("/");
         var file = new NinePFile("hello.txt");
         root.AddChild(file);
-        
+
         var found = await root.WalkAsync("hello.txt", default);
         Assert.Same(file, found);
     }
@@ -39,12 +39,12 @@ public class FileSystemTests
         root.AddChild(sub);
         var file = new NinePFile("file.txt");
         sub.AddChild(file);
-        
+
         var backend = new FileSystemBackend(root);
         backend.Dialect = NinePDialect.NineP2000L;
 
         var rstat = await backend.StatAsync(new[] { "sub", "file.txt" }, new Tstat(1, 1), NinePDialect.NineP2000L);
-        
+
         Assert.Equal("file.txt", rstat.Stat.Name);
     }
 
@@ -54,12 +54,12 @@ public class FileSystemTests
         var root = new NinePDir("/");
         root.AddChild(new NinePFile("f1"));
         root.AddChild(new NinePFile("f2"));
-        
+
         var backend = new FileSystemBackend(root);
         backend.Dialect = NinePDialect.NineP2000L;
 
         var rreaddir = await backend.ReaddirAsync(new string[0], new Treaddir(24, 1, 1, 0, 1000), NinePDialect.NineP2000L);
-        
+
         Assert.True(rreaddir.Count > 0);
     }
 

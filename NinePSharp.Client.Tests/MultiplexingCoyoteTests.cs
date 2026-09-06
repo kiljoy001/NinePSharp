@@ -60,11 +60,11 @@ public class MultiplexingCoyoteTests
             var dialect = NinePDialect.NineP2000L;
             var cert = new System.Security.Cryptography.X509Certificates.X509Certificate2();
 
-            var tasks = Enumerable.Range(1, 3).Select(i => 
+            var tasks = Enumerable.Range(1, 3).Select(i =>
                 ((INinePFSDispatcher)dispatcher).DispatchAsync(
-                    sessionId, 
+                    sessionId,
                     NinePMessage.NewMsgTversion(new Tversion((ushort)i, 8192u, "9P2000.L")),
-                    dialect, 
+                    dialect,
                     cert)
             ).ToArray();
 

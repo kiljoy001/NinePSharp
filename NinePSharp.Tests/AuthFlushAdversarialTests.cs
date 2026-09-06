@@ -18,7 +18,7 @@ public class AuthFlushAdversarialTests
             _delayMs = delayMs;
         }
 
-        public override Task<IAuthHandler?> GetAuthHandlerAsync(Tauth msg, CancellationToken ct) 
+        public override Task<IAuthHandler?> GetAuthHandlerAsync(Tauth msg, CancellationToken ct)
             => Task.FromResult<IAuthHandler?>(this);
 
         public async Task<byte[]> ReadAsync(ulong offset, uint count, CancellationToken ct)

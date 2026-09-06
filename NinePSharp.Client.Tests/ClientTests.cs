@@ -23,7 +23,7 @@ public class ClientTests
                 byte[] header = new byte[NinePConstants.HeaderSize];
                 await serverStream.ReadExactlyAsync(header, default);
                 var tag = BitConverter.ToUInt16(header, 5);
-                
+
                 var rversion = new Rversion(tag, 8192, "9P2000.L");
                 byte[] response = new byte[rversion.Size];
                 rversion.WriteTo(response);
@@ -52,7 +52,7 @@ public class ClientTests
                     await serverStream.ReadExactlyAsync(header, default);
                     uint size = BitConverter.ToUInt32(header, 0);
                     ushort tag = BitConverter.ToUInt16(header, 5);
-                    
+
                     byte[] payload = new byte[size - NinePConstants.HeaderSize];
                     if (payload.Length > 0) await serverStream.ReadExactlyAsync(payload, default);
 

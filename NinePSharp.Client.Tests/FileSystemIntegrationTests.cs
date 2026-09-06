@@ -21,7 +21,7 @@ public class FileSystemIntegrationTests
     {
         var root = new NinePDir("/");
         root.AddChild(new NinePFile("hello.txt", Encoding.UTF8.GetBytes("Hello 9P!")));
-        
+
         var backend = new FileSystemBackend(root);
         backend.Dialect = NinePDialect.NineP2000L;
 

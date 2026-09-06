@@ -214,9 +214,9 @@ public class NinePClient : IDisposable
             message.WriteTo(buffer);
             await _stream.WriteAsync(buffer, linkedCts.Token);
             await _stream.FlushAsync(linkedCts.Token);
-            
+
             var result = await tcs.Task.WaitAsync(linkedCts.Token);
-            
+
             if (result is Rerror rerror)
             {
                 throw new NinePException(rerror.Ename);
@@ -225,7 +225,7 @@ public class NinePClient : IDisposable
             {
                 throw new NinePException($"Linux error code: {rlerror.Ecode}");
             }
-            
+
             return (T)result;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

@@ -36,7 +36,7 @@ internal abstract class TestHandlerBase : INinePRequestHandler, INinePFileSystem
     public virtual Task<Rwstat> WstatAsync(string[] relativePath, Twstat msg, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task<Rcreate> CreateAsync(string[] parentPath, Tcreate msg, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task<Rremove> RemoveAsync(string[] relativePath, Tremove msg, CancellationToken ct) => throw new NotImplementedException();
-    public virtual Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct) 
+    public virtual Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct)
     {
         var stat = new Stat(0, 0, 0, new Qid(QidType.QTFILE, 0, 0), 0644, 0, 0, 0, "test", "root", "root", "root", NinePDialect.NineP2000L);
         var buffer = new byte[stat.Size];

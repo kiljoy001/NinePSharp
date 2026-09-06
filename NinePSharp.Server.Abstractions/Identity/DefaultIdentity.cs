@@ -46,7 +46,7 @@ public static class IdentityProvider
 
     public static IUser GetUser(string name) => _users.TryGetValue(name, out var user) ? user : _users["root"];
     public static IGroup GetGroup(string name) => _groups.TryGetValue(name, out var group) ? group : _groups["root"];
-    
+
     public static void AddUser(string name, int id, string groupName)
     {
         var group = GetGroup(groupName);

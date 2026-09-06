@@ -26,7 +26,7 @@ public class LoopbackStream : Stream
         var client = new LoopbackStream(serverSource.Reader, clientSource.Writer);
         // Server reads from clientSource, writes to serverSource
         var server = new LoopbackStream(clientSource.Reader, serverSource.Writer);
-        
+
         return (client, server);
     }
 

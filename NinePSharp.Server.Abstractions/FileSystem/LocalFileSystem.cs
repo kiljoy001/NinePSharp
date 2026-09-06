@@ -27,11 +27,11 @@ public abstract class LocalNodeBase : INinePNode
         var qidType = (_info.Attributes & FileAttributes.Directory) != 0 ? QidType.QTDIR : QidType.QTFILE;
         var qid = new Qid(qidType, 0, (ulong)_info.FullName.GetHashCode());
         uint mode = (uint)((_info.Attributes & FileAttributes.Directory) != 0 ? NinePConstants.FileMode9P.DMDIR : 0) | 0644;
-        
+
         long length = 0;
         if (_info is FileInfo fi) length = fi.Length;
 
-        return new Stat(0, 0, 0, qid, mode, 
+        return new Stat(0, 0, 0, qid, mode,
             (uint)new DateTimeOffset(_info.LastAccessTimeUtc).ToUnixTimeSeconds(),
             (uint)new DateTimeOffset(_info.LastWriteTimeUtc).ToUnixTimeSeconds(),
             (ulong)length, Name, User.Name, Group.Name, User.Name, dialect);
@@ -43,7 +43,7 @@ public abstract class LocalNodeBase : INinePNode
     public abstract Task<IEnumerable<INinePNode>> ReaddirAsync(CancellationToken ct);
     public abstract Task<INinePNode> CreateAsync(string name, uint perm, byte mode, CancellationToken ct);
     public abstract Task RemoveAsync(string name, CancellationToken ct);
-    
+
     public virtual Task SymlinkAsync(string name, string target, CancellationToken ct) => throw new NotSupportedException();
     public virtual Task<string> ReadlinkAsync(CancellationToken ct) => throw new NotSupportedException();
     public virtual Task LinkAsync(string name, INinePNode target, CancellationToken ct) => throw new NotSupportedException();
@@ -103,11 +103,11 @@ public class LocalDir : LocalNodeBase
     public override Task<INinePNode?> WalkAsync(string name, CancellationToken ct)
     {
         if (name == "..") return Task.FromResult<INinePNode?>(new LocalDir(((DirectoryInfo)_info).Parent ?? (DirectoryInfo)_info));
-        
+
         var fullPath = Path.Combine(_info.FullName, name);
         if (File.Exists(fullPath)) return Task.FromResult<INinePNode?>(new LocalFile(new FileInfo(fullPath)));
         if (Directory.Exists(fullPath)) return Task.FromResult<INinePNode?>(new LocalDir(new DirectoryInfo(fullPath)));
-        
+
         return Task.FromResult<INinePNode?>(null);
     }
 

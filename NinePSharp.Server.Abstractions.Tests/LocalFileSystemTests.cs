@@ -60,7 +60,7 @@ public class LocalFileSystemTests : IDisposable
     public async Task LocalDir_CreateAndRemove_Works()
     {
         var localDir = new LocalDir(new DirectoryInfo(_testRoot));
-        
+
         var newNode = await localDir.CreateAsync("newfile.txt", 0644, 0, default);
         Assert.True(File.Exists(Path.Combine(_testRoot, "newfile.txt")));
 

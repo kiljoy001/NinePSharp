@@ -16,8 +16,8 @@ public class ConnectionTests : TestBase
         ushort tag = NinePConstants.NoTag;
         uint msize = NinePConstants.DefaultMSize;
         uint size = (uint)(NinePConstants.HeaderSize + 4 + 2 + Encoding.UTF8.GetByteCount(version));
-        
-        RoundTripTest<Tversion>(size, tag, 
+
+        RoundTripTest<Tversion>(size, tag,
             buffer => new Tversion(buffer),
             msg => { Assert.Equal(msize, msg.MSize); Assert.Equal(version, msg.Version); },
             () => {
@@ -38,8 +38,8 @@ public class ConnectionTests : TestBase
         ushort tag = NinePConstants.NoTag;
         uint msize = NinePConstants.DefaultMSize;
         uint size = (uint)(NinePConstants.HeaderSize + 4 + 2 + Encoding.UTF8.GetByteCount(version));
-        
-        RoundTripTest<Rversion>(size, tag, 
+
+        RoundTripTest<Rversion>(size, tag,
             buffer => new Rversion(buffer),
             msg => { Assert.Equal(msize, msg.MSize); Assert.Equal(version, msg.Version); },
             () => {
@@ -61,8 +61,8 @@ public class ConnectionTests : TestBase
         string uname = "scott";
         string aname = "tree";
         uint size = (uint)(NinePConstants.HeaderSize + 4 + 2 + Encoding.UTF8.GetByteCount(uname) + 2 + Encoding.UTF8.GetByteCount(aname));
-        
-        RoundTripTest<Tauth>(size, tag, 
+
+        RoundTripTest<Tauth>(size, tag,
             buffer => new Tauth(buffer, is9u: false),
             msg => { Assert.Equal(afid, msg.Afid); Assert.Equal(uname, msg.Uname); Assert.Equal(aname, msg.Aname); Assert.False(msg.NUname.HasValue); },
             () => {
@@ -83,7 +83,7 @@ public class ConnectionTests : TestBase
         ushort tag = 1;
         var qid = new Qid(QidType.QTAUTH, 1, 100);
         uint size = (uint)(NinePConstants.HeaderSize + 13);
-        RoundTripTest<Rauth>(size, tag, 
+        RoundTripTest<Rauth>(size, tag,
             buffer => new Rauth(buffer),
             msg => { Assert.Equal(qid.Type, msg.Aqid.Type); Assert.Equal(qid.Version, msg.Aqid.Version); Assert.Equal(qid.Path, msg.Aqid.Path); },
             () => {
@@ -105,8 +105,8 @@ public class ConnectionTests : TestBase
         string uname = "scott";
         string aname = "tree";
         uint size = (uint)(NinePConstants.HeaderSize + 8 + 2 + Encoding.UTF8.GetByteCount(uname) + 2 + Encoding.UTF8.GetByteCount(aname));
-        
-        RoundTripTest<Tattach>(size, tag, 
+
+        RoundTripTest<Tattach>(size, tag,
             buffer => new Tattach(buffer, is9u: false),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(afid, msg.Afid); Assert.Equal(uname, msg.Uname); Assert.Equal(aname, msg.Aname); Assert.False(msg.NUname.HasValue); },
             () => {
@@ -128,7 +128,7 @@ public class ConnectionTests : TestBase
         ushort tag = 1;
         var qid = new Qid(QidType.QTDIR, 1, 100);
         uint size = (uint)(NinePConstants.HeaderSize + 13);
-        RoundTripTest<Rattach>(size, tag, 
+        RoundTripTest<Rattach>(size, tag,
             buffer => new Rattach(buffer),
             msg => { Assert.Equal(qid.Type, msg.Qid.Type); Assert.Equal(qid.Version, msg.Qid.Version); Assert.Equal(qid.Path, msg.Qid.Path); },
             () => {
@@ -147,8 +147,8 @@ public class ConnectionTests : TestBase
         ushort tag = 1;
         string errName = "file not found";
         uint size = (uint)(NinePConstants.HeaderSize + 2 + Encoding.UTF8.GetByteCount(errName));
-        
-        RoundTripTest<Rerror>(size, tag, 
+
+        RoundTripTest<Rerror>(size, tag,
             buffer => new Rerror(buffer, is9u: false),
             msg => { Assert.Equal(errName, msg.Ename); Assert.False(msg.Ecode.HasValue); },
             () => {
@@ -167,7 +167,7 @@ public class ConnectionTests : TestBase
         ushort tag = 1;
         uint ecode = 12;
         uint size = NinePConstants.HeaderSize + 4;
-        RoundTripTest<Rlerror>(size, tag, 
+        RoundTripTest<Rlerror>(size, tag,
             buffer => new Rlerror(buffer),
             msg => { Assert.Equal(ecode, msg.Ecode); },
             () => {

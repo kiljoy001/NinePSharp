@@ -11,7 +11,7 @@ public readonly struct Rauth: ISerializable
     public MessageTypes Type => MessageTypes.Rauth;
     public ushort Tag { get; }
     public Qid Aqid { get; }
-    
+
     public Rauth(ushort tag, Qid aqid)
     {
         Tag = tag;

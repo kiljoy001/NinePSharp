@@ -37,7 +37,7 @@ public readonly struct Twrite : ISerializable
         // Zero-copy: Reference the existing memory slice
         Data = data.Slice(offset, (int)Count);
     }
-    
+
     public Twrite(uint size, ushort tag, uint fid, ulong offset, uint count, ReadOnlyMemory<byte> data)
     {
         Size = size;

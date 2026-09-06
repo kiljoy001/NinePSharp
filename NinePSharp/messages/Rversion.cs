@@ -12,7 +12,7 @@ public readonly struct Rversion : ISerializable
     public ushort Tag {get;}
     public uint MSize {get;}
     public string Version { get; }
-    
+
 
     public Rversion(ushort tag, uint msize, string version)
     {

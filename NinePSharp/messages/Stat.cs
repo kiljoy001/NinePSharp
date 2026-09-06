@@ -10,7 +10,7 @@ namespace NinePSharp.Messages;
 /// 9P Stat structure.
 /// Layout (Standard 9P2000):
 /// size[2] type[2] dev[4] qid[13] mode[4] atime[4] mtime[4] length[8] name[s] uid[s] gid[s] muid[s]
-/// 
+///
 /// Layout (9P2000.u additions):
 /// extension[s] n_uid[4] n_gid[4] n_muid[4]
 /// </summary>
@@ -18,7 +18,7 @@ public readonly struct Stat
 {
     public NinePDialect Dialect { get; }
     private bool Is9u => Dialect == NinePDialect.NineP2000U || Dialect == NinePDialect.NineP2000L;
-    
+
     public ushort Size { get; } // Total size including the 2-byte header
     public ushort Type { get; }
     public uint Dev { get; }
@@ -31,7 +31,7 @@ public readonly struct Stat
     public string Uid { get; }
     public string Gid { get; }
     public string Muid { get; }
-    
+
     // 9P2000.u
     public string? Extension { get; }
     public uint? NUid { get; }
@@ -50,18 +50,18 @@ public readonly struct Stat
         payloadSize += 2 + Encoding.UTF8.GetByteCount(uid ?? "");
         payloadSize += 2 + Encoding.UTF8.GetByteCount(gid ?? "");
         payloadSize += 2 + Encoding.UTF8.GetByteCount(muid ?? "");
-        
+
         // 3. 9P2000.u extensions
         if (is9u)
         {
             payloadSize += 2 + Encoding.UTF8.GetByteCount(extension ?? "");
             payloadSize += 4 + 4 + 4; // n_uid[4] n_gid[4] n_muid[4]
         }
-        
+
         // Total size is payload + the 2 bytes for the size field itself
         return (ushort)(payloadSize + 2);
     }
-    
+
     public Stat(ushort size, ushort type, uint dev, Qid qid, uint mode, uint atime, uint mtime, ulong length, string? name, string? uid, string? gid, string? muid, NinePDialect dialect = NinePDialect.NineP2000, string? extension = null, uint? nUid = null, uint? nGid = null, uint? nMuid = null)
     {
         Dialect = dialect;
@@ -70,7 +70,7 @@ public readonly struct Stat
         Gid = gid ?? "";
         Muid = muid ?? "";
         Extension = extension;
-        
+
         Type = type;
         Dev = dev;
         Qid = qid;
@@ -92,37 +92,37 @@ public readonly struct Stat
         Dialect = dialect;
         bool is9u = dialect == NinePDialect.NineP2000U || dialect == NinePDialect.NineP2000L;
         int startOffset = offset;
-        
+
         // size[2] header
         ushort dataLength = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(offset, 2));
         Size = (ushort)(dataLength + 2);
         offset += 2;
-        
+
         Type = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(offset, 2));
         offset += 2;
-        
+
         Dev = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
         offset += 4;
-        
+
         Qid = data.ReadQid(ref offset);
-        
+
         Mode = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
         offset += 4;
-        
+
         Atime = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
         offset += 4;
-        
+
         Mtime = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
         offset += 4;
-        
+
         Length = BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(offset, 8));
         offset += 8;
-        
+
         Name = data.ReadString(ref offset);
         Uid = data.ReadString(ref offset);
         Gid = data.ReadString(ref offset);
         Muid = data.ReadString(ref offset);
-        
+
         Extension = null;
         NUid = null;
         NGid = null;
@@ -139,7 +139,7 @@ public readonly struct Stat
             offset += 4;
         }
     }
-    
+
     public void WriteTo(Span<byte> data, ref int offset)
     {
         int startOffset = offset;
@@ -147,34 +147,34 @@ public readonly struct Stat
         // 1. Write size[2] (length of following data)
         BinaryPrimitives.WriteUInt16LittleEndian(data.Slice(offset, 2), (ushort)(Size - 2));
         offset += 2;
-        
+
         // 2. Fixed fields
         BinaryPrimitives.WriteUInt16LittleEndian(data.Slice(offset, 2), Type);
         offset += 2;
-        
+
         BinaryPrimitives.WriteUInt32LittleEndian(data.Slice(offset, 4), Dev);
         offset += 4;
-        
+
         data.WriteQid(Qid, ref offset);
-        
+
         BinaryPrimitives.WriteUInt32LittleEndian(data.Slice(offset, 4), Mode);
         offset += 4;
-        
+
         BinaryPrimitives.WriteUInt32LittleEndian(data.Slice(offset, 4), Atime);
         offset += 4;
-        
+
         BinaryPrimitives.WriteUInt32LittleEndian(data.Slice(offset, 4), Mtime);
         offset += 4;
-        
+
         BinaryPrimitives.WriteUInt64LittleEndian(data.Slice(offset, 8), Length);
         offset += 8;
-        
+
         // 3. String fields
         data.WriteString(Name, ref offset);
         data.WriteString(Uid, ref offset);
         data.WriteString(Gid, ref offset);
         data.WriteString(Muid, ref offset);
-        
+
         // 4. Unix Extensions
         if (Is9u)
         {

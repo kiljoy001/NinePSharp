@@ -40,7 +40,7 @@ internal class NinePClient : IDisposable
         return response.Wqid;
     }
 
-    public Task MkdirAsync(uint dfid, string name, uint mode) 
+    public Task MkdirAsync(uint dfid, string name, uint mode)
         => _client.CreateAsync(dfid, name, mode | (uint)NinePConstants.FileMode9P.DMDIR, NinePConstants.OREAD);
 
     public Task WriteAsync(uint fid, ulong offset, byte[] data) => _client.WriteAsync(fid, offset, data);
@@ -54,7 +54,7 @@ internal class NinePClient : IDisposable
     public Task ClunkAsync(uint fid) => _client.ClunkAsync(fid);
 
     public Task<byte[]> ReadFileAsync(string path) => _client.ReadFileAsync(path);
-    
+
     public Task WriteFileAsync(string path, byte[] data) => _client.WriteFileAsync(path, data);
 
     public void Dispose() => _client.Dispose();

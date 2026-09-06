@@ -22,10 +22,10 @@ public class RemoteFs
     {
         uint fileFid = _client.GetNextFid();
         string[] components = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        
+
         await _client.WalkAsync(_rootFid, fileFid, components);
         await _client.OpenAsync(fileFid, NinePConstants.OREAD);
-        
+
         var result = new List<byte>();
         ulong offset = 0;
         while (true)
@@ -44,11 +44,11 @@ public class RemoteFs
     {
         uint fileFid = _client.GetNextFid();
         string[] components = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        
+
         await _client.WalkAsync(_rootFid, fileFid, components);
         var rstat = await _client.StatAsync(fileFid);
         await _client.ClunkAsync(fileFid);
-        
+
         return rstat.Stat;
     }
 

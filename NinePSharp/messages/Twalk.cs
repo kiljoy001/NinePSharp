@@ -22,7 +22,7 @@ public readonly struct Twalk : ISerializable
         Fid = fid;
         NewFid = newFid;
         Wname = wname;
-        // Size will be calculated during write if needed, 
+        // Size will be calculated during write if needed,
         // but let's set a minimal valid size for now
         Size = (uint)(NinePConstants.HeaderSize + 4 + 4 + 2 + (wname?.Sum(s => 2 + s.Length) ?? 0));
     }

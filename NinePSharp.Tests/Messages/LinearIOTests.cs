@@ -127,7 +127,7 @@ public class LinearIOTests : TestBase
         byte[] dataContent = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF };
         uint count = (uint)dataContent.Length;
         uint size = NinePConstants.HeaderSize + 4 + count;
-        
+
         RoundTripTest<Rread>(size, tag,
             buffer => new Rread(new ReadOnlyMemory<byte>(buffer.ToArray())),
             msg => { Assert.Equal(count, msg.Count); Assert.True(msg.Data.Span.SequenceEqual(dataContent)); },
