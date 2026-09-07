@@ -120,6 +120,7 @@ jobs:
     environment: nuget
     permissions:
       contents: write
+      id-token: write
 
     steps:
       - name: Set up .NET
@@ -133,6 +134,12 @@ jobs:
           name: ${{ needs.package.outputs.artifact }}
           path: artifacts/packages
 
+      - name: Request temporary NuGet API key
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: kiljoy001
+
       - name: Attach packages to GitHub Release
         if: github.event_name == 'release'
         env:
@@ -142,12 +149,8 @@ jobs:
 
       - name: Publish packages to NuGet.org
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
         run: |
-          if [[ -z "$NUGET_API_KEY" ]]; then
-            echo "NUGET_API_KEY is not configured for the nuget environment." >&2
-            exit 1
-          fi
           for package in artifacts/packages/*.nupkg; do
             dotnet nuget push "$package" \
               --api-key "$NUGET_API_KEY" \
