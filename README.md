@@ -62,6 +62,8 @@ The standard gate runs a Release build, StyleCop/.NET analyzers, all main xUnit/
 Published packages are split by responsibility:
 
 - `NinePSharp`
+- `NinePSharp.Parser`
+- `NinePSharp.Client`
 - `NinePSharp.Server.Abstractions`
 - `NinePSharp.Backends.*` (one package per backend family)
 

@@ -1,0 +1,155 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version, with or without a leading v
+        required: true
+        type: string
+      publish_nuget:
+        description: Publish packages to NuGet.org
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_NOLOGO: 1
+
+jobs:
+  package:
+    name: Verify and package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      artifact: ${{ steps.version.outputs.artifact }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Resolve package version
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          requested="${RELEASE_TAG:-$INPUT_VERSION}"
+          version="${requested#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?(\+[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+            echo "Invalid semantic version: $requested" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "artifact=nuget-$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install static-analysis tool
+        run: python -m pip install --disable-pip-version-check semgrep==1.176.1
+
+      - name: Run release quality gate
+        run: bash scripts/run-quality.sh
+
+      - name: Build release assemblies
+        run: dotnet build NinePSharp.sln -c Release --no-restore -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Pack NuGet artifacts
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          projects=(
+            NinePSharp/NinePSharp.csproj
+            NinePSharp.Parser/NinePSharp.Parser.fsproj
+            NinePSharp.Client/NinePSharp.Client.csproj
+            NinePSharp.Server.Abstractions/NinePSharp.Server.Abstractions.csproj
+          )
+          mkdir -p artifacts/packages
+          for project in "${projects[@]}"; do
+            dotnet pack "$project" \
+              -c Release \
+              --no-build \
+              --no-restore \
+              -p:BuildProjectReferences=false \
+              -p:Version="$VERSION" \
+              -o artifacts/packages
+          done
+
+      - name: Validate package set
+        run: |
+          shopt -s nullglob
+          packages=(artifacts/packages/*.nupkg)
+          symbols=(artifacts/packages/*.snupkg)
+          if [[ ${#packages[@]} -ne 4 || ${#symbols[@]} -ne 4 ]]; then
+            printf 'Expected four packages and four symbol packages; found %d and %d.\n' \
+              "${#packages[@]}" "${#symbols[@]}" >&2
+            exit 1
+          fi
+          printf '%s\n' "${packages[@]}" "${symbols[@]}"
+
+      - name: Upload NuGet artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.version.outputs.artifact }}
+          path: artifacts/packages/
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    name: Publish release
+    needs: package
+    if: github.event_name == 'release' || inputs.publish_nuget == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: nuget
+    permissions:
+      contents: write
+
+    steps:
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Download NuGet artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ needs.package.outputs.artifact }}
+          path: artifacts/packages
+
+      - name: Attach packages to GitHub Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" artifacts/packages/* --clobber
+
+      - name: Publish packages to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [[ -z "$NUGET_API_KEY" ]]; then
+            echo "NUGET_API_KEY is not configured for the nuget environment." >&2
+            exit 1
+          fi
+          for package in artifacts/packages/*.nupkg; do
+            dotnet nuget push "$package" \
+              --api-key "$NUGET_API_KEY" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
