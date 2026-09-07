@@ -56,14 +56,17 @@ jobs:
       - name: Run build, test, coverage, CRAP, mutation, and fuzz gates
         run: bash scripts/run-quality.sh --full
 
+      - name: Archive quality evidence
+        if: always()
+        run: |
+          mkdir -p .artifacts
+          tar --create --gzip --file quality-evidence.tar.gz .artifacts
+
       - name: Upload quality evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: quality-evidence-${{ github.run_id }}
-          path: |
-            .artifacts/
-            **/TestResults/
-          include-hidden-files: true
-          if-no-files-found: warn
+          path: quality-evidence.tar.gz
+          if-no-files-found: error
           retention-days: 14
