@@ -76,12 +76,12 @@ public class RemoteFs
             else
             {
                 await _client.ClunkAsync(fileFid);
-                await _client.CreateAsync(dirFid, fileName, 0644, NinePConstants.OWRITE);
+                await _client.CreateAsync(dirFid, fileName, NinePConstants.Mode0644, NinePConstants.OWRITE);
             }
         }
         catch
         {
-            await _client.CreateAsync(dirFid, fileName, 0644, NinePConstants.OWRITE);
+            await _client.CreateAsync(dirFid, fileName, NinePConstants.Mode0644, NinePConstants.OWRITE);
         }
 
         uint maxWrite = _client.MSize - 32;

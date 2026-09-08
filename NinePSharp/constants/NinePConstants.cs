@@ -32,6 +32,15 @@ public static class NinePConstants
     /// <summary>Size of the 9P message header in bytes</summary>
     public const int HeaderSize = 7;
 
+    /// <summary>Owner read/write permissions (octal 0600)</summary>
+    public const uint Mode0600 = 0x180;
+    /// <summary>Owner read/write and group/other read permissions (octal 0644)</summary>
+    public const uint Mode0644 = 0x1A4;
+    /// <summary>Owner read/write/execute and group/other read/execute permissions (octal 0755)</summary>
+    public const uint Mode0755 = 0x1ED;
+    /// <summary>Read/write/execute permissions for everyone (octal 0777)</summary>
+    public const uint Mode0777 = 0x1FF;
+
     /// <summary>
     /// Bitmask constants for 9P2000.L getattr requests
     /// </summary>

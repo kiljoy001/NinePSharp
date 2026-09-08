@@ -3,6 +3,7 @@ using System.Management.Automation;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using NinePSharp.Constants;
 using NinePSharp.PowerShell.Internal;
 
 namespace NinePSharp.PowerShell.Cmdlets;
@@ -39,7 +40,7 @@ public class InvokeNinePComputeCmdlet : PSCmdlet
             await client.WalkAsync(1, 2, new[] { "jobs" });
 
             // 3. Create job directory
-            await client.MkdirAsync(2, jobId, 0755);
+            await client.MkdirAsync(2, jobId, NinePConstants.Mode0755);
 
             // 4. Walk into job directory
             await client.WalkAsync(2, 3, new[] { jobId });

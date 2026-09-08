@@ -90,7 +90,7 @@ public class FileSystemTests
             0,
             0,
             qid,
-            0600,
+            NinePConstants.Mode0600,
             10,
             20,
             99,
@@ -103,7 +103,7 @@ public class FileSystemTests
         await file.WstatAsync(updated, default);
 
         Assert.Equal("after.txt", file.Name);
-        Assert.Equal((uint)0600, file.Mode);
+        Assert.Equal(NinePConstants.Mode0600, file.Mode);
         Assert.Equal(10u, file.Atime);
         Assert.Equal(20u, file.Mtime);
         Assert.Equal(99ul, file.Length);

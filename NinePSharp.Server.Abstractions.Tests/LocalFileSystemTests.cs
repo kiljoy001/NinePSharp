@@ -61,7 +61,7 @@ public class LocalFileSystemTests : IDisposable
     {
         var localDir = new LocalDir(new DirectoryInfo(_testRoot));
 
-        var newNode = await localDir.CreateAsync("newfile.txt", 0644, 0, default);
+        var newNode = await localDir.CreateAsync("newfile.txt", NinePConstants.Mode0644, 0, default);
         Assert.True(File.Exists(Path.Combine(_testRoot, "newfile.txt")));
 
         await localDir.RemoveAsync("newfile.txt", default);

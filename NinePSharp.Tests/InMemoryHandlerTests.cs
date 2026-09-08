@@ -83,7 +83,7 @@ public class InMemoryHandlerTests
         var handler = new InMemoryHandler();
         handler.AddDirectory("/parent");
 
-        var createMsg = new Tcreate(1, 1, "new.txt", 0644, 2);
+        var createMsg = new Tcreate(1, 1, "new.txt", NinePConstants.Mode0644, 2);
         var ct = CancellationToken.None;
 
         var result = await handler.CreateAsync(new[] { "parent" }, createMsg, ct);
@@ -114,5 +114,18 @@ public class InMemoryHandlerTests
         // asking for missing children just stops and returns empty Qids.
         var walkResult = await act();
         walkResult.Wqid.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task StatAsync_ShouldUsePlan9PermissionBits()
+    {
+        var handler = new InMemoryHandler();
+        handler.AddFile("/file.txt", "content");
+
+        var root = await handler.StatAsync(System.Array.Empty<string>(), new Tstat(1, 1), default);
+        var file = await handler.StatAsync(new[] { "file.txt" }, new Tstat(2, 2), default);
+
+        root.Stat.Mode.Should().Be((uint)NinePConstants.FileMode9P.DMDIR | NinePConstants.Mode0777);
+        file.Stat.Mode.Should().Be(NinePConstants.Mode0644);
     }
 }

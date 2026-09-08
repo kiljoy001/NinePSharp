@@ -31,7 +31,7 @@ public class MetadataTests : TestBase
     public void Test_Rstat_Roundtrip()
     {
         ushort tag = 1;
-        var stat = new Stat(0, 1, 0, new Qid(QidType.QTFILE, 0, 100), 0777, 0, 0, 0, "name", "uid", "gid", "muid");
+        var stat = new Stat(0, 1, 0, new Qid(QidType.QTFILE, 0, 100), NinePConstants.Mode0777, 0, 0, 0, "name", "uid", "gid", "muid");
         uint size = NinePConstants.HeaderSize + 2 + (uint)stat.Size;
         RoundTripTest<Rstat>(size, tag,
             buffer => new Rstat(buffer),
@@ -53,7 +53,7 @@ public class MetadataTests : TestBase
     {
         ushort tag = 1;
         uint fid = 2;
-        var stat = new Stat(0, 1, 0, new Qid(QidType.QTFILE, 0, 100), 0777, 0, 0, 0, "name", "uid", "gid", "muid");
+        var stat = new Stat(0, 1, 0, new Qid(QidType.QTFILE, 0, 100), NinePConstants.Mode0777, 0, 0, 0, "name", "uid", "gid", "muid");
         uint size = NinePConstants.HeaderSize + 4 + 2 + (uint)stat.Size;
         RoundTripTest<Twstat>(size, tag,
             buffer => new Twstat(buffer),

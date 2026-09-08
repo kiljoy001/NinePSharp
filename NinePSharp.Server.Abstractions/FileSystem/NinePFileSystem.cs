@@ -93,7 +93,7 @@ public class NinePSymlink : NinePNodeBase
     public NinePSymlink(string name, string target) : base(name, QidType.QTSYMLINK)
     {
         _target = target;
-        Mode = 0777; // Standard symlink perms
+        Mode = NinePConstants.Mode0777;
     }
 
     public override Task<string> ReadlinkAsync(CancellationToken ct) => Task.FromResult(_target);
@@ -105,7 +105,7 @@ public class NinePFile : NinePNodeBase
 
     public NinePFile(string name) : base(name, QidType.QTFILE)
     {
-        Mode = 0644;
+        Mode = NinePConstants.Mode0644;
     }
 
     public NinePFile(string name, byte[] content) : this(name)
@@ -150,7 +150,7 @@ public class NinePDir : NinePNodeBase
 
     public NinePDir(string name) : base(name, QidType.QTDIR)
     {
-        Mode = (uint)NinePConstants.FileMode9P.DMDIR | 0755;
+        Mode = (uint)NinePConstants.FileMode9P.DMDIR | NinePConstants.Mode0755;
     }
 
     public void AddChild(INinePNode node) => _children.Add(node);

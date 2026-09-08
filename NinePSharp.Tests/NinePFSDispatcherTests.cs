@@ -85,7 +85,7 @@ public class NinePFSDispatcherTests
     }
 
     private static Stat CreateStat(string name)
-        => new(0, 0, 0, new Qid(QidType.QTFILE, 0, 42), 0644, 0, 0, 0, name, "user", "group", "user", NinePDialect.NineP2000);
+        => new(0, 0, 0, new Qid(QidType.QTFILE, 0, 42), NinePConstants.Mode0644, 0, 0, 0, name, "user", "group", "user", NinePDialect.NineP2000);
 
     private sealed class ExtendedOperationHandler : TestHandlerBase
     {

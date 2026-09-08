@@ -17,7 +17,7 @@ public class RegressionTests : TestBase
     public void Test_Rstat_Framing_Regression()
     {
         ushort tag = 100;
-        var stat = new Stat(0, 1, 0, new Qid(QidType.QTFILE, 0, 1), 0644, 0, 0, 0, "test", "uid", "gid", "muid");
+        var stat = new Stat(0, 1, 0, new Qid(QidType.QTFILE, 0, 1), NinePConstants.Mode0644, 0, 0, 0, "test", "uid", "gid", "muid");
 
         // Rstat size = Header(7) + nstat(2) + stat.Size
         uint expectedSize = 7 + 2 + (uint)stat.Size;
@@ -54,7 +54,7 @@ public class RegressionTests : TestBase
     {
         ushort tag = 101;
         uint fid = 50;
-        var stat = new Stat(0, 1, 0, new Qid(QidType.QTFILE, 0, 1), 0644, 0, 0, 0, "test", "uid", "gid", "muid");
+        var stat = new Stat(0, 1, 0, new Qid(QidType.QTFILE, 0, 1), NinePConstants.Mode0644, 0, 0, 0, "test", "uid", "gid", "muid");
 
         // Twstat size = Header(7) + fid(4) + nstat(2) + stat.Size
         uint expectedSize = 7 + 4 + 2 + (uint)stat.Size;

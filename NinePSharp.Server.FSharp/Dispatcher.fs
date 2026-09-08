@@ -136,9 +136,11 @@ type NinePFSDispatcherEngine(handler: INinePRequestHandler) =
         withFidLocks session [ t.Afid ] (fun () ->
             task {
                 let! authHandler = handler.GetAuthHandlerAsync(t, CancellationToken.None)
-                if not (isNull (box authHandler)) then
+                if isNull (box authHandler) then
+                    return (raise (InvalidOperationException("Authentication is not required.")) : obj)
+                else
                     session.AuthHandlers.[t.Afid] <- authHandler
-                return Rauth(t.Tag, Qid(QidType.QTAUTH, 0u, uint64 t.Afid)) :> obj
+                    return Rauth(t.Tag, Qid(QidType.QTAUTH, 0u, uint64 t.Afid)) :> obj
             })
 
     let handleAttach (session: SessionBox) (t: Tattach) : Task<obj> =

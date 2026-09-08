@@ -24,9 +24,12 @@ public abstract class LocalNodeBase : INinePNode
 
     public virtual Stat GetStat(NinePDialect dialect)
     {
-        var qidType = (_info.Attributes & FileAttributes.Directory) != 0 ? QidType.QTDIR : QidType.QTFILE;
+        var isDirectory = (_info.Attributes & FileAttributes.Directory) != 0;
+        var qidType = isDirectory ? QidType.QTDIR : QidType.QTFILE;
         var qid = new Qid(qidType, 0, (ulong)_info.FullName.GetHashCode());
-        uint mode = (uint)((_info.Attributes & FileAttributes.Directory) != 0 ? NinePConstants.FileMode9P.DMDIR : 0) | 0644;
+        uint mode = isDirectory
+            ? (uint)NinePConstants.FileMode9P.DMDIR | NinePConstants.Mode0755
+            : NinePConstants.Mode0644;
 
         long length = 0;
         if (_info is FileInfo fi) length = fi.Length;

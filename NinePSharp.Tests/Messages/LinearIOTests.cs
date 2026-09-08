@@ -57,7 +57,7 @@ public class LinearIOTests : TestBase
         ushort tag = 1;
         uint fid = 2;
         string name = "newfile.txt";
-        uint perm = 0644;
+        uint perm = NinePConstants.Mode0644;
         byte mode = NinePConstants.OWRITE;
         uint size = (uint)(NinePConstants.HeaderSize + 4 + 2 + Encoding.UTF8.GetByteCount(name) + 4 + 1);
         RoundTripTest<Tcreate>(size, tag,

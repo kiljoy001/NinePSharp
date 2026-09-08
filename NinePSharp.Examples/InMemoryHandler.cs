@@ -41,7 +41,7 @@ public class InMemoryHandler : INinePRequestHandler
         {
             Name = "/",
             Qid = new Qid(QidType.QTDIR, 0, (ulong)Interlocked.Increment(ref _nextPath)),
-            Mode = (uint)NinePConstants.FileMode9P.DMDIR | 0755,
+            Mode = (uint)NinePConstants.FileMode9P.DMDIR | NinePConstants.Mode0777,
             Atime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             Mtime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds()
         };
@@ -69,7 +69,7 @@ public class InMemoryHandler : INinePRequestHandler
             {
                 Name = name,
                 Qid = new Qid(QidType.QTDIR, 0, (ulong)Interlocked.Increment(ref _nextPath)),
-                Mode = (uint)NinePConstants.FileMode9P.DMDIR | 0755,
+                Mode = (uint)NinePConstants.FileMode9P.DMDIR | NinePConstants.Mode0755,
                 Atime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 Mtime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             });
@@ -93,7 +93,7 @@ public class InMemoryHandler : INinePRequestHandler
             {
                 Name = name,
                 Qid = new Qid(QidType.QTDIR, 0, (ulong)Interlocked.Increment(ref _nextPath)),
-                Mode = (uint)NinePConstants.FileMode9P.DMDIR | 0755,
+                Mode = (uint)NinePConstants.FileMode9P.DMDIR | NinePConstants.Mode0755,
                 Atime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 Mtime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             });
@@ -104,7 +104,7 @@ public class InMemoryHandler : INinePRequestHandler
         {
             Name = fileName,
             Qid = new Qid(QidType.QTFILE, 0, (ulong)Interlocked.Increment(ref _nextPath)),
-            Mode = 0644,
+            Mode = NinePConstants.Mode0644,
             Atime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             Mtime = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             Content = content,

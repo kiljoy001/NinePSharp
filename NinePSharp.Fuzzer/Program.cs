@@ -99,7 +99,7 @@ namespace NinePSharp.Fuzzer
                 var fileName = text.Split(new[] { '/', '\n', '\r', '\t', ' ', ':' }, StringSplitOptions.RemoveEmptyEntries)
                                    .FirstOrDefault() ?? "fuzzfile.txt";
 
-                fs.CreateAsync(new string[0], new Tcreate(1, 1, fileName, 0644, 0), CancellationToken.None).Wait();
+                fs.CreateAsync(new string[0], new Tcreate(1, 1, fileName, NinePConstants.Mode0644, 0), CancellationToken.None).Wait();
                 fs.WalkAsync(new string[0], new Twalk(1, 1, 2, new[] { fileName }), CancellationToken.None).Wait();
                 fs.WriteAsync(new string[] { fileName }, new Twrite(1, 2, 0, data), CancellationToken.None).Wait();
                 fs.ReadAsync(new string[] { fileName }, new Tread(1, 2, 0, (uint)Math.Min(data.Length, 8192)), CancellationToken.None).Wait();
@@ -158,7 +158,7 @@ namespace NinePSharp.Fuzzer
                         var fileName = text.Split(new[] { '/', '\n', '\r', '\t', ' ', ':' }, StringSplitOptions.RemoveEmptyEntries)
                                            .FirstOrDefault() ?? "fuzzfile.txt";
 
-                        fs.CreateAsync(new string[0], new Tcreate(1, 1, fileName, 0644, 0), CancellationToken.None).Wait();
+                        fs.CreateAsync(new string[0], new Tcreate(1, 1, fileName, NinePConstants.Mode0644, 0), CancellationToken.None).Wait();
                         fs.WalkAsync(new string[0], new Twalk(1, 1, 2, new[] { fileName }), CancellationToken.None).Wait();
                         fs.WriteAsync(new string[] { fileName }, new Twrite(1, 2, 0, data), CancellationToken.None).Wait();
                         fs.ReadAsync(new string[] { fileName }, new Tread(1, 2, 0, (uint)Math.Min(data.Length, 8192)), CancellationToken.None).Wait();

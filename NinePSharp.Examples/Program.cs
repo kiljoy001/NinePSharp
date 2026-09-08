@@ -37,9 +37,10 @@ public class Program
             dispatcher
         );
 
-        var listener = new TcpListener(IPAddress.Any, 5640); // Use 5640 to avoid permission issues
+        var port = args.Length > 0 ? int.Parse(args[0]) : 5640;
+        var listener = new TcpListener(IPAddress.Any, port);
         listener.Start();
-        logger.LogInformation("9P Server listening on port 5640...");
+        logger.LogInformation("9P Server listening on port {Port}...", port);
 
         while (true)
         {

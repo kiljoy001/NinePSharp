@@ -38,7 +38,7 @@ internal abstract class TestHandlerBase : INinePRequestHandler, INinePFileSystem
     public virtual Task<Rremove> RemoveAsync(string[] relativePath, Tremove msg, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct)
     {
-        var stat = new Stat(0, 0, 0, new Qid(QidType.QTFILE, 0, 0), 0644, 0, 0, 0, "test", "root", "root", "root", NinePDialect.NineP2000L);
+        var stat = new Stat(0, 0, 0, new Qid(QidType.QTFILE, 0, 0), NinePConstants.Mode0644, 0, 0, 0, "test", "root", "root", "root", NinePDialect.NineP2000L);
         var buffer = new byte[stat.Size];
         int off = 0;
         stat.WriteTo(buffer, ref off);
@@ -175,7 +175,7 @@ internal static class DispatcherIntegrationTestKit
         return open;
     }
 
-    internal static async Task<Rcreate> CreateAsync(NinePFSDispatcher dispatcher, ushort tag, uint fid, string name, uint perm = 0644, byte mode = 0)
+    internal static async Task<Rcreate> CreateAsync(NinePFSDispatcher dispatcher, ushort tag, uint fid, string name, uint perm = NinePConstants.Mode0644, byte mode = 0)
     {
         var response = await dispatcher.DispatchAsync(
             "test-session",
@@ -264,7 +264,7 @@ internal sealed class MarkerFileSystem : TestHandlerBase
     }
 
     public override Task<Rwrite> WriteAsync(string[] relativePath, Twrite msg, CancellationToken ct) => Task.FromException<Rwrite>(new Exception("Not supported"));
-    public override Task<Rstat> StatAsync(string[] relativePath, Tstat msg, CancellationToken ct) => Task.FromResult(new Rstat(msg.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000)));
+    public override Task<Rstat> StatAsync(string[] relativePath, Tstat msg, CancellationToken ct) => Task.FromResult(new Rstat(msg.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), NinePConstants.Mode0755, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000)));
 }
 
 internal sealed class CreateTrackingFileSystem : TestHandlerBase
@@ -300,7 +300,7 @@ internal sealed class CreateTrackingFileSystem : TestHandlerBase
     }
 
     public override Task<Rwrite> WriteAsync(string[] relativePath, Twrite twrite, CancellationToken ct) => Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
-    public override Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000)));
+    public override Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), NinePConstants.Mode0755, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000)));
 }
 
 internal sealed class DirectoryListingFileSystem : TestHandlerBase
@@ -327,7 +327,7 @@ internal sealed class DirectoryListingFileSystem : TestHandlerBase
         foreach (var name in _entries)
         {
             var qid = new Qid(QidType.QTDIR, 0, (ulong)Math.Abs(name.GetHashCode()));
-            var stat = new Stat(0, 0, 0, qid, (uint)NinePConstants.FileMode9P.DMDIR | 0755, 0, 0, 0, name, "none", "none", "none", NinePDialect.NineP2000);
+            var stat = new Stat(0, 0, 0, qid, (uint)NinePConstants.FileMode9P.DMDIR | NinePConstants.Mode0755, 0, 0, 0, name, "none", "none", "none", NinePDialect.NineP2000);
             var buffer = new byte[stat.Size];
             int off = 0;
             stat.WriteTo(buffer, ref off);
@@ -341,7 +341,7 @@ internal sealed class DirectoryListingFileSystem : TestHandlerBase
     }
 
     public override Task<Rwrite> WriteAsync(string[] relativePath, Twrite twrite, CancellationToken ct) => Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
-    public override Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000)));
+    public override Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), NinePConstants.Mode0755, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000)));
 }
 
 internal sealed class ExistingPathFileSystem : TestHandlerBase
@@ -384,7 +384,7 @@ internal sealed class ExistingPathFileSystem : TestHandlerBase
         => Task.FromResult(new Rread(tread.Tag, Encoding.UTF8.GetBytes(Normalize(relativePath))));
 
     public override Task<Rwrite> WriteAsync(string[] relativePath, Twrite twrite, CancellationToken ct) => Task.FromResult(new Rwrite(twrite.Tag, (uint)twrite.Data.Length));
-    public override Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000)));
+    public override Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), NinePConstants.Mode0755, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000)));
 
     private static string Normalize(IEnumerable<string> segments)
     {
@@ -480,5 +480,5 @@ internal sealed class SharedMutableFileSystem : TestHandlerBase
         return Task.FromResult(new Rcreate(tcreate.Tag, new Qid(QidType.QTFILE, 0, (ulong)Math.Abs(path.GetHashCode())), 8192));
     }
 
-    public override Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), 0755, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000)));
+    public override Task<Rstat> StatAsync(string[] relativePath, Tstat tstat, CancellationToken ct) => Task.FromResult(new Rstat(tstat.Tag, new Stat(0,0,0, new Qid(QidType.QTFILE, 0, 0), NinePConstants.Mode0755, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000)));
 }
