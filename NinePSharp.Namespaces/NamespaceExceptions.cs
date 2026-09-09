@@ -1,0 +1,43 @@
+namespace NinePSharp.Namespaces;
+
+/// <summary>Identifies a namespace operation failure.</summary>
+public enum NamespaceError
+{
+    /// <summary>The mount flags are invalid.</summary>
+    InvalidMountFlags,
+
+    /// <summary>The source and target object kinds cannot be mounted together.</summary>
+    MountTypeMismatch,
+
+    /// <summary>A union mount was attempted on a non-directory.</summary>
+    UnionRequiresDirectory,
+
+    /// <summary>The requested mount point does not exist.</summary>
+    MountNotFound,
+
+    /// <summary>The requested union member does not exist.</summary>
+    UnionMemberNotFound,
+
+    /// <summary>No union member permits creation.</summary>
+    CreateNotPermitted,
+
+    /// <summary>A creatable bind was attempted from an incompatible mounted source.</summary>
+    CreateBindNotPermitted,
+
+    /// <summary>A path component could not be resolved.</summary>
+    ResourceNotFound,
+}
+
+/// <summary>Reports a failed namespace operation without depending on a wire dialect.</summary>
+public sealed class NamespaceException : Exception
+{
+    /// <summary>Creates an exception for the given namespace error.</summary>
+    public NamespaceException(NamespaceError error, string message)
+        : base(message)
+    {
+        Error = error;
+    }
+
+    /// <summary>Gets the stable error classification.</summary>
+    public NamespaceError Error { get; }
+}

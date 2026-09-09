@@ -6,6 +6,7 @@ using NinePSharp.Parser;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Interfaces;
 using NinePSharp.Messages;
+using NinePSharp.Namespaces;
 using NinePSharp.Protocol;
 using NinePSharp.Examples;
 using NinePSharp.Server.FileSystem;
@@ -37,6 +38,10 @@ namespace NinePSharp.Fuzzer
             else if (args.Length > 0 && args[0] == "filesystem")
             {
                 FuzzFileSystemBackend();
+            }
+            else if (args.Length > 0 && args[0] == "namespace")
+            {
+                FuzzNamespace();
             }
             else
             {
@@ -168,6 +173,64 @@ namespace NinePSharp.Fuzzer
                 {
                 }
             });
+        }
+
+        private static void FuzzNamespace()
+        {
+            SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
+            {
+                using var memory = new MemoryStream();
+                stream.CopyTo(memory);
+                ExecuteNamespaceSteps(memory.ToArray());
+            });
+        }
+
+        private static void ExecuteNamespaceSteps(byte[] data)
+        {
+            var table = new MountTable();
+            var handles = Enumerable.Range(0, 16)
+                .Select(index => new ResourceHandle(
+                    new ResourceIdentity("fuzz", $"device-{index}", (ulong)index + 1),
+                    (index & 1) == 0 ? QidType.QTDIR : QidType.QTFILE,
+                    (uint)index))
+                .ToArray();
+
+            int limit = Math.Min(data.Length, 512);
+            for (int index = 0; index < limit; index++)
+            {
+                byte instruction = data[index];
+                ResourceHandle target = handles[(instruction >> 4) & 15];
+                ResourceHandle mountedOn = handles[instruction & 15];
+                try
+                {
+                    switch (instruction % 6)
+                    {
+                        case 0:
+                            table.Mount(target, mountedOn, MountFlags.Replace);
+                            break;
+                        case 1:
+                            table.Mount(target, mountedOn, MountFlags.Before | MountFlags.Create);
+                            break;
+                        case 2:
+                            table.Mount(target, mountedOn, MountFlags.After);
+                            break;
+                        case 3:
+                            table.Unmount(mountedOn, (instruction & 32) == 0 ? null : target);
+                            break;
+                        case 4:
+                            _ = table.Find(mountedOn.Identity);
+                            _ = table.Clone().Snapshot();
+                            break;
+                        default:
+                            table = MountTable.FromSnapshot(table.Snapshot());
+                            break;
+                    }
+                }
+                catch (NamespaceException)
+                {
+                    // Invalid random mount combinations are an expected part of the input space.
+                }
+            }
         }
     }
 }

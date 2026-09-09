@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\NinePSharp.Namespaces\NinePSharp.Namespaces.csproj" />
     <ProjectReference Include="..\NinePSharp.Parser\NinePSharp.Parser.fsproj" />
     <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
     <ProjectReference Include="..\NinePSharp.Server\NinePSharp.Server.csproj" />
