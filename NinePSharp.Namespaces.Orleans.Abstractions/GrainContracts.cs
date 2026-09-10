@@ -63,4 +63,40 @@ public interface IMountableResourceGrain : IGrainWithStringKey
 
     /// <summary>Creates one child in a directory.</summary>
     Task<ResourceHandleModel> CreateAsync(ResourceHandleModel directory, string name, bool directoryEntry);
+
+    /// <summary>Opens a resource. Replaying the same operation must return the same handle.</summary>
+    Task<ResourceOpenHandleModel> OpenAsync(
+        ResourceHandleModel resource,
+        byte mode,
+        ResourceOperationContextModel context);
+
+    /// <summary>Reads bytes from an open resource.</summary>
+    Task<byte[]> ReadAsync(ResourceOpenHandleModel openHandle, ulong offset, uint count);
+
+    /// <summary>Writes bytes atomically with its idempotency record.</summary>
+    Task<uint> WriteAsync(
+        ResourceOpenHandleModel openHandle,
+        ulong offset,
+        byte[] data,
+        ResourceOperationContextModel context);
+
+    /// <summary>Reads metadata for a resource.</summary>
+    Task<ResourceStatModel> StatAsync(ResourceHandleModel resource);
+
+    /// <summary>Creates and opens a child atomically with its idempotency record.</summary>
+    Task<ResourceOpenHandleModel> CreateAndOpenAsync(
+        ResourceHandleModel directory,
+        string name,
+        uint permissions,
+        byte mode,
+        ResourceOperationContextModel context);
+
+    /// <summary>Closes an open handle. Replaying the same operation has no additional effect.</summary>
+    Task ClunkAsync(ResourceOpenHandleModel openHandle, ResourceOperationContextModel context);
+
+    /// <summary>Removes a resource atomically with its idempotency record.</summary>
+    Task RemoveAsync(
+        ResourceHandleModel resource,
+        ResourceOpenHandleModel? openHandle,
+        ResourceOperationContextModel context);
 }

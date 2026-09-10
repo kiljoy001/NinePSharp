@@ -53,6 +53,30 @@ applies mount crossing and union rules locally, and then calls resource grains. 
 process-group grain is therefore on the namespace-control path but not on the file-data
 or compute-data path.
 
+`DistributedNamespaceDataPlane` routes open, read, write, stat, create, clunk, and
+remove operations to the same resource grains. Each request carries an operation ID;
+the durable resource contract uses it to make retries idempotent across grain
+activation and migration.
+
+## Fid Sessions and Wire Protocol
+
+`NamespaceSession` owns the fid table for one 9P connection. It serializes operations
+on each fid, keeps walked channels independent, preserves successful prefixes for
+partial walks, updates the fid after create, and releases all open resource handles on
+disconnect. Clunk and remove invalidate their fid before provider cleanup, including
+when that cleanup fails, matching the fail-stop ownership rule used by 9front.
+
+`NinePSharp.Namespaces.Orleans.Server` connects that session model to the existing
+stream server. It implements the classic attach, walk, open, read, write, stat, create,
+clunk, remove, and flush request path. Flush can cancel a request already in flight;
+the stream processor therefore permits requests after version negotiation to execute
+concurrently while the fid session provides the required per-fid ordering.
+
+The dispatcher also negotiates 9P2000.L and supports `Tlopen`, `Tlcreate`, `Treaddir`,
+and `Tgetattr`. Shared classic requests continue to use their ordinary encodings.
+Other Linux-extension requests return `Rlerror` with `EOPNOTSUPP`; this is a maintained
+9P2000.L subset, not a claim of complete Linux dialect support.
+
 ## Current Limits
 
 - Directory entries are concatenated in union order. Duplicate names are not removed,
@@ -61,8 +85,9 @@ or compute-data path.
 - A distributed data operation sees a consistent mount snapshot fetched at its start;
   it does not restart automatically if the group changes while a remote grain call is
   in flight.
-- Resource grains currently expose namespace traversal, directory reads, and creation.
-  Open file I/O and full 9P stat mutation remain separate backend responsibilities.
+- Resource grains expose traversal, directory reads, creation, open file I/O, stat,
+  clunk, and remove. Wstat/setattr and the remaining 9P2000.L operations remain backend
+  and protocol work.
 - Nested mount-on-mount chains at one visible path and 9front's `mchan` alias used by
   selected unmount are not yet represented.
 

@@ -19,6 +19,56 @@ public static class NamespaceModelConversions
     public static ResourceHandle ToDomain(this ResourceHandleModel value)
         => new(value.Identity.ToDomain(), value.Type, value.Version);
 
+    /// <summary>Converts an operation identity to its wire model.</summary>
+    public static ResourceOperationIdModel ToModel(this ResourceOperationId value)
+        => new(value.SessionId, value.Sequence);
+
+    /// <summary>Converts an operation identity from its wire model.</summary>
+    public static ResourceOperationId ToDomain(this ResourceOperationIdModel value)
+        => new(value.SessionId, value.Sequence);
+
+    /// <summary>Converts an operation context to its wire model.</summary>
+    public static ResourceOperationContextModel ToModel(this ResourceOperationContext value)
+        => new(value.OperationId.ToModel(), value.ProcessId, value.User);
+
+    /// <summary>Converts an operation context from its wire model.</summary>
+    public static ResourceOperationContext ToDomain(this ResourceOperationContextModel value)
+        => new(value.OperationId.ToDomain(), value.ProcessId, value.User);
+
+    /// <summary>Converts an open handle to its wire model.</summary>
+    public static ResourceOpenHandleModel ToModel(this ResourceOpenHandle value)
+        => new(value.Resource.ToModel(), value.HandleId, value.Mode, value.IoUnit);
+
+    /// <summary>Converts an open handle from its wire model.</summary>
+    public static ResourceOpenHandle ToDomain(this ResourceOpenHandleModel value)
+        => new(value.Resource.ToDomain(), value.HandleId, value.Mode, value.IoUnit);
+
+    /// <summary>Converts resource metadata to its wire model.</summary>
+    public static ResourceStatModel ToModel(this ResourceStat value)
+        => new(
+            value.Resource.ToModel(),
+            value.Name,
+            value.Mode,
+            value.AccessTime,
+            value.ModificationTime,
+            value.Length,
+            value.User,
+            value.Group,
+            value.LastModifier);
+
+    /// <summary>Converts resource metadata from its wire model.</summary>
+    public static ResourceStat ToDomain(this ResourceStatModel value)
+        => new(
+            value.Resource.ToDomain(),
+            value.Name,
+            value.Mode,
+            value.AccessTime,
+            value.ModificationTime,
+            value.Length,
+            value.User,
+            value.Group,
+            value.LastModifier);
+
     /// <summary>Converts a mount binding to its wire model.</summary>
     public static MountBindingModel ToModel(this MountBinding value)
         => new(value.MountId, value.Flags, value.Target.ToModel(), value.Spec);

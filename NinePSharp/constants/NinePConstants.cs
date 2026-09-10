@@ -20,6 +20,10 @@ public static class NinePConstants
     public const byte ORDWR = 0x02;
     /// <summary>Open for execution</summary>
     public const byte OEXEC = 0x03;
+    /// <summary>Truncate the file on open</summary>
+    public const byte OTRUNC = 0x10;
+    /// <summary>Remove the file when its fid is clunked</summary>
+    public const byte ORCLOSE = 0x40;
 
     /// <summary>Empty directory length</summary>
     public const uint DirLength = 0; // Empty directory length

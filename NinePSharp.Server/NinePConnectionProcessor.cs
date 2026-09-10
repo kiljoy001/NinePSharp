@@ -90,6 +90,7 @@ public sealed class NinePConnectionProcessor
 
         public X509Certificate2? ClientCertificate => TransportSessionOps.certificateOrNull(State);
         public SemaphoreSlim WriteLock { get; } = new(1, 1);
+        internal object StateGate { get; } = new();
     }
 
     public async Task HandleClientAsync(TcpClient client, EndpointConfig endpoint, CancellationToken ct)
@@ -130,39 +131,97 @@ public sealed class NinePConnectionProcessor
     public async Task ProcessStreamAsync(Stream stream, EndPoint? endPoint, ClientSession session, CancellationToken ct)
     {
         var headerBuffer = new byte[NinePConstants.HeaderSize];
+        var pending = new List<Task>();
 
-        while (!ct.IsCancellationRequested)
+        try
         {
-            var frame = await ReadFrameAsync(stream, headerBuffer, endPoint, session, ct);
-            if (frame == null)
+            while (!ct.IsCancellationRequested)
             {
-                break;
+                var frame = await ReadFrameAsync(stream, headerBuffer, endPoint, session, ct);
+                if (frame == null)
+                {
+                    break;
+                }
+
+                Task request = ProcessFrameAsync(stream, endPoint, session, frame.Value, ct);
+                if (frame.Value.Type == MessageTypes.Tversion)
+                {
+                    await request;
+                }
+                else
+                {
+                    pending.Add(request);
+                    if (pending.Count >= 64)
+                    {
+                        pending.RemoveAll(static task => task.IsCompleted);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            if (_dispatcher is INinePSessionLifecycle lifecycle)
+            {
+                await lifecycle.CloseSessionAsync(session.SessionId);
             }
 
+            await Task.WhenAll(pending);
+        }
+    }
+
+    private async Task ProcessFrameAsync(
+        Stream stream,
+        EndPoint? endPoint,
+        ClientSession session,
+        FrameBuffer frame,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation(
+                "Incoming: size={Size}, type={Type}, tag={Tag}",
+                frame.Size,
+                frame.Type,
+                frame.Tag);
+
+            object response = await DispatchMessageAsync(
+                frame.Buffer.AsMemory(0, frame.Size),
+                frame.Type,
+                frame.Tag,
+                session);
+            await SendResponseAsync(stream, response, session.WriteLock, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during dispatch for {EndPoint}", endPoint);
             try
             {
-                _logger.LogInformation("Incoming: size={Size}, type={Type}, tag={Tag}", frame.Value.Size, frame.Value.Type, frame.Value.Tag);
-
-                object response = await DispatchMessageAsync(frame.Value.Buffer.AsMemory(0, frame.Value.Size), frame.Value.Type, frame.Value.Tag, session);
-                await SendResponseAsync(stream, response, session.WriteLock, ct);
+                await SendResponseAsync(
+                    stream,
+                    new Rerror(frame.Tag, ex.Message),
+                    session.WriteLock,
+                    cancellationToken);
             }
-            catch (Exception ex)
+            catch (Exception sendError)
             {
-                _logger.LogError(ex, "Unexpected error during dispatch");
-                await SendResponseAsync(stream, new Rerror(frame.Value.Tag, ex.Message), session.WriteLock, ct);
+                _logger.LogDebug(sendError, "Could not send an error response to {EndPoint}", endPoint);
             }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(frame.Value.Buffer, clearArray: true);
-            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(frame.Buffer, clearArray: true);
         }
     }
 
     internal async Task<object> DispatchMessageAsync(ReadOnlyMemory<byte> fullMessageBuffer, MessageTypes type, ushort tag, ClientSession session)
     {
         _ = type;
-        var parsed = TransportSessionOps.parseMessage(fullMessageBuffer, tag, session.State);
-        session.State = parsed.Session;
+        ParseOutcome parsed;
+        lock (session.StateGate)
+        {
+            parsed = TransportSessionOps.parseMessage(fullMessageBuffer, tag, session.State);
+            session.State = parsed.Session;
+        }
 
         if (parsed.ErrorResponse != null)
         {
@@ -175,8 +234,12 @@ public sealed class NinePConnectionProcessor
             session.State.Protocol.Dialect,
             TransportSessionOps.certificateOrNull(session.State));
 
-        var outcome = TransportSessionOps.applyResponse(response, session.State);
-        session.State = outcome.Session;
+        ResponseOutcome outcome;
+        lock (session.StateGate)
+        {
+            outcome = TransportSessionOps.applyResponse(response, session.State);
+            session.State = outcome.Session;
+        }
 
         if (response is Rversion version)
         {

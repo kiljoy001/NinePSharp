@@ -188,7 +188,9 @@ public enum LinuxErrorCode : uint
 	/// <summary>Operation not supported</summary>
 	EOPNOTSUPP = 95,
 	/// <summary>Function not implemented</summary>
-	ENOSYS = 38
+	ENOSYS = 38,
+	/// <summary>Operation canceled</summary>
+	ECANCELED = 125
 }
 
 /// <summary>

@@ -8,7 +8,7 @@ public interface IMountableResourceResolver
 }
 
 /// <summary>Routes pure namespace data operations to mountable Orleans resource grains.</summary>
-public sealed class OrleansResourceOperations : IResourceOperations
+public sealed class OrleansResourceOperations : IResourceDataOperations
 {
     private readonly IMountableResourceResolver resolver;
 
@@ -55,5 +55,100 @@ public sealed class OrleansResourceOperations : IResourceOperations
             .CreateAsync(directory.ToModel(), name, directoryEntry)
             .WaitAsync(cancellationToken);
         return result.ToDomain();
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<ResourceOpenHandle> OpenAsync(
+        ResourceHandle resource,
+        byte mode,
+        ResourceOperationContext context,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ResourceOpenHandleModel result = await resolver.Resolve(resource.Identity.ToModel())
+            .OpenAsync(resource.ToModel(), mode, context.ToModel())
+            .WaitAsync(cancellationToken);
+        return result.ToDomain();
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<ReadOnlyMemory<byte>> ReadAsync(
+        ResourceOpenHandle openHandle,
+        ulong offset,
+        uint count,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        byte[] result = await resolver.Resolve(openHandle.Resource.Identity.ToModel())
+            .ReadAsync(openHandle.ToModel(), offset, count)
+            .WaitAsync(cancellationToken);
+        return result;
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<uint> WriteAsync(
+        ResourceOpenHandle openHandle,
+        ulong offset,
+        ReadOnlyMemory<byte> data,
+        ResourceOperationContext context,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return await resolver.Resolve(openHandle.Resource.Identity.ToModel())
+            .WriteAsync(openHandle.ToModel(), offset, data.ToArray(), context.ToModel())
+            .WaitAsync(cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<ResourceStat> StatAsync(
+        ResourceHandle resource,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ResourceStatModel result = await resolver.Resolve(resource.Identity.ToModel())
+            .StatAsync(resource.ToModel())
+            .WaitAsync(cancellationToken);
+        return result.ToDomain();
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<ResourceOpenHandle> CreateAndOpenAsync(
+        ResourceHandle directory,
+        string name,
+        uint permissions,
+        byte mode,
+        ResourceOperationContext context,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ResourceOpenHandleModel result = await resolver.Resolve(directory.Identity.ToModel())
+            .CreateAndOpenAsync(directory.ToModel(), name, permissions, mode, context.ToModel())
+            .WaitAsync(cancellationToken);
+        return result.ToDomain();
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask ClunkAsync(
+        ResourceOpenHandle openHandle,
+        ResourceOperationContext context,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        await resolver.Resolve(openHandle.Resource.Identity.ToModel())
+            .ClunkAsync(openHandle.ToModel(), context.ToModel())
+            .WaitAsync(cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask RemoveAsync(
+        ResourceHandle resource,
+        ResourceOpenHandle? openHandle,
+        ResourceOperationContext context,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        await resolver.Resolve(resource.Identity.ToModel())
+            .RemoveAsync(resource.ToModel(), openHandle?.ToModel(), context.ToModel())
+            .WaitAsync(cancellationToken);
     }
 }

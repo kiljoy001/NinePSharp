@@ -168,6 +168,31 @@ public class NinePConnectionProcessorTests
         Assert.Empty(written);
     }
 
+    [Fact]
+    public async Task ProcessStreamAsync_ReadsFlushWhileEarlierRequestIsOutstanding()
+    {
+        var dispatcher = new MultiplexingDispatcher();
+        var processor = new NinePConnectionProcessor(
+            NullLogger.Instance,
+            dispatcher,
+            new StubTransportSecurity());
+        var session = new NinePConnectionProcessor.ClientSession();
+        byte[] read = Serialize(new Tread(10, 1, 0, 1));
+        byte[] flush = Serialize(new Tflush(11, 10));
+        byte[] input = new byte[read.Length + flush.Length];
+        read.CopyTo(input, 0);
+        flush.CopyTo(input, read.Length);
+
+        using var stream = new ScriptedDuplexStream(input);
+        await processor.ProcessStreamAsync(stream, null, session, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Equal(
+            new[] { MessageTypes.Rflush, MessageTypes.Rread },
+            ResponseTypes(stream.Written.Span).Order());
+        Assert.True(dispatcher.SessionClosed);
+    }
+
 
     private static NinePConnectionProcessor CreateProcessor(
         Mock<INinePFSDispatcher> dispatcher,
@@ -190,6 +215,20 @@ public class NinePConnectionProcessorTests
         return buffer;
     }
 
+    private static IReadOnlyList<MessageTypes> ResponseTypes(ReadOnlySpan<byte> responses)
+    {
+        var result = new List<MessageTypes>();
+        int offset = 0;
+        while (offset < responses.Length)
+        {
+            int size = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(responses.Slice(offset, 4)));
+            result.Add((MessageTypes)responses[offset + 4]);
+            offset += size;
+        }
+
+        return result;
+    }
+
     private sealed class StubTransportSecurity : INinePTransportSecurity
     {
         public TransportSecurityResult Result { get; set; }
@@ -197,6 +236,43 @@ public class NinePConnectionProcessorTests
         public Task<TransportSecurityResult> AuthenticateAsync(Stream transport, EndpointConfig endpoint, CancellationToken ct)
         {
             return Task.FromResult(Result);
+        }
+    }
+
+    private sealed class MultiplexingDispatcher : INinePFSDispatcher, INinePSessionLifecycle
+    {
+        private readonly TaskCompletionSource readStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource releaseRead = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal bool SessionClosed { get; private set; }
+
+        public async Task<object> DispatchAsync(
+            string sessionId,
+            NinePMessage message,
+            NinePDialect dialect,
+            X509Certificate2? certificate = null)
+        {
+            if (message is NinePMessage.MsgTread read)
+            {
+                readStarted.TrySetResult();
+                await releaseRead.Task;
+                return new Rread(read.Item.Tag, new byte[] { 1 });
+            }
+
+            if (message is NinePMessage.MsgTflush flush)
+            {
+                await readStarted.Task;
+                releaseRead.TrySetResult();
+                return new Rflush(flush.Item.Tag);
+            }
+
+            throw new NotSupportedException();
+        }
+
+        public Task CloseSessionAsync(string sessionId)
+        {
+            SessionClosed = true;
+            return Task.CompletedTask;
         }
     }
 

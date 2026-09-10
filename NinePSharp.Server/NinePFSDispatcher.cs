@@ -8,7 +8,7 @@ using NinePSharp.Server.Interfaces;
 
 namespace NinePSharp.Server;
 
-public sealed class NinePFSDispatcher : INinePFSDispatcher
+public sealed class NinePFSDispatcher : INinePFSDispatcher, INinePSessionLifecycle
 {
     private readonly INinePFSDispatcher _engine;
 
@@ -21,4 +21,7 @@ public sealed class NinePFSDispatcher : INinePFSDispatcher
 
     public Task<object> DispatchAsync(string sessionId, NinePMessage message, NinePDialect dialect, X509Certificate2? certificate = null)
         => _engine.DispatchAsync(sessionId, message, dialect, certificate);
+
+    public Task CloseSessionAsync(string sessionId)
+        => ((INinePSessionLifecycle)_engine).CloseSessionAsync(sessionId);
 }

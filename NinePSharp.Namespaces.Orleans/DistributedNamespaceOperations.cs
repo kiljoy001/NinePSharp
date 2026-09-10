@@ -46,6 +46,27 @@ public sealed class DistributedNamespaceOperations
         return await navigator.ReadDirectoryAsync(channel, cancellationToken);
     }
 
+    /// <summary>Reads stat metadata for the concatenated visible directory.</summary>
+    public async Task<IReadOnlyList<ResourceStat>> ReadDirectoryStatsAsync(
+        string processGroupId,
+        NamespaceChannel channel,
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<ResourceDirectoryEntry> entries = await ReadDirectoryAsync(
+            processGroupId,
+            channel,
+            cancellationToken);
+        IResourceDataOperations data = RequireDataOperations();
+        var result = new List<ResourceStat>(entries.Count);
+        foreach (ResourceDirectoryEntry entry in entries)
+        {
+            ResourceStat stat = await data.StatAsync(entry.Handle, cancellationToken);
+            result.Add(stat with { Name = entry.Name });
+        }
+
+        return result;
+    }
+
     /// <summary>Creates through the first mounted member marked for creation.</summary>
     public async Task<ResourceHandle> CreateAsync(
         string processGroupId,
@@ -56,6 +77,86 @@ public sealed class DistributedNamespaceOperations
     {
         NamespaceNavigator navigator = await CreateNavigatorAsync(processGroupId, cancellationToken);
         return await navigator.CreateAsync(channel, name, directory, cancellationToken);
+    }
+
+    /// <summary>Opens the resource selected by a namespace channel.</summary>
+    public async Task<ResourceOpenHandle> OpenAsync(
+        NamespaceChannel channel,
+        byte mode,
+        ResourceOperationContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(channel);
+        return await RequireDataOperations().OpenAsync(channel.Current, mode, context, cancellationToken);
+    }
+
+    /// <summary>Reads bytes from an open resource without consulting the mount-table grain.</summary>
+    public async Task<ReadOnlyMemory<byte>> ReadAsync(
+        ResourceOpenHandle openHandle,
+        ulong offset,
+        uint count,
+        CancellationToken cancellationToken = default)
+        => await RequireDataOperations().ReadAsync(openHandle, offset, count, cancellationToken);
+
+    /// <summary>Writes bytes to an open resource without consulting the mount-table grain.</summary>
+    public async Task<uint> WriteAsync(
+        ResourceOpenHandle openHandle,
+        ulong offset,
+        ReadOnlyMemory<byte> data,
+        ResourceOperationContext context,
+        CancellationToken cancellationToken = default)
+        => await RequireDataOperations().WriteAsync(openHandle, offset, data, context, cancellationToken);
+
+    /// <summary>Reads metadata while preserving the name visible through the mount.</summary>
+    public async Task<ResourceStat> StatAsync(
+        string processGroupId,
+        NamespaceChannel channel,
+        CancellationToken cancellationToken = default)
+    {
+        _ = await CreateNavigatorAsync(processGroupId, cancellationToken);
+        ResourceStat result = await RequireDataOperations().StatAsync(channel.Current, cancellationToken);
+        string visibleName = channel.Frames.Count == 1 ? "/" : channel.Frames[^1].Name;
+        return result with { Name = visibleName };
+    }
+
+    /// <summary>Creates and opens through the current MCREATE union member.</summary>
+    public async Task<NamespaceCreateResult> CreateAndOpenAsync(
+        string processGroupId,
+        NamespaceChannel channel,
+        string name,
+        uint permissions,
+        byte mode,
+        ResourceOperationContext context,
+        CancellationToken cancellationToken = default)
+    {
+        NamespaceNavigator navigator = await CreateNavigatorAsync(processGroupId, cancellationToken);
+        ResourceHandle target = navigator.SelectCreateTarget(channel);
+        ResourceOpenHandle opened = await RequireDataOperations().CreateAndOpenAsync(
+            target,
+            name,
+            permissions,
+            mode,
+            context,
+            cancellationToken);
+        return new NamespaceCreateResult(navigator.EnterCreated(channel, name, opened.Resource), opened);
+    }
+
+    /// <summary>Closes provider-owned state without consulting the mount-table grain.</summary>
+    public async Task ClunkAsync(
+        ResourceOpenHandle openHandle,
+        ResourceOperationContext context,
+        CancellationToken cancellationToken = default)
+        => await RequireDataOperations().ClunkAsync(openHandle, context, cancellationToken);
+
+    /// <summary>Removes the resource selected by a channel.</summary>
+    public async Task RemoveAsync(
+        NamespaceChannel channel,
+        ResourceOpenHandle? openHandle,
+        ResourceOperationContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(channel);
+        await RequireDataOperations().RemoveAsync(channel.Current, openHandle, context, cancellationToken);
     }
 
     /// <summary>Binds a channel into the durable process-group namespace.</summary>
@@ -85,4 +186,8 @@ public sealed class DistributedNamespaceOperations
         NamespaceSnapshotModel snapshot = await group.GetSnapshotAsync().WaitAsync(cancellationToken);
         return new NamespaceNavigator(MountTable.FromSnapshot(snapshot.ToDomain()), resources);
     }
+
+    private IResourceDataOperations RequireDataOperations()
+        => resources as IResourceDataOperations
+            ?? throw new NotSupportedException("The resource provider does not implement data operations.");
 }

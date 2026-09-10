@@ -68,6 +68,12 @@ public sealed class NamespaceChannel
 
     internal void ReplaceCurrent(ChannelFrame frame) => frames[^1] = frame;
 
+    internal void UpdateCurrent(ResourceHandle handle)
+    {
+        ChannelFrame current = CurrentFrame;
+        ReplaceCurrent(current with { Handle = handle });
+    }
+
     internal void WalkParent()
     {
         if (frames.Count > 1)
@@ -193,26 +199,45 @@ public sealed class NamespaceNavigator
     {
         ArgumentNullException.ThrowIfNull(channel);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ResourceHandle target = SelectCreateTarget(channel);
+        return await resources.CreateAsync(target, name, directory, cancellationToken);
+    }
+
+    /// <summary>Returns the ordinary directory or first union member marked for creation.</summary>
+    public ResourceHandle SelectCreateTarget(NamespaceChannel channel)
+    {
+        ArgumentNullException.ThrowIfNull(channel);
         ChannelFrame frame = channel.CurrentFrame;
         IReadOnlyList<MountBinding>? union = ResolveMounts(frame);
-        ResourceHandle target;
         if (union is null)
         {
-            target = frame.Handle;
-        }
-        else if (frame.MountedFrom is not null)
-        {
-            target = mounts.SelectCreateTarget(frame.MountedFrom.Identity);
-        }
-        else
-        {
-            target = union.FirstOrDefault(binding => (binding.Flags & MountFlags.Create) != 0)?.Target
-                ?? throw new NamespaceException(
-                    NamespaceError.CreateNotPermitted,
-                    "No member of the mounted union permits creation.");
+            return frame.Handle;
         }
 
-        return await resources.CreateAsync(target, name, directory, cancellationToken);
+        if (frame.MountedFrom is not null)
+        {
+            return mounts.SelectCreateTarget(frame.MountedFrom.Identity);
+        }
+
+        return union.FirstOrDefault(binding => (binding.Flags & MountFlags.Create) != 0)?.Target
+            ?? throw new NamespaceException(
+                NamespaceError.CreateNotPermitted,
+                "No member of the mounted union permits creation.");
+    }
+
+    /// <summary>Creates the replacement channel for a child returned by a successful create.</summary>
+    public NamespaceChannel EnterCreated(
+        NamespaceChannel parent,
+        string name,
+        ResourceHandle created)
+    {
+        ArgumentNullException.ThrowIfNull(parent);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(created);
+        NamespaceChannel channel = parent.Clone();
+        channel.Push(new ChannelFrame(name, created));
+        CrossMount(channel);
+        return channel;
     }
 
     private async ValueTask<ResourceHandle?> WalkUnionAsync(

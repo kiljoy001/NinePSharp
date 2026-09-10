@@ -406,3 +406,24 @@ type NinePFSDispatcherEngine(handler: INinePRequestHandler) =
                 | ex ->
                     return createErrorResponse tag dialect ex
             }
+
+    interface INinePSessionLifecycle with
+        member _.CloseSessionAsync(sessionId) : Task =
+            task {
+                match sessions.TryRemove(sessionId) with
+                | true, session ->
+                    let inFlight = session.InFlightRequests.Values |> Seq.toArray
+                    for request in inFlight do
+                        request.Cts.Cancel()
+                    if inFlight.Length > 0 then
+                        let! _ = Task.WhenAll(inFlight |> Array.map (fun request -> request.Completion.Task))
+                        ()
+
+                    let prefix = sessionId + ":"
+                    for pair in fidOperationGates.ToArray() do
+                        if pair.Key.StartsWith(prefix, StringComparison.Ordinal) then
+                            match fidOperationGates.TryRemove(pair.Key) with
+                            | true, semaphore -> semaphore.Dispose()
+                            | false, _ -> ()
+                | false, _ -> ()
+            }

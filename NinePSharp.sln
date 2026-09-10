@@ -41,6 +41,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NinePSharp.Namespaces.Orlea
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NinePSharp.Namespaces.Orleans.Tests", "NinePSharp.Namespaces.Orleans.Tests\NinePSharp.Namespaces.Orleans.Tests.csproj", "{1161E93E-59BF-4CEC-BA20-64DB4AA3880C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NinePSharp.Namespaces.Orleans.Server", "NinePSharp.Namespaces.Orleans.Server\NinePSharp.Namespaces.Orleans.Server.csproj", "{7A44E599-7796-471A-9CD8-80E5888F1E85}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -279,6 +281,18 @@ Global
 		{1161E93E-59BF-4CEC-BA20-64DB4AA3880C}.Release|x64.Build.0 = Release|Any CPU
 		{1161E93E-59BF-4CEC-BA20-64DB4AA3880C}.Release|x86.ActiveCfg = Release|Any CPU
 		{1161E93E-59BF-4CEC-BA20-64DB4AA3880C}.Release|x86.Build.0 = Release|Any CPU
+		{7A44E599-7796-471A-9CD8-80E5888F1E85}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7A44E599-7796-471A-9CD8-80E5888F1E85}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7A44E599-7796-471A-9CD8-80E5888F1E85}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{7A44E599-7796-471A-9CD8-80E5888F1E85}.Debug|x64.Build.0 = Debug|Any CPU
+		{7A44E599-7796-471A-9CD8-80E5888F1E85}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{7A44E599-7796-471A-9CD8-80E5888F1E85}.Debug|x86.Build.0 = Debug|Any CPU
+		{7A44E599-7796-471A-9CD8-80E5888F1E85}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7A44E599-7796-471A-9CD8-80E5888F1E85}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7A44E599-7796-471A-9CD8-80E5888F1E85}.Release|x64.ActiveCfg = Release|Any CPU
+		{7A44E599-7796-471A-9CD8-80E5888F1E85}.Release|x64.Build.0 = Release|Any CPU
+		{7A44E599-7796-471A-9CD8-80E5888F1E85}.Release|x86.ActiveCfg = Release|Any CPU
+		{7A44E599-7796-471A-9CD8-80E5888F1E85}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

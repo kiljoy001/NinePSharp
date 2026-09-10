@@ -22,6 +22,40 @@ public sealed record ResourceDirectoryEntryModel(
     [property: Id(0)] string Name,
     [property: Id(1)] ResourceHandleModel Handle);
 
+/// <summary>A serializable identity for one replayable resource operation.</summary>
+[GenerateSerializer]
+public sealed record ResourceOperationIdModel(
+    [property: Id(0)] string SessionId,
+    [property: Id(1)] ulong Sequence);
+
+/// <summary>Serializable authenticated process context for a resource operation.</summary>
+[GenerateSerializer]
+public sealed record ResourceOperationContextModel(
+    [property: Id(0)] ResourceOperationIdModel OperationId,
+    [property: Id(1)] long ProcessId,
+    [property: Id(2)] string User);
+
+/// <summary>Serializable provider-owned state associated with an open fid.</summary>
+[GenerateSerializer]
+public sealed record ResourceOpenHandleModel(
+    [property: Id(0)] ResourceHandleModel Resource,
+    [property: Id(1)] string HandleId,
+    [property: Id(2)] byte Mode,
+    [property: Id(3)] uint IoUnit);
+
+/// <summary>Serializable provider-neutral metadata for a 9P stat response.</summary>
+[GenerateSerializer]
+public sealed record ResourceStatModel(
+    [property: Id(0)] ResourceHandleModel Resource,
+    [property: Id(1)] string Name,
+    [property: Id(2)] uint Mode,
+    [property: Id(3)] uint AccessTime,
+    [property: Id(4)] uint ModificationTime,
+    [property: Id(5)] ulong Length,
+    [property: Id(6)] string User,
+    [property: Id(7)] string Group,
+    [property: Id(8)] string LastModifier);
+
 /// <summary>A serializable ordered mount member.</summary>
 [GenerateSerializer]
 public sealed record MountBindingModel(

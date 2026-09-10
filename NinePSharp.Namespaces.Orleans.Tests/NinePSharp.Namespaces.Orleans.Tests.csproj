@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NinePSharp.Namespaces.Orleans\NinePSharp.Namespaces.Orleans.csproj" />
+    <ProjectReference Include="..\NinePSharp.Namespaces.Orleans.Server\NinePSharp.Namespaces.Orleans.Server.csproj" />
   </ItemGroup>
 
   <ItemGroup>
