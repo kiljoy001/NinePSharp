@@ -221,6 +221,16 @@ public sealed class MountTableUnitTests
     }
 
     [Fact]
+    public void MountDevicePolicyValidatesAndCanBeRemoved()
+    {
+        var table = new MountTable();
+        Assert.Throws<ArgumentException>(() => table.SetMountDeviceBlocked(" ", true));
+        table.SetMountDeviceBlocked("device", true);
+        table.SetMountDeviceBlocked("device", false);
+        Assert.Empty(table.BlockedMountDevices);
+    }
+
+    [Fact]
     public void MountsDisabledBlocksServiceMountsButNotBinds()
     {
         ResourceHandle source = Directory("source", 1);

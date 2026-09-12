@@ -233,5 +233,10 @@ public sealed class NamespaceSyscallsTests
             " ").AsTask());
         await Assert.ThrowsAsync<ArgumentException>(() => syscalls.UnmountAsync(process, "").AsTask());
         await Assert.ThrowsAsync<NamespaceException>(() => syscalls.BindAsync(process, "/missing/child", "/target").AsTask());
+        NamespaceMountSource source = new(
+            new NamespaceNavigator(new MountTable(), resources).Attach(root),
+            NinePConstants.ORDWR);
+        await Assert.ThrowsAsync<NamespaceException>(() => syscalls.MountAsync(process, source, "/missing").AsTask());
+        await Assert.ThrowsAsync<NamespaceException>(() => syscalls.UnmountAsync(process, "/missing").AsTask());
     }
 }

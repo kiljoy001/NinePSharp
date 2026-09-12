@@ -9,8 +9,6 @@
       "MountTable.cs",
       "NamespaceDataPlane.cs",
       "NamespaceNavigation.cs",
-      "NamespaceSession.cs",
-      "NamespaceControlResource.cs",
       "NamespaceSyscalls.cs",
       "ResourceDataOperations.cs",
       "ResourceHandle.cs",

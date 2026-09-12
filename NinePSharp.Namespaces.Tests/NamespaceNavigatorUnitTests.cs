@@ -7,6 +7,16 @@ namespace NinePSharp.Namespaces.Tests;
 public sealed class NamespaceNavigatorUnitTests
 {
     [Fact]
+    public async Task CreateAndEnterCreatedValidateArguments()
+    {
+        var resources = new MemoryResources();
+        ResourceHandle root = resources.Directory("root");
+        var navigator = new NamespaceNavigator(new MountTable(), resources);
+        NamespaceChannel channel = navigator.Attach(root);
+        await Assert.ThrowsAsync<ArgumentNullException>(() => navigator.CreateAsync(null!, "file", false).AsTask());
+        await Assert.ThrowsAsync<ArgumentNullException>(() => Task.FromResult(navigator.EnterCreated(channel, "file", null!)));
+    }
+    [Fact]
     public void ConstructionAndAttachRejectNull()
     {
         var resources = new MemoryResources();

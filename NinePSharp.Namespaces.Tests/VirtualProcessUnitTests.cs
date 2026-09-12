@@ -1,10 +1,21 @@
 using NinePSharp.Constants;
+using NinePSharp.Namespaces.Tests.Support;
 using Xunit;
 
 namespace NinePSharp.Namespaces.Tests;
 
 public sealed class VirtualProcessUnitTests
 {
+    [Fact]
+    public void ProcessGroupReplacementAndSnapshotValidateState()
+    {
+        var resources = new MemoryResources();
+        ResourceHandle root = resources.Directory("root");
+        var table = new VProcessTable();
+        VProcess process = table.CreateInitial(new NamespaceNavigator(new MountTable(), resources).Attach(root));
+        Assert.Throws<ArgumentNullException>(() => process.ReplaceProcessGroup(null!));
+        Assert.Equal(new[] { process.Id }, table.Snapshot().Select(item => item.Id));
+    }
     [Fact]
     public void ProcessAndGroupRejectInvalidConstruction()
     {
