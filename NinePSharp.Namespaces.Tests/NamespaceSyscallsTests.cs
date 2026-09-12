@@ -7,6 +7,38 @@ namespace NinePSharp.Namespaces.Tests;
 public sealed class NamespaceSyscallsTests
 {
     [Fact]
+    public void ConstructorsRejectNullDependencies()
+    {
+        Assert.Throws<ArgumentNullException>(() => new NamespaceMountSource(null!, NinePConstants.ORDWR));
+        Assert.Throws<ArgumentNullException>(() => new NamespaceSyscalls(null!));
+    }
+
+    [Fact]
+    public async Task SyscallsRejectNullProcessesAndSources()
+    {
+        var resources = new MemoryResources();
+        ResourceHandle root = resources.Directory("root");
+        ResourceHandle service = resources.Directory("service");
+        var syscalls = new NamespaceSyscalls(resources);
+        NamespaceMountSource source = new(
+            new NamespaceNavigator(new MountTable(), resources).Attach(service),
+            NinePConstants.ORDWR);
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            syscalls.BindAsync(null!, "/source", "/target").AsTask());
+        await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            syscalls.MountAsync(null!, source, "/target").AsTask());
+        await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            syscalls.MountAsync(
+                new VProcessTable().CreateInitial(
+                    new NamespaceNavigator(new MountTable(), resources).Attach(root)),
+                null!,
+                "/target").AsTask());
+        await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            syscalls.UnmountAsync(null!, "/target").AsTask());
+    }
+
+    [Fact]
     public async Task BindResolvesPathsAndChangesTheProcessNamespace()
     {
         var resources = new MemoryResources();
@@ -89,5 +121,59 @@ public sealed class NamespaceSyscallsTests
         await syscalls.UnmountAsync(process, "/target", "/source");
 
         Assert.Null(process.ProcessGroup.MountTable.Find(target.Identity));
+    }
+
+    [Fact]
+    public async Task UnmountWithoutSourceRemovesEveryMember()
+    {
+        var resources = new MemoryResources();
+        ResourceHandle root = resources.Directory("root");
+        ResourceHandle first = resources.AddChild(root, "first", true);
+        ResourceHandle second = resources.AddChild(root, "second", true);
+        ResourceHandle target = resources.AddChild(root, "target", true);
+        var process = new VProcessTable().CreateInitial(new NamespaceNavigator(new MountTable(), resources).Attach(root));
+        process.ProcessGroup.MountTable.Mount(first, target, MountFlags.Before);
+        process.ProcessGroup.MountTable.Mount(second, target, MountFlags.After);
+
+        await new NamespaceSyscalls(resources).UnmountAsync(process, "/target");
+
+        Assert.Null(process.ProcessGroup.MountTable.Find(target.Identity));
+    }
+
+    [Fact]
+    public async Task RelativePathsResolveFromTheCurrentDirectory()
+    {
+        var resources = new MemoryResources();
+        ResourceHandle root = resources.Directory("root");
+        ResourceHandle working = resources.AddChild(root, "working", true);
+        ResourceHandle source = resources.AddChild(working, "source", true);
+        ResourceHandle target = resources.AddChild(working, "target", true);
+        var process = new VProcessTable().CreateInitial(new NamespaceNavigator(new MountTable(), resources).Attach(root));
+        NamespaceWalkResult cwd = await new NamespaceNavigator(new MountTable(), resources)
+            .WalkAsync(process.Root, new[] { "working" });
+        process.ChangeDirectory(cwd.Channel);
+
+        await new NamespaceSyscalls(resources).BindAsync(process, "source", "target");
+
+        Assert.Equal(source.Identity, process.ProcessGroup.MountTable.Find(target.Identity)!.Mounts[0].Target.Identity);
+    }
+
+    [Fact]
+    public async Task MountLeavesAnExistingTargetMountHiddenWithoutCrossingIt()
+    {
+        var resources = new MemoryResources();
+        ResourceHandle root = resources.Directory("root");
+        ResourceHandle target = resources.AddChild(root, "target", true);
+        ResourceHandle hidden = resources.Directory("hidden");
+        ResourceHandle service = resources.Directory("service");
+        var process = new VProcessTable().CreateInitial(new NamespaceNavigator(new MountTable(), resources).Attach(root));
+        process.ProcessGroup.MountTable.Mount(hidden, target);
+        NamespaceMountSource source = new(
+            new NamespaceNavigator(new MountTable(), resources).Attach(service),
+            NinePConstants.ORDWR);
+
+        await new NamespaceSyscalls(resources).MountAsync(process, source, "/target");
+
+        Assert.Equal(service.Identity, process.ProcessGroup.MountTable.Find(target.Identity)!.Mounts[0].Target.Identity);
     }
 }

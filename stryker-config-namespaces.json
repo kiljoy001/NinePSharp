@@ -10,6 +10,7 @@
       "NamespaceDataPlane.cs",
       "NamespaceNavigation.cs",
       "NamespaceSession.cs",
+      "NamespaceSyscalls.cs",
       "ResourceDataOperations.cs",
       "ResourceHandle.cs",
       "VirtualProcesses.cs"

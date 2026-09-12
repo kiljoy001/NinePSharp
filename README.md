@@ -56,6 +56,7 @@ bash test_integration.sh
 bash scripts/run-quality.sh
 bash scripts/run-quality.sh --full
 FUZZ_SECONDS=30 bash scripts/fuzz.sh parser
+FUZZ_SECONDS=30 bash scripts/fuzz.sh namespace-syscalls
 ```
 
 The standard gate runs a Release build, StyleCop/.NET analyzers, all main BDD,
@@ -64,7 +65,7 @@ thresholds, CRAP scoring, and the custom Semgrep rules in `quality/semgrep.yml` 
 Semgrep is installed.
 
 `--full` also runs the scoped Stryker mutation gate (`MIN_MUTATION=90` by default)
-and bounded SharpFuzz/AFL++ parser, filesystem, namespace, Orleans gateway, and Fog campaigns.
+and bounded SharpFuzz/AFL++ parser, filesystem, namespace, namespace-syscall, Orleans gateway, and Fog campaigns.
 Mutation scopes include the Orleans adapters, gateway, shared transport, Fog core/server,
 and sequential control client. Coverage
 defaults can be tuned with `MIN_LINE` and `MIN_BRANCH`; CRAP failure is controlled by

@@ -43,6 +43,10 @@ namespace NinePSharp.Fuzzer
             {
                 FuzzNamespace();
             }
+            else if (args.Length > 0 && args[0] == "namespace-syscalls")
+            {
+                FuzzNamespaceSyscalls();
+            }
             else if (args.Length > 0 && args[0] == "orleans")
             {
                 SharpFuzz.Fuzzer.OutOfProcess.Run(OrleansGatewayFuzz.Run);
@@ -196,6 +200,74 @@ namespace NinePSharp.Fuzzer
             });
         }
 
+        private static void FuzzNamespaceSyscalls()
+        {
+            SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
+            {
+                using var memory = new MemoryStream();
+                stream.CopyTo(memory);
+                ExecuteNamespaceSyscallSteps(memory.ToArray());
+            });
+        }
+
+        private static void ExecuteNamespaceSyscallSteps(byte[] data)
+        {
+            var resources = new SyscallResources();
+            ResourceHandle root = resources.Root;
+            var mounts = new MountTable();
+            var process = new VProcessTable().CreateInitial(
+                new NamespaceNavigator(mounts, resources).Attach(root));
+            var syscalls = new NamespaceSyscalls(resources);
+            string[] paths = { "/source", "/target", "/alternate" };
+            NamespaceChannel service = new NamespaceNavigator(mounts, resources).Attach(resources.Service);
+
+            for (int index = 0; index + 3 < data.Length && index < 1024; index += 4)
+            {
+                byte operation = data[index];
+                string sourcePath = paths[data[index + 1] % paths.Length];
+                string targetPath = paths[data[index + 2] % paths.Length];
+                MountFlags flags = (data[index + 3] & 3) switch
+                {
+                    0 => MountFlags.Replace,
+                    1 => MountFlags.Before,
+                    2 => MountFlags.After,
+                    _ => MountFlags.Cache,
+                };
+
+                try
+                {
+                    switch (operation % 4)
+                    {
+                        case 0:
+                            syscalls.BindAsync(process, sourcePath, targetPath, flags).AsTask().GetAwaiter().GetResult();
+                            break;
+                        case 1:
+                            var source = new NamespaceMountSource(
+                                service,
+                                (data[index + 1] & 1) == 0 ? NinePConstants.ORDWR : NinePConstants.OREAD,
+                                attachName: "fuzz",
+                                authenticated: (data[index + 2] & 1) == 0,
+                                requiresAuthentication: true);
+                            syscalls.MountAsync(process, source, targetPath, flags).AsTask().GetAwaiter().GetResult();
+                            break;
+                        case 2:
+                            syscalls.UnmountAsync(
+                                process,
+                                targetPath,
+                                (data[index + 3] & 4) == 0 ? null : sourcePath).AsTask().GetAwaiter().GetResult();
+                            break;
+                        default:
+                            process.ProcessGroup.MountTable.SetMountsDisabled((data[index + 1] & 1) != 0);
+                            break;
+                    }
+                }
+                catch (NamespaceException)
+                {
+                    // Invalid syscall combinations are expected in the input space.
+                }
+            }
+        }
+
         private static void ExecuteNamespaceSteps(byte[] data)
         {
             var table = new MountTable();
@@ -241,6 +313,80 @@ namespace NinePSharp.Fuzzer
                 {
                     // Invalid random mount combinations are an expected part of the input space.
                 }
+            }
+        }
+
+        private sealed class SyscallResources : IResourceOperations
+        {
+            private readonly Dictionary<ResourceIdentity, Dictionary<string, ResourceHandle>> children = new();
+            private ulong nextPath;
+
+            internal SyscallResources()
+            {
+                Root = Add("root", true);
+                Source = AddChild(Root, "source", true);
+                _ = AddChild(Root, "target", true);
+                _ = AddChild(Root, "alternate", true);
+                Service = Add("service", true);
+            }
+
+            internal ResourceHandle Root { get; }
+
+            internal ResourceHandle Source { get; }
+
+            internal ResourceHandle Service { get; }
+
+            public ValueTask<ResourceHandle?> WalkAsync(
+                ResourceHandle directory,
+                string name,
+                CancellationToken cancellationToken)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(
+                    children.TryGetValue(directory.Identity, out Dictionary<string, ResourceHandle>? entries) &&
+                    entries.TryGetValue(name, out ResourceHandle? child)
+                        ? child
+                        : null);
+            }
+
+            public ValueTask<IReadOnlyList<ResourceDirectoryEntry>> ReadDirectoryAsync(
+                ResourceHandle directory,
+                CancellationToken cancellationToken)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!children.TryGetValue(directory.Identity, out Dictionary<string, ResourceHandle>? entries))
+                {
+                    return ValueTask.FromResult<IReadOnlyList<ResourceDirectoryEntry>>(Array.Empty<ResourceDirectoryEntry>());
+                }
+
+                return ValueTask.FromResult<IReadOnlyList<ResourceDirectoryEntry>>(
+                    entries.Select(pair => new ResourceDirectoryEntry(pair.Key, pair.Value)).ToArray());
+            }
+
+            public ValueTask<ResourceHandle> CreateAsync(
+                ResourceHandle directory,
+                string name,
+                bool directoryEntry,
+                CancellationToken cancellationToken)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(AddChild(directory, name, directoryEntry));
+            }
+
+            private ResourceHandle Add(string device, bool directory)
+            {
+                var handle = new ResourceHandle(
+                    new ResourceIdentity("fuzzer", device, ++nextPath),
+                    directory ? QidType.QTDIR : QidType.QTFILE);
+                children.Add(handle.Identity, new Dictionary<string, ResourceHandle>(StringComparer.Ordinal));
+                return handle;
+            }
+
+            private ResourceHandle AddChild(ResourceHandle parent, string name, bool directory)
+            {
+                ResourceHandle child = Add(parent.Identity.Device + "/" + name, directory);
+                children[parent.Identity][name] = child;
+                return child;
             }
         }
     }
