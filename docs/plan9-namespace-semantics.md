@@ -34,7 +34,9 @@ copies its complete ordered union, including the `cmount` restriction on `MCREAT
 
 `VProcessGroup` owns one `MountTable`. A child can share that object, receive an
 independent ordered snapshot, or receive an empty namespace. These correspond to the
-ordinary shared namespace group, `RFNAMEG`, and `RFCNAMEG` behavior.
+ordinary shared namespace group, `RFNAMEG`, and `RFCNAMEG` behavior. The table also
+persists a namespace-wide mount-disabled state and blocked device names, which model
+`RFNOMNT` and the device mask checked by `canmount`.
 
 ## Orleans Distribution Boundary
 
@@ -83,6 +85,8 @@ Other Linux-extension requests return `Rlerror` with `EOPNOTSUPP`; this is a mai
 - Directory entries are concatenated in union order. Duplicate names are not removed,
   matching `unionread`.
 - `MCACHE` is represented but no cache policy is imposed by the namespace layer.
+- Mount policy is represented as a namespace-wide restriction plus blocked device
+  names; it does not yet reproduce 9front's fixed device-number mask.
 - Providers own wire Qid allocation. `ResourceIdentity.Path` is emitted directly,
   so devices combined into one export must use non-colliding stable Qid paths.
 - A distributed data operation sees a consistent mount snapshot fetched at its start;

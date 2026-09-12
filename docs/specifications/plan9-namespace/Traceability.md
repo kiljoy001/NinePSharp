@@ -15,7 +15,7 @@ This document records why each feature exists and whether it is already covered 
 | `NS_CORE_015` | `chan.c:createdir` returns `Enocreate` when no member has `MCREATE` | `MountTable.SelectCreateTarget` raises `CreateNotPermitted` | Covered |
 | `NS_PROC_001`–`NS_PROC_004` | `sysproc.c`, `sysfile.c:syschdir` | `VProcessTable`, `VProcess`, and Orleans process grains implement root/current channels and share/copy/empty groups | Covered at the virtual-process level |
 | `NS_PROC_005` | `pgrp.c:closepgrp` | No public close/termination operation currently exists | Missing lifecycle binding |
-| `NS_PROC_006`–`NS_PROC_007` | `sysproc.c:RFNOMNT`, `dev.c:canmount`, `Pgrp.notallowed` | No device capability mask or RFNOMNT equivalent exists | Missing |
+| `NS_PROC_006`–`NS_PROC_007` | `sysproc.c:RFNOMNT`, `dev.c:canmount`, `Pgrp.notallowed` | `MountTable` persists blocked device names and a namespace-wide mount-disabled flag; copied no-mount processes carry the restriction | Covered for the current policy model; device-table parity remains |
 | `NS_PROC_008` | `pgrp.c:pgrpcpy` | Clone preserves relative member order but rewrites IDs locally | Covered behaviorally; mount-ID parity is incomplete |
 | `NS_PROC_009` | `pgrp.c`, process persistence is outside the kernel namespace algorithm | Orleans grains persist process and mount snapshots | Covered by the Orleans adapter contract |
 | `NS_SYS_001` | `sys/man/2/bind`, `sysfile.c:bindmount` evaluates source and target before `cmount` | Local model binds existing `ResourceHandle`/channel objects; path-resolution-at-call-time is a caller responsibility | Partial; syscall adapter needed |
@@ -23,8 +23,8 @@ This document records why each feature exists and whether it is already covered 
 | `NS_SYS_003`–`NS_SYS_006` | `sys/man/2/bind`, `sysfile.c:bindmount` | Current mount APIs accept resource handles and do not model fd mode, auth fd, server attach name, or automatic source-fd closure | Missing syscall/service adapter |
 | `NS_SYS_007` | `sys/man/2/bind`, `sysproc.c` | Shared and copied virtual process groups observe the required mount behavior | Covered at the virtual-process level |
 | `NS_SYS_008`–`NS_SYS_009` | `sys/man/2/bind`, `sysfile.c:sysunmount` | Complete unmount and invalid ordering flags are implemented by the mount table | Covered at the model level |
-| `NS_SYS_010` | `sys/man/2/bind`: `MCACHE` is valid for `mount`, not `bind` | `MountFlags.Cache` is currently accepted by the common mount API without operation-kind validation | Missing operation-kind validation |
-| `NS_SYS_011` | `sys/man/2/bind`: a service mount's `old` target is a directory | The generic handle API permits a regular-file target for replacement | Missing service-mount adapter rule |
+| `NS_SYS_010` | `sys/man/2/bind`: `MCACHE` is valid for `mount`, not `bind` | The channel-based bind overload rejects `MountFlags.Cache`; the service-mount overload accepts it | Covered at the API boundary; cache policy remains provider-owned |
+| `NS_SYS_011` | `sys/man/2/bind`: a service mount's `old` target is a directory | The service-mount overload rejects replacement onto a regular-file target | Covered at the API boundary |
 | `NS_PROC_010` | `sysproc.c`: `RFNAMEG`/`RFCNAMEG` also operate without `RFPROC` | Current virtual process API only models forked children | Missing current-process rfork operation |
 | `NS_CTL_001`–`NS_CTL_008` | No native 9P equivalent; native `bind`/`mount`/`unmount` are syscalls in `sys/man/2/bind` | No namespace control tree currently exists | NinePSharp distributed extension |
 | `NS_DEV_001` | `devproc.c:readns1` | No `/proc/<pid>/ns` provider currently exists | Missing |
@@ -34,7 +34,7 @@ This document records why each feature exists and whether it is already covered 
 | `NS_ASYNC_001`–`NS_ASYNC_008` | No CSP primitive in Plan 9 namespace semantics | No message-channel grain/resource currently exists | NinePSharp application extension |
 
 The largest semantic gaps before claiming 9front namespace compatibility are exact
-`Chan`/`Path` identity and history, mount authorization (`notallowed`/`RFNOMNT`),
-namespace lifecycle, and the `/proc`, `/srv`, and `/shr` providers. The control
+`Chan`/`Path` identity and history, namespace lifecycle, and the `/proc`, `/srv`,
+and `/shr` providers. The control
 filesystem and CSP features should remain tagged as extensions because they are
 distributed interfaces designed around, rather than defined by, Plan 9.
