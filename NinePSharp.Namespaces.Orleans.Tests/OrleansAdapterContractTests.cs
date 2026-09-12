@@ -126,4 +126,24 @@ public sealed class OrleansAdapterContractTests
 
         group.VerifyAll();
     }
+
+    [Fact]
+    public async Task RforkNamespaceCanReplaceTheCurrentProcessGroup()
+    {
+        var factory = new Mock<IGrainFactory>(MockBehavior.Strict);
+        var grain = new Mock<IVProcessGrain>(MockBehavior.Strict);
+        factory.Setup(value => value.GetGrain<IVProcessGrain>(7, null)).Returns(grain.Object);
+        NamespaceChannelModel channel = new(new[]
+        {
+            new ChannelFrameModel("/", GatewayTestContext.Root.ToModel(), null, null),
+        });
+        var state = new VProcessStateModel(7, null, "rfork-group", channel, channel);
+        var updated = state with { ProcessGroupId = "vprocess-7-rfork-copy" };
+        grain.Setup(value => value.RforkNamespaceAsync(NamespaceForkModeModel.Copy, false)).ReturnsAsync(updated);
+
+        VProcessStateModel result = await grain.Object.RforkNamespaceAsync(NamespaceForkModeModel.Copy);
+
+        Assert.Equal("vprocess-7-rfork-copy", result.ProcessGroupId);
+        grain.VerifyAll();
+    }
 }

@@ -106,6 +106,42 @@ public sealed class VProcessGrain : Grain, IVProcessGrain
         return childState;
     }
 
+    /// <inheritdoc/>
+    public async Task<VProcessStateModel> RforkNamespaceAsync(
+        NamespaceForkModeModel mode,
+        bool noMounts = false)
+    {
+        VProcessStateModel current = RequireProcess();
+        string groupId = mode switch
+        {
+            NamespaceForkModeModel.Share => current.ProcessGroupId,
+            NamespaceForkModeModel.Copy => $"vprocess-{current.ProcessId}-rfork-copy",
+            NamespaceForkModeModel.Empty => $"vprocess-{current.ProcessId}-rfork-empty",
+            _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+        };
+
+        if (mode == NamespaceForkModeModel.Copy)
+        {
+            IVProcessGroupGrain parentGroup = GrainFactory.GetGrain<IVProcessGroupGrain>(current.ProcessGroupId);
+            await parentGroup.CloneToAsync(groupId);
+        }
+        else if (mode == NamespaceForkModeModel.Empty)
+        {
+            IVProcessGroupGrain group = GrainFactory.GetGrain<IVProcessGroupGrain>(groupId);
+            await group.InitializeEmptyAsync();
+        }
+
+        if (noMounts)
+        {
+            IVProcessGroupGrain group = GrainFactory.GetGrain<IVProcessGroupGrain>(groupId);
+            await group.SetMountsDisabledAsync(true);
+        }
+
+        VProcessStateModel updated = current with { ProcessGroupId = groupId };
+        await SaveAsync(updated);
+        return updated;
+    }
+
     private static void Validate(VProcessStateModel value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value.ProcessGroupId);

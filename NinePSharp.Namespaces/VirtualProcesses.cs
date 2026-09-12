@@ -65,13 +65,17 @@ public sealed class VProcess
     public long? ParentId { get; }
 
     /// <summary>Gets the process group controlling this process's namespace.</summary>
-    public VProcessGroup ProcessGroup { get; }
+    public VProcessGroup ProcessGroup { get; private set; }
 
     /// <summary>Gets the process's namespace root channel.</summary>
     public NamespaceChannel Root { get; }
 
     /// <summary>Gets the process's current-directory channel.</summary>
     public NamespaceChannel CurrentDirectory { get; private set; }
+
+    /// <summary>Replaces the namespace group associated with this process.</summary>
+    public void ReplaceProcessGroup(VProcessGroup processGroup)
+        => ProcessGroup = processGroup ?? throw new ArgumentNullException(nameof(processGroup));
 
     /// <summary>Changes the current directory without changing the namespace root.</summary>
     public void ChangeDirectory(NamespaceChannel channel)
@@ -131,6 +135,35 @@ public sealed class VProcessTable
             }
             processes.Add(child.Id, child);
             return child;
+        }
+    }
+
+    /// <summary>Applies namespace rfork semantics without creating a child process.</summary>
+    public VProcess RforkNamespace(long processId, NamespaceForkMode mode, bool noMounts = false)
+    {
+        lock (gate)
+        {
+            if (!processes.TryGetValue(processId, out VProcess? process))
+            {
+                throw new KeyNotFoundException($"Virtual process {processId} does not exist.");
+            }
+
+            VProcessGroup group = mode switch
+            {
+                NamespaceForkMode.Share => process.ProcessGroup,
+                NamespaceForkMode.Copy => new VProcessGroup(
+                    ++nextProcessGroupId,
+                    process.ProcessGroup.MountTable.Clone()),
+                NamespaceForkMode.Empty => new VProcessGroup(++nextProcessGroupId),
+                _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+            };
+            if (noMounts)
+            {
+                group.MountTable.SetMountsDisabled(true);
+            }
+
+            process.ReplaceProcessGroup(group);
+            return process;
         }
     }
 

@@ -36,6 +36,16 @@ public sealed class VirtualProcessUnitTests
         VProcess restricted = table.Fork(parent.Id, NamespaceForkMode.Copy, noMounts: true);
         Assert.True(restricted.ProcessGroup.MountTable.MountsDisabled);
         Assert.False(parent.ProcessGroup.MountTable.MountsDisabled);
+
+        VProcessGroup originalGroup = parent.ProcessGroup;
+        VProcess copied = table.RforkNamespace(parent.Id, NamespaceForkMode.Copy);
+        Assert.NotSame(originalGroup, copied.ProcessGroup);
+        Assert.Equal(parent.Id, copied.Id);
+        VProcessGroup copiedGroup = copied.ProcessGroup;
+        VProcess empty = table.RforkNamespace(parent.Id, NamespaceForkMode.Empty, noMounts: true);
+        Assert.NotSame(copiedGroup, empty.ProcessGroup);
+        Assert.Empty(empty.ProcessGroup.MountTable.Snapshot().MountHeads);
+        Assert.True(empty.ProcessGroup.MountTable.MountsDisabled);
     }
 
     [Theory]

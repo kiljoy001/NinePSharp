@@ -56,6 +56,9 @@ public interface IVProcessGrain : IGrainWithIntegerKey
 
     /// <summary>Creates a child with shared, copied, or empty namespace ownership.</summary>
     Task<VProcessStateModel> ForkAsync(long childProcessId, NamespaceForkModeModel mode, bool noMounts = false);
+
+    /// <summary>Changes this process's namespace group without creating a child.</summary>
+    Task<VProcessStateModel> RforkNamespaceAsync(NamespaceForkModeModel mode, bool noMounts = false);
 }
 
 /// <summary>A grain exposing a mountable 9P-like resource tree.</summary>
