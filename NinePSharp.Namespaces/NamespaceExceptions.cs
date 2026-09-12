@@ -30,6 +30,12 @@ public enum NamespaceError
     /// <summary>The process namespace is not permitted to mount this device.</summary>
     MountDeviceDenied,
 
+    /// <summary>A service descriptor was not opened read-write.</summary>
+    MountSourceNotReadWrite,
+
+    /// <summary>A service requires authentication that was not supplied.</summary>
+    MountAuthenticationRequired,
+
     /// <summary>A path component could not be resolved.</summary>
     ResourceNotFound,
 }

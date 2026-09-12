@@ -1,0 +1,162 @@
+using NinePSharp.Constants;
+
+namespace NinePSharp.Namespaces;
+
+/// <summary>A service connection which can be mounted into a process namespace.</summary>
+public sealed class NamespaceMountSource
+{
+    /// <summary>Initializes a mount source.</summary>
+    public NamespaceMountSource(
+        NamespaceChannel root,
+        byte mode,
+        string? attachName = null,
+        bool authenticated = true,
+        bool requiresAuthentication = false,
+        Func<ValueTask>? closeAsync = null)
+    {
+        Root = root?.Clone() ?? throw new ArgumentNullException(nameof(root));
+        Mode = mode;
+        AttachName = attachName ?? string.Empty;
+        Authenticated = authenticated;
+        RequiresAuthentication = requiresAuthentication;
+        CloseAsync = closeAsync;
+    }
+
+    /// <summary>Gets the service root channel.</summary>
+    public NamespaceChannel Root { get; }
+
+    /// <summary>Gets the descriptor open mode.</summary>
+    public byte Mode { get; }
+
+    /// <summary>Gets the server tree selection string.</summary>
+    public string AttachName { get; }
+
+    /// <summary>Gets whether the service connection is authenticated.</summary>
+    public bool Authenticated { get; }
+
+    /// <summary>Gets whether the service requires authentication.</summary>
+    public bool RequiresAuthentication { get; }
+
+    /// <summary>Gets the callback which closes the caller's descriptor.</summary>
+    public Func<ValueTask>? CloseAsync { get; }
+}
+
+/// <summary>Implements path-based Plan 9 namespace syscalls for a virtual process.</summary>
+public sealed class NamespaceSyscalls
+{
+    private readonly IResourceOperations resources;
+
+    /// <summary>Initializes namespace syscalls over a resource provider.</summary>
+    public NamespaceSyscalls(IResourceOperations resources)
+        => this.resources = resources ?? throw new ArgumentNullException(nameof(resources));
+
+    /// <summary>Binds a resource resolved from the process namespace onto a target path.</summary>
+    public async ValueTask<MountBinding> BindAsync(
+        VProcess process,
+        string name,
+        string old,
+        MountFlags flags = MountFlags.Replace,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(process);
+        NamespaceChannel source = await ResolveAsync(process, name, crossFinalMount: true, cancellationToken: cancellationToken);
+        NamespaceChannel target = await ResolveAsync(process, old, crossFinalMount: false, cancellationToken: cancellationToken);
+        return process.ProcessGroup.MountTable.Mount(source, target.Current, flags);
+    }
+
+    /// <summary>Mounts an authenticated read-write service descriptor onto a target path.</summary>
+    public async ValueTask<MountBinding> MountAsync(
+        VProcess process,
+        NamespaceMountSource source,
+        string old,
+        MountFlags flags = MountFlags.Replace,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(process);
+        ArgumentNullException.ThrowIfNull(source);
+        if ((source.Mode & 3) != NinePConstants.ORDWR)
+        {
+            throw new NamespaceException(
+                NamespaceError.MountSourceNotReadWrite,
+                "A service mount source must be open read-write.");
+        }
+
+        if (source.RequiresAuthentication && !source.Authenticated)
+        {
+            throw new NamespaceException(
+                NamespaceError.MountAuthenticationRequired,
+                "The service requires an authenticated mount source.");
+        }
+
+        NamespaceChannel target = await ResolveAsync(process, old, crossFinalMount: false, cancellationToken: cancellationToken);
+        MountBinding binding = process.ProcessGroup.MountTable.Mount(
+            source.Root.Current,
+            target.Current,
+            flags,
+            source.AttachName);
+        if (source.CloseAsync is not null)
+        {
+            await source.CloseAsync();
+        }
+
+        return binding;
+    }
+
+    /// <summary>Removes every mount or one selected member at a target path.</summary>
+    public async ValueTask UnmountAsync(
+        VProcess process,
+        string old,
+        string? name = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(process);
+        NamespaceChannel target = await ResolveAsync(process, old, crossFinalMount: false, cancellationToken: cancellationToken);
+        ResourceHandle? mounted = name is null
+            ? null
+            : (await ResolveAsync(process, name, crossFinalMount: true, cancellationToken: cancellationToken)).Current;
+        process.ProcessGroup.MountTable.Unmount(target.Current, mounted);
+    }
+
+    private async ValueTask<NamespaceChannel> ResolveAsync(
+        VProcess process,
+        string path,
+        bool crossFinalMount,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        NamespaceChannel channel = path.StartsWith("/", StringComparison.Ordinal)
+            ? process.Root.Clone()
+            : process.CurrentDirectory.Clone();
+        string[] names = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (!crossFinalMount && names.Length > 0)
+        {
+            string finalName = names[^1];
+            string[] parentNames = names[..^1];
+            NamespaceWalkResult parent = await new NamespaceNavigator(process.ProcessGroup.MountTable, resources)
+                .WalkAsync(channel, parentNames, cancellationToken);
+            if (!parent.Complete(parentNames.Length))
+            {
+                throw new NamespaceException(NamespaceError.ResourceNotFound, "The namespace path could not be resolved.");
+            }
+
+            ResourceHandle? final = await resources.WalkAsync(parent.Channel.Current, finalName, cancellationToken);
+            if (final is null)
+            {
+                throw new NamespaceException(NamespaceError.ResourceNotFound, "The namespace path could not be resolved.");
+            }
+
+            NamespaceChannel target = parent.Channel.Clone();
+            target.Push(new ChannelFrame(finalName, final));
+            return target;
+        }
+
+        NamespaceWalkResult result = await new NamespaceNavigator(process.ProcessGroup.MountTable, resources)
+            .WalkAsync(channel, names, cancellationToken);
+        if (!result.Complete(names.Length))
+        {
+            throw new NamespaceException(NamespaceError.ResourceNotFound, "The namespace path could not be resolved.");
+        }
+
+        return result.Channel;
+    }
+}

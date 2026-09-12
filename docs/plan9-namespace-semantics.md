@@ -70,6 +70,11 @@ partial walks, updates the fid after create, and releases all open resource hand
 disconnect. Clunk and remove invalidate their fid before provider cleanup, including
 when that cleanup fails, matching the fail-stop ownership rule used by 9front.
 
+`NamespaceSyscalls` provides the path-based bind, mount, and unmount layer above the
+object-based mount table. It resolves bind sources at call time, leaves final mount
+targets untranslated, validates service descriptor mode and authentication, carries
+the server attach name, and closes a successfully mounted source descriptor.
+
 `NinePSharp.Namespaces.Orleans.Server` connects that session model to the existing
 stream server. It implements the classic attach, walk, open, read, write, stat, create,
 clunk, remove, and flush request path. Flush can cancel a request already in flight;
