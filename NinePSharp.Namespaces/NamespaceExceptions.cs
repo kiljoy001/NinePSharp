@@ -12,6 +12,9 @@ public enum NamespaceError
     /// <summary>A union mount was attempted on a non-directory.</summary>
     UnionRequiresDirectory,
 
+    /// <summary>A service mount was attempted on a non-directory target.</summary>
+    MountTargetMustBeDirectory,
+
     /// <summary>The requested mount point does not exist.</summary>
     MountNotFound,
 

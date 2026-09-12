@@ -20,6 +20,10 @@ public sealed class MountTableUnitTests
         AssertError(NamespaceError.InvalidMountFlags, () => table.Mount(directory, directory, (MountFlags)8));
         AssertError(NamespaceError.MountTypeMismatch, () => table.Mount(file, directory));
         AssertError(NamespaceError.UnionRequiresDirectory, () => table.Mount(file, file, MountFlags.Before));
+        AssertError(NamespaceError.MountTargetMustBeDirectory, () => table.Mount(directory, file));
+        AssertError(
+            NamespaceError.InvalidMountFlags,
+            () => table.Mount(Channel(directory), directory, MountFlags.Cache));
     }
 
     [Fact]
@@ -185,6 +189,19 @@ public sealed class MountTableUnitTests
         MountBinding next = restored.Mount(Directory("next", 4), Directory("next-point", 3));
         Assert.Equal(snapshot.NextMountId + 1, next.MountId);
         Assert.Throws<ArgumentNullException>(() => MountTable.FromSnapshot(null!));
+    }
+
+    [Fact]
+    public void ServiceMountAcceptsCacheOnDirectoryTarget()
+    {
+        ResourceHandle target = Directory("target", 1);
+        ResourceHandle mountedOn = Directory("point", 2);
+        var table = new MountTable();
+
+        MountBinding binding = table.Mount(target, mountedOn, MountFlags.Cache);
+
+        Assert.Equal(MountFlags.Cache, binding.Flags);
+        Assert.Equal(target.Identity, Assert.Single(table.Find(mountedOn.Identity)!.Mounts).Target.Identity);
     }
 
     private sealed class UnusedResources : IResourceOperations

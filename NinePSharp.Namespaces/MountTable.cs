@@ -32,7 +32,18 @@ public sealed class MountTable
         ResourceHandle mountedOn,
         MountFlags flags = MountFlags.Replace,
         string? spec = null)
-        => Mount(target, mountedOn, flags, spec, null);
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(mountedOn);
+        if (!mountedOn.IsDirectory && flags.Order() == MountFlags.Replace)
+        {
+            throw new NamespaceException(
+                NamespaceError.MountTargetMustBeDirectory,
+                "A service mount target must be a directory.");
+        }
+
+        return Mount(target, mountedOn, flags, spec, null);
+    }
 
     /// <summary>Binds a channel, copying its mounted union when present.</summary>
     public MountBinding Mount(
@@ -42,6 +53,13 @@ public sealed class MountTable
         string? spec = null)
     {
         ArgumentNullException.ThrowIfNull(source);
+        if ((flags & MountFlags.Cache) != 0)
+        {
+            throw new NamespaceException(
+                NamespaceError.InvalidMountFlags,
+                "The cache flag is valid only for service mounts.");
+        }
+
         ChannelFrame frame = source.Frames[^1];
         IReadOnlyList<MountBinding>? sourceMounts = frame.MountedFrom is null
             ? frame.Union

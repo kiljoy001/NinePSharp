@@ -76,4 +76,38 @@ public sealed class OrleansAdapterContractTests
         var channel = NamespaceChannel.Restore(new[] { new ChannelFrame("provider-root", GatewayTestContext.Root) });
         Assert.Equal("/", (await operations.StatAsync("group", channel)).Name);
     }
+
+    [Fact]
+    public async Task DistributedMountAndUnmountDelegateToTheProcessGroup()
+    {
+        var factory = new Mock<IGrainFactory>(MockBehavior.Strict);
+        var group = new Mock<IVProcessGroupGrain>(MockBehavior.Strict);
+        factory.Setup(value => value.GetGrain<IVProcessGroupGrain>("group", null)).Returns(group.Object);
+        ResourceHandle target = GatewayTestContext.Root;
+        ResourceHandle mountedOn = new(new ResourceIdentity("test", "resource", 3), QidType.QTDIR);
+        MountBindingModel binding = new(7, MountFlags.Replace, target.ToModel(), "service");
+        group.Setup(value => value.MountAsync(target.ToModel(), mountedOn.ToModel(), MountFlags.Replace, "service"))
+            .ReturnsAsync(binding);
+        group.Setup(value => value.UnmountAsync(mountedOn.ToModel(), null)).Returns(Task.CompletedTask);
+        var operations = new DistributedNamespaceOperations(factory.Object, new Mock<IResourceOperations>().Object);
+
+        MountBinding result = await operations.MountAsync("group", target, mountedOn, MountFlags.Replace, "service");
+        await operations.UnmountAsync("group", mountedOn);
+
+        Assert.Equal(7, result.MountId);
+        group.VerifyAll();
+    }
+
+    [Fact]
+    public async Task AlreadyCancelledNamespaceMutationsDoNotReachTheProcessGroup()
+    {
+        var factory = new Mock<IGrainFactory>(MockBehavior.Strict);
+        var operations = new DistributedNamespaceOperations(factory.Object, new Mock<IResourceOperations>().Object);
+        ResourceHandle root = GatewayTestContext.Root;
+        var cancelled = new CancellationToken(true);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operations.MountAsync("group", root, root, cancellationToken: cancelled));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operations.UnmountAsync("group", root, cancellationToken: cancelled));
+        factory.VerifyNoOtherCalls();
+    }
 }

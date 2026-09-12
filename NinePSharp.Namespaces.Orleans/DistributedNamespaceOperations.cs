@@ -176,6 +176,43 @@ public sealed class DistributedNamespaceOperations
         return result.ToDomain();
     }
 
+    /// <summary>Mounts a service resource into the durable process-group namespace.</summary>
+    public async Task<MountBinding> MountAsync(
+        string processGroupId,
+        ResourceHandle target,
+        ResourceHandle mountedOn,
+        MountFlags flags = MountFlags.Replace,
+        string? spec = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(processGroupId);
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(mountedOn);
+        cancellationToken.ThrowIfCancellationRequested();
+        IVProcessGroupGrain group = grainFactory.GetGrain<IVProcessGroupGrain>(processGroupId);
+        MountBindingModel result = await group.MountAsync(
+                target.ToModel(),
+                mountedOn.ToModel(),
+                flags,
+                spec)
+            .WaitAsync(cancellationToken);
+        return result.ToDomain();
+    }
+
+    /// <summary>Removes every mount or one selected member from a mount point.</summary>
+    public async Task UnmountAsync(
+        string processGroupId,
+        ResourceHandle mountedOn,
+        ResourceHandle? mounted = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(processGroupId);
+        ArgumentNullException.ThrowIfNull(mountedOn);
+        cancellationToken.ThrowIfCancellationRequested();
+        IVProcessGroupGrain group = grainFactory.GetGrain<IVProcessGroupGrain>(processGroupId);
+        await group.UnmountAsync(mountedOn.ToModel(), mounted?.ToModel()).WaitAsync(cancellationToken);
+    }
+
     private async Task<NamespaceNavigator> CreateNavigatorAsync(
         string processGroupId,
         CancellationToken cancellationToken)
