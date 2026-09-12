@@ -177,4 +177,13 @@ public sealed class VProcessTable
                 : throw new KeyNotFoundException($"Virtual process {processId} does not exist.");
         }
     }
+
+    /// <summary>Returns a stable snapshot of all virtual processes.</summary>
+    public IReadOnlyList<VProcess> Snapshot()
+    {
+        lock (gate)
+        {
+            return processes.Values.OrderBy(process => process.Id).ToArray();
+        }
+    }
 }

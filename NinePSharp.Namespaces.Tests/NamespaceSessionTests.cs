@@ -354,6 +354,36 @@ public sealed class NamespaceSessionTests
         Assert.Throws<ObjectDisposedException>(() => test.Session.GetFidResource(1));
     }
 
+    [Fact]
+    public async Task DisposeContinuesWhenProviderClunkFails()
+    {
+        await using TestSession test = CreateSession("child");
+        await test.Session.AttachAsync(1, test.Root);
+        await test.Session.WalkAsync(1, 2, new[] { "child" });
+        await test.Session.OpenAsync(2, NinePConstants.OREAD);
+        test.Resources.FailClunk = true;
+
+        await test.Session.DisposeAsync();
+
+        Assert.False(test.Session.ContainsFid(1));
+        Assert.False(test.Session.ContainsFid(2));
+    }
+
+    [Fact]
+    public async Task UnknownFidsAreRejectedAndFidGatesAreReleasedAfterCancellation()
+    {
+        await using TestSession test = CreateSession("child");
+
+        await Assert.ThrowsAsync<NamespaceFidException>(() => test.Session.StatAsync(99).AsTask());
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            test.Session.AttachAsync(1, test.Root, cancellation.Token).AsTask());
+
+        await test.Session.AttachAsync(1, test.Root);
+        Assert.True(test.Session.ContainsFid(1));
+    }
+
     private static TestSession CreateSession(params string[] children)
     {
         var resources = new MemoryDataResources();

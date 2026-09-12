@@ -75,6 +75,12 @@ object-based mount table. It resolves bind sources at call time, leaves final mo
 targets untranslated, validates service descriptor mode and authentication, carries
 the server attach name, and closes a successfully mounted source descriptor.
 
+`NamespaceControlResource` projects a process table as a 9P resource tree. An attached
+control root exposes `/proc/<pid>/ns` and `/proc/<pid>/status` for inspection and a
+writable `/proc/<pid>/ctl` accepting `bind`, `mounts-disabled`, `unmount`, and `rfork`
+commands. It implements `IResourceDataOperations`, so hosts can attach it to the local
+data plane or register an equivalent provider for the Orleans gateway.
+
 `NinePSharp.Namespaces.Orleans.Server` connects that session model to the existing
 stream server. It implements the classic attach, walk, open, read, write, stat, create,
 clunk, remove, and flush request path. Flush can cancel a request already in flight;

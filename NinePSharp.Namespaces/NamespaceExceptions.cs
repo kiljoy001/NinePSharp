@@ -3,6 +3,9 @@ namespace NinePSharp.Namespaces;
 /// <summary>Identifies a namespace operation failure.</summary>
 public enum NamespaceError
 {
+    /// <summary>The requested control operation is invalid.</summary>
+    InvalidOperation,
+
     /// <summary>The mount flags are invalid.</summary>
     InvalidMountFlags,
 
