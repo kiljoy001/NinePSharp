@@ -8,7 +8,12 @@ public static class NamespaceModelEquality
     {
         ArgumentNullException.ThrowIfNull(left);
         ArgumentNullException.ThrowIfNull(right);
-        if (left.NextMountId != right.NextMountId || left.MountHeads.Length != right.MountHeads.Length)
+        if (left.NextMountId != right.NextMountId ||
+            left.MountsDisabled != right.MountsDisabled ||
+            left.MountHeads.Length != right.MountHeads.Length ||
+            !(left.BlockedMountDevices ?? Array.Empty<string>()).SequenceEqual(
+                right.BlockedMountDevices ?? Array.Empty<string>(),
+                StringComparer.Ordinal))
         {
             return false;
         }

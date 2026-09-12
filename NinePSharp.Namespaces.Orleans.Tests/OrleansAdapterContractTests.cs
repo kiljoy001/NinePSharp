@@ -110,4 +110,20 @@ public sealed class OrleansAdapterContractTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operations.UnmountAsync("group", root, cancellationToken: cancelled));
         factory.VerifyNoOtherCalls();
     }
+
+    [Fact]
+    public async Task DistributedMountPolicyOperationsDelegateToTheProcessGroup()
+    {
+        var factory = new Mock<IGrainFactory>(MockBehavior.Strict);
+        var group = new Mock<IVProcessGroupGrain>(MockBehavior.Strict);
+        factory.Setup(value => value.GetGrain<IVProcessGroupGrain>("group", null)).Returns(group.Object);
+        group.Setup(value => value.SetMountsDisabledAsync(true)).Returns(Task.CompletedTask);
+        group.Setup(value => value.SetMountDeviceBlockedAsync("device", true)).Returns(Task.CompletedTask);
+        var operations = new DistributedNamespaceOperations(factory.Object, new Mock<IResourceOperations>().Object);
+
+        await operations.SetMountsDisabledAsync("group", true);
+        await operations.SetMountDeviceBlockedAsync("group", "device", true);
+
+        group.VerifyAll();
+    }
 }

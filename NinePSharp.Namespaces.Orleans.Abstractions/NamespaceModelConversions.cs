@@ -82,14 +82,18 @@ public static class NamespaceModelConversions
         => new(
             value.NextMountId,
             value.MountHeads.Select(
-                head => new MountHeadModel(head.From.ToModel(), head.Mounts.Select(ToModel).ToArray())).ToArray());
+                head => new MountHeadModel(head.From.ToModel(), head.Mounts.Select(ToModel).ToArray())).ToArray(),
+            value.MountsDisabled,
+            value.BlockedMountDevices?.ToArray());
 
     /// <summary>Converts a namespace snapshot from its wire model.</summary>
     public static NamespaceSnapshot ToDomain(this NamespaceSnapshotModel value)
         => new(
             value.NextMountId,
             value.MountHeads.Select(
-                head => new MountHead(head.From.ToDomain(), head.Mounts.Select(ToDomain).ToArray())).ToArray());
+                head => new MountHead(head.From.ToDomain(), head.Mounts.Select(ToDomain).ToArray())).ToArray(),
+            value.MountsDisabled,
+            value.BlockedMountDevices);
 
     /// <summary>Converts a namespace channel to its wire model.</summary>
     public static NamespaceChannelModel ToModel(this NamespaceChannel value)

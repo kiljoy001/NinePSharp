@@ -15,7 +15,13 @@ public sealed record MountHead(ResourceHandle From, IReadOnlyList<MountBinding> 
 /// <summary>A serializable snapshot of a namespace mount table.</summary>
 /// <param name="NextMountId">The next namespace-local mount identifier.</param>
 /// <param name="MountHeads">All mount points in the namespace.</param>
-public sealed record NamespaceSnapshot(long NextMountId, IReadOnlyList<MountHead> MountHeads);
+/// <param name="MountsDisabled">Whether service mounts are disabled for the namespace.</param>
+/// <param name="BlockedMountDevices">Device names denied for service mounts.</param>
+public sealed record NamespaceSnapshot(
+    long NextMountId,
+    IReadOnlyList<MountHead> MountHeads,
+    bool MountsDisabled = false,
+    IReadOnlyList<string>? BlockedMountDevices = null);
 
 /// <summary>
 /// Models the mount table held by a Plan 9 process group.
@@ -24,7 +30,59 @@ public sealed class MountTable
 {
     private readonly object gate = new();
     private readonly Dictionary<ResourceIdentity, MountHead> heads = new();
+    private readonly HashSet<string> blockedMountDevices = new(StringComparer.Ordinal);
     private long nextMountId;
+    private bool mountsDisabled;
+
+    /// <summary>Gets whether all service mounts are disabled for this namespace.</summary>
+    public bool MountsDisabled
+    {
+        get
+        {
+            lock (gate)
+            {
+                return mountsDisabled;
+            }
+        }
+    }
+
+    /// <summary>Sets whether all service mounts are disabled for this namespace.</summary>
+    public void SetMountsDisabled(bool disabled)
+    {
+        lock (gate)
+        {
+            mountsDisabled = disabled;
+        }
+    }
+
+    /// <summary>Blocks or permits service mounts targeting one device name.</summary>
+    public void SetMountDeviceBlocked(string device, bool blocked)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(device);
+        lock (gate)
+        {
+            if (blocked)
+            {
+                blockedMountDevices.Add(device);
+            }
+            else
+            {
+                blockedMountDevices.Remove(device);
+            }
+        }
+    }
+
+    /// <summary>Returns the blocked service-device names.</summary>
+    public IReadOnlyList<string> BlockedMountDevices
+    {
+        get
+        {
+            lock (gate)
+            {
+                return blockedMountDevices.Order(StringComparer.Ordinal).ToArray();
+            }
+        }
+    }
 
     /// <summary>Adds a replacement or union member at a mounted-upon resource.</summary>
     public MountBinding Mount(
@@ -35,6 +93,7 @@ public sealed class MountTable
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(mountedOn);
+        EnsureMountAllowed(target);
         if (!mountedOn.IsDirectory && flags.Order() == MountFlags.Replace)
         {
             throw new NamespaceException(
@@ -199,6 +258,11 @@ public sealed class MountTable
         }
 
         clone.nextMountId = ids.Count;
+        clone.mountsDisabled = snapshot.MountsDisabled;
+        if (snapshot.BlockedMountDevices is not null)
+        {
+            clone.blockedMountDevices.UnionWith(snapshot.BlockedMountDevices);
+        }
         return clone;
     }
 
@@ -207,7 +271,11 @@ public sealed class MountTable
     {
         lock (gate)
         {
-            return new NamespaceSnapshot(nextMountId, heads.Values.Select(Copy).ToArray());
+            return new NamespaceSnapshot(
+                nextMountId,
+                heads.Values.Select(Copy).ToArray(),
+                mountsDisabled,
+                blockedMountDevices.Order(StringComparer.Ordinal).ToArray());
         }
     }
 
@@ -215,7 +283,15 @@ public sealed class MountTable
     public static MountTable FromSnapshot(NamespaceSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        var table = new MountTable { nextMountId = snapshot.NextMountId };
+        var table = new MountTable
+        {
+            nextMountId = snapshot.NextMountId,
+            mountsDisabled = snapshot.MountsDisabled,
+        };
+        if (snapshot.BlockedMountDevices is not null)
+        {
+            table.blockedMountDevices.UnionWith(snapshot.BlockedMountDevices);
+        }
         foreach (MountHead head in snapshot.MountHeads)
         {
             table.heads.Add(head.From.Identity, Copy(head));
@@ -268,6 +344,19 @@ public sealed class MountTable
 
     private MountBinding NewBinding(ResourceHandle target, MountFlags flags, string? spec)
         => new(++nextMountId, flags, target, spec ?? string.Empty);
+
+    private void EnsureMountAllowed(ResourceHandle target)
+    {
+        lock (gate)
+        {
+            if (mountsDisabled || blockedMountDevices.Contains(target.Identity.Device))
+            {
+                throw new NamespaceException(
+                    NamespaceError.MountDeviceDenied,
+                    "The process namespace is not permitted to mount this device.");
+            }
+        }
+    }
 
     private static MountHead Copy(MountHead head)
         => new(head.From, head.Mounts.ToArray());

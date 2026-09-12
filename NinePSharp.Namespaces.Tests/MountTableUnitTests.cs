@@ -204,6 +204,35 @@ public sealed class MountTableUnitTests
         Assert.Equal(target.Identity, Assert.Single(table.Find(mountedOn.Identity)!.Mounts).Target.Identity);
     }
 
+    [Fact]
+    public void MountPolicyBlocksServiceMountsAndSurvivesCloneAndSnapshot()
+    {
+        ResourceHandle target = Directory("blocked", 1);
+        ResourceHandle mountedOn = Directory("point", 2);
+        var table = new MountTable();
+        table.SetMountDeviceBlocked("blocked", true);
+
+        AssertError(NamespaceError.MountDeviceDenied, () => table.Mount(target, mountedOn));
+
+        MountTable clone = table.Clone();
+        AssertError(NamespaceError.MountDeviceDenied, () => clone.Mount(target, mountedOn));
+        MountTable restored = MountTable.FromSnapshot(table.Snapshot());
+        AssertError(NamespaceError.MountDeviceDenied, () => restored.Mount(target, mountedOn));
+    }
+
+    [Fact]
+    public void MountsDisabledBlocksServiceMountsButNotBinds()
+    {
+        ResourceHandle source = Directory("source", 1);
+        ResourceHandle mountedOn = Directory("point", 2);
+        var table = new MountTable();
+        table.SetMountsDisabled(true);
+
+        AssertError(NamespaceError.MountDeviceDenied, () => table.Mount(source, mountedOn));
+        table.Mount(NamespaceChannel.Restore(new[] { new ChannelFrame("/", source) }), mountedOn);
+        Assert.NotNull(table.Find(mountedOn.Identity));
+    }
+
     private sealed class UnusedResources : IResourceOperations
     {
         public ValueTask<ResourceHandle?> WalkAsync(

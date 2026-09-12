@@ -56,6 +56,20 @@ public sealed class NamespaceModelEqualityTests
         Assert.True(channel.EquivalentTo(channel.ToDomain().ToModel()));
     }
 
+    [Fact]
+    public void SnapshotConversionPreservesMountPolicy()
+    {
+        var snapshot = new NamespaceSnapshotModel(
+            3,
+            Array.Empty<MountHeadModel>(),
+            true,
+            new[] { "blocked" });
+
+        Assert.True(snapshot.EquivalentTo(snapshot.ToDomain().ToModel()));
+        Assert.Equal(new[] { "blocked" }, snapshot.ToDomain().BlockedMountDevices);
+        Assert.True(snapshot.ToDomain().MountsDisabled);
+    }
+
     private static NamespaceSnapshotModel Snapshot(long nextMountId, params MountHeadModel[] heads)
         => new(nextMountId, heads);
 

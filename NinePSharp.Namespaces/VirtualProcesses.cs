@@ -100,7 +100,7 @@ public sealed class VProcessTable
     }
 
     /// <summary>Forks a child with a shared, copied, or empty namespace group.</summary>
-    public VProcess Fork(long parentId, NamespaceForkMode mode)
+    public VProcess Fork(long parentId, NamespaceForkMode mode, bool noMounts = false)
     {
         lock (gate)
         {
@@ -125,6 +125,10 @@ public sealed class VProcessTable
                 group,
                 parent.Root,
                 parent.CurrentDirectory);
+            if (noMounts)
+            {
+                group.MountTable.SetMountsDisabled(true);
+            }
             processes.Add(child.Id, child);
             return child;
         }

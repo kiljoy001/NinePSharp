@@ -27,6 +27,9 @@ public enum NamespaceError
     /// <summary>A creatable bind was attempted from an incompatible mounted source.</summary>
     CreateBindNotPermitted,
 
+    /// <summary>The process namespace is not permitted to mount this device.</summary>
+    MountDeviceDenied,
+
     /// <summary>A path component could not be resolved.</summary>
     ResourceNotFound,
 }

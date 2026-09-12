@@ -59,7 +59,10 @@ public sealed class VProcessGrain : Grain, IVProcessGrain
     }
 
     /// <inheritdoc/>
-    public async Task<VProcessStateModel> ForkAsync(long childProcessId, NamespaceForkModeModel mode)
+    public async Task<VProcessStateModel> ForkAsync(
+        long childProcessId,
+        NamespaceForkModeModel mode,
+        bool noMounts = false)
     {
         if (childProcessId <= 0)
         {
@@ -84,6 +87,12 @@ public sealed class VProcessGrain : Grain, IVProcessGrain
         {
             IVProcessGroupGrain childGroup = GrainFactory.GetGrain<IVProcessGroupGrain>(childGroupId);
             await childGroup.InitializeEmptyAsync();
+        }
+
+        if (noMounts)
+        {
+            IVProcessGroupGrain childGroup = GrainFactory.GetGrain<IVProcessGroupGrain>(childGroupId);
+            await childGroup.SetMountsDisabledAsync(true);
         }
 
         var childState = new VProcessStateModel(

@@ -86,6 +86,23 @@ public sealed class VProcessGroupGrain : Grain, IVProcessGroupGrain
     }
 
     /// <inheritdoc/>
+    public async Task SetMountsDisabledAsync(bool disabled)
+    {
+        MountTable table = LoadTable();
+        table.SetMountsDisabled(disabled);
+        await SaveAsync(table);
+    }
+
+    /// <inheritdoc/>
+    public async Task SetMountDeviceBlockedAsync(string device, bool blocked)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(device);
+        MountTable table = LoadTable();
+        table.SetMountDeviceBlocked(device, blocked);
+        await SaveAsync(table);
+    }
+
+    /// <inheritdoc/>
     public Task<MountHeadModel?> FindMountAsync(ResourceIdentityModel identity)
     {
         MountHead? head = LoadTable().Find(identity.ToDomain());

@@ -213,6 +213,32 @@ public sealed class DistributedNamespaceOperations
         await group.UnmountAsync(mountedOn.ToModel(), mounted?.ToModel()).WaitAsync(cancellationToken);
     }
 
+    /// <summary>Enables or disables every service mount in a process namespace.</summary>
+    public async Task SetMountsDisabledAsync(
+        string processGroupId,
+        bool disabled,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(processGroupId);
+        cancellationToken.ThrowIfCancellationRequested();
+        IVProcessGroupGrain group = grainFactory.GetGrain<IVProcessGroupGrain>(processGroupId);
+        await group.SetMountsDisabledAsync(disabled).WaitAsync(cancellationToken);
+    }
+
+    /// <summary>Blocks or permits service mounts targeting one device name.</summary>
+    public async Task SetMountDeviceBlockedAsync(
+        string processGroupId,
+        string device,
+        bool blocked,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(processGroupId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(device);
+        cancellationToken.ThrowIfCancellationRequested();
+        IVProcessGroupGrain group = grainFactory.GetGrain<IVProcessGroupGrain>(processGroupId);
+        await group.SetMountDeviceBlockedAsync(device, blocked).WaitAsync(cancellationToken);
+    }
+
     private async Task<NamespaceNavigator> CreateNavigatorAsync(
         string processGroupId,
         CancellationToken cancellationToken)

@@ -74,7 +74,9 @@ public sealed record MountHeadModel(
 [GenerateSerializer]
 public sealed record NamespaceSnapshotModel(
     [property: Id(0)] long NextMountId,
-    [property: Id(1)] MountHeadModel[] MountHeads);
+    [property: Id(1)] MountHeadModel[] MountHeads,
+    [property: Id(2)] bool MountsDisabled = false,
+    [property: Id(3)] string[]? BlockedMountDevices = null);
 
 /// <summary>A serializable channel traversal frame.</summary>
 [GenerateSerializer]

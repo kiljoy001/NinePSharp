@@ -29,6 +29,12 @@ public interface IVProcessGroupGrain : IGrainWithStringKey
     /// <summary>Removes all mounts or a selected union member.</summary>
     Task UnmountAsync(ResourceHandleModel mountedOn, ResourceHandleModel? mounted = null);
 
+    /// <summary>Enables or disables every service mount in this namespace.</summary>
+    Task SetMountsDisabledAsync(bool disabled);
+
+    /// <summary>Blocks or permits service mounts targeting one device name.</summary>
+    Task SetMountDeviceBlockedAsync(string device, bool blocked);
+
     /// <summary>Finds a mount head by stable object identity.</summary>
     Task<MountHeadModel?> FindMountAsync(ResourceIdentityModel identity);
 
@@ -49,7 +55,7 @@ public interface IVProcessGrain : IGrainWithIntegerKey
     Task ChangeDirectoryAsync(NamespaceChannelModel currentDirectory);
 
     /// <summary>Creates a child with shared, copied, or empty namespace ownership.</summary>
-    Task<VProcessStateModel> ForkAsync(long childProcessId, NamespaceForkModeModel mode);
+    Task<VProcessStateModel> ForkAsync(long childProcessId, NamespaceForkModeModel mode, bool noMounts = false);
 }
 
 /// <summary>A grain exposing a mountable 9P-like resource tree.</summary>
