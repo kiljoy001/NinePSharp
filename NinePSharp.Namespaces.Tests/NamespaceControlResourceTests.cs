@@ -53,6 +53,10 @@ public sealed class NamespaceControlResourceTests
         Assert.Equal((uint)bind.Length, await control.WriteAsync(opened, 0, bind, Context(), CancellationToken.None));
         Assert.Equal(source.Identity, process.ProcessGroup.MountTable.Find(target.Identity)!.Mounts[0].Target.Identity);
 
+        byte[] unmount = Encoding.UTF8.GetBytes("unmount /target");
+        await control.WriteAsync(opened, 0, unmount, Context(), CancellationToken.None);
+        Assert.Null(process.ProcessGroup.MountTable.Find(target.Identity));
+
         byte[] rfork = Encoding.UTF8.GetBytes("rfork copy nomounts");
         await control.WriteAsync(opened, 0, rfork, Context(), CancellationToken.None);
         Assert.True(process.ProcessGroup.MountTable.MountsDisabled);
