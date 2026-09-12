@@ -99,6 +99,25 @@ public sealed class OrleansAdapterContractTests
     }
 
     [Fact]
+    public async Task DistributedNamespaceMutationsRejectInvalidArgumentsBeforeResolvingAGroup()
+    {
+        var factory = new Mock<IGrainFactory>(MockBehavior.Strict);
+        var operations = new DistributedNamespaceOperations(factory.Object, new Mock<IResourceOperations>().Object);
+        ResourceHandle root = GatewayTestContext.Root;
+
+        await Assert.ThrowsAsync<ArgumentException>(() => operations.MountAsync(" ", root, root));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => operations.MountAsync("group", null!, root));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => operations.MountAsync("group", root, null!));
+        await Assert.ThrowsAsync<ArgumentException>(() => operations.UnmountAsync(" ", root));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => operations.UnmountAsync("group", null!));
+        await Assert.ThrowsAsync<ArgumentException>(() => operations.SetMountsDisabledAsync(" ", true));
+        await Assert.ThrowsAsync<ArgumentException>(() => operations.SetMountDeviceBlockedAsync(" ", "device", true));
+        await Assert.ThrowsAsync<ArgumentException>(() => operations.SetMountDeviceBlockedAsync("group", " ", true));
+
+        factory.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task AlreadyCancelledNamespaceMutationsDoNotReachTheProcessGroup()
     {
         var factory = new Mock<IGrainFactory>(MockBehavior.Strict);
@@ -108,6 +127,8 @@ public sealed class OrleansAdapterContractTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operations.MountAsync("group", root, root, cancellationToken: cancelled));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operations.UnmountAsync("group", root, cancellationToken: cancelled));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operations.SetMountsDisabledAsync("group", true, cancelled));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operations.SetMountDeviceBlockedAsync("group", "device", true, cancelled));
         factory.VerifyNoOtherCalls();
     }
 
