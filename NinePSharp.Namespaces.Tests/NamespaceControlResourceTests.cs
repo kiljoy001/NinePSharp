@@ -25,9 +25,14 @@ public sealed class NamespaceControlResourceTests
         Assert.Equal(new[] { "ns", "status", "ctl" }, entries.Select(entry => entry.Name));
         ResourceHandle status = entries.Single(entry => entry.Name == "status").Handle;
         ResourceOpenHandle opened = await control.OpenAsync(status, NinePConstants.OREAD, Context(), CancellationToken.None);
+        ResourceStat statusStat = await control.StatAsync(status, CancellationToken.None);
+        Assert.Equal("status", statusStat.Name);
         string text = Encoding.UTF8.GetString((await control.ReadAsync(opened, 0, 4096, CancellationToken.None)).Span);
         Assert.Contains($"pid={process.Id}", text, StringComparison.Ordinal);
         Assert.Contains($"group={process.ProcessGroup.Id}", text, StringComparison.Ordinal);
+        ResourceHandle ns = entries.Single(entry => entry.Name == "ns").Handle;
+        ResourceOpenHandle nsOpen = await control.OpenAsync(ns, NinePConstants.OREAD, Context(), CancellationToken.None);
+        Assert.Contains("root=", Encoding.UTF8.GetString((await control.ReadAsync(nsOpen, 0, 4096, CancellationToken.None)).Span), StringComparison.Ordinal);
         Assert.NotNull(target);
     }
 
@@ -51,6 +56,10 @@ public sealed class NamespaceControlResourceTests
         byte[] rfork = Encoding.UTF8.GetBytes("rfork copy nomounts");
         await control.WriteAsync(opened, 0, rfork, Context(), CancellationToken.None);
         Assert.True(process.ProcessGroup.MountTable.MountsDisabled);
+
+        byte[] policy = Encoding.UTF8.GetBytes("mounts-disabled off");
+        await control.WriteAsync(opened, 0, policy, Context(), CancellationToken.None);
+        Assert.False(process.ProcessGroup.MountTable.MountsDisabled);
     }
 
     [Fact]
@@ -68,6 +77,9 @@ public sealed class NamespaceControlResourceTests
 
         await Assert.ThrowsAsync<NamespaceException>(() => control.WriteAsync(opened, 1, "bind /a /b"u8.ToArray(), Context(), CancellationToken.None).AsTask());
         await Assert.ThrowsAsync<NamespaceException>(() => control.WriteAsync(opened, 0, "unknown"u8.ToArray(), Context(), CancellationToken.None).AsTask());
+        await Assert.ThrowsAsync<NamespaceException>(() => control.WriteAsync(opened, 0, "mounts-disabled maybe"u8.ToArray(), Context(), CancellationToken.None).AsTask());
+        await Assert.ThrowsAsync<NotSupportedException>(() => control.CreateAsync(ctl, "new", false, CancellationToken.None).AsTask());
+        await Assert.ThrowsAsync<NotSupportedException>(() => control.RemoveAsync(ctl, opened, Context(), CancellationToken.None).AsTask());
     }
 
     private static async Task<ResourceHandle> Walk(NamespaceControlResource control, ResourceHandle start, string path)

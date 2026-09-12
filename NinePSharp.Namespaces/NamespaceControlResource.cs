@@ -167,17 +167,17 @@ public sealed class NamespaceControlResource : IResourceDataOperations
         string[] parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         switch (parts[0])
         {
-            case "bind" when parts.Length is 3 or 4:
-                await syscalls.BindAsync(process, parts[1], parts[2], ParseFlags(parts, 3), cancellationToken);
+            case "bind":
+                await ExecuteBindAsync(process, parts, cancellationToken);
                 return;
-            case "mounts-disabled" when parts.Length == 2:
-                process.ProcessGroup.MountTable.SetMountsDisabled(ParseBoolean(parts[1]));
+            case "mounts-disabled":
+                ExecuteMountPolicy(process, parts);
                 return;
-            case "unmount" when parts.Length is 2 or 3:
-                await syscalls.UnmountAsync(process, parts[1], parts.Length == 3 ? parts[2] : null, cancellationToken);
+            case "unmount":
+                await ExecuteUnmountAsync(process, parts, cancellationToken);
                 return;
-            case "rfork" when parts.Length is 2 or 3:
-                processes.RforkNamespace(processId, ParseForkMode(parts[1]), parts.Length == 3 && parts[2] == "nomounts");
+            case "rfork":
+                ExecuteRfork(processId, parts);
                 return;
             default:
                 throw new NamespaceException(NamespaceError.InvalidOperation, "The ctl command is not recognized.");
@@ -188,35 +188,65 @@ public sealed class NamespaceControlResource : IResourceDataOperations
     {
         long processId = ParseProcessId(path);
         VProcess process = processes.Get(processId);
-        if (path.EndsWith("/status", StringComparison.Ordinal))
-        {
-            MountTable table = process.ProcessGroup.MountTable;
-            return $"pid={process.Id}\nparent={(process.ParentId?.ToString(CultureInfo.InvariantCulture) ?? "none")}\n" +
-                $"group={process.ProcessGroup.Id}\nmounts={table.Snapshot().MountHeads.Count}\n" +
-                $"mounts-disabled={table.MountsDisabled.ToString().ToLowerInvariant()}\n";
-        }
+        return path.EndsWith("/status", StringComparison.Ordinal)
+            ? ReadStatus(process)
+            : path.EndsWith("/ns", StringComparison.Ordinal) ? ReadNamespace(process) : string.Empty;
+    }
 
-        if (path.EndsWith("/ns", StringComparison.Ordinal))
+    private static string ReadStatus(VProcess process)
+    {
+        MountTable table = process.ProcessGroup.MountTable;
+        return $"pid={process.Id}\nparent={(process.ParentId?.ToString(CultureInfo.InvariantCulture) ?? "none")}\n" +
+            $"group={process.ProcessGroup.Id}\nmounts={table.Snapshot().MountHeads.Count}\n" +
+            $"mounts-disabled={table.MountsDisabled.ToString().ToLowerInvariant()}\n";
+    }
+
+    private static string ReadNamespace(VProcess process)
+    {
+        NamespaceSnapshot snapshot = process.ProcessGroup.MountTable.Snapshot();
+        var builder = new StringBuilder();
+        builder.Append("root=").Append(string.Join('/', process.Root.VisiblePath)).Append('\n');
+        builder.Append("cwd=").Append(string.Join('/', process.CurrentDirectory.VisiblePath)).Append('\n');
+        foreach (MountHead head in snapshot.MountHeads)
         {
-            NamespaceSnapshot snapshot = process.ProcessGroup.MountTable.Snapshot();
-            var builder = new StringBuilder();
-            builder.Append("root=").Append(string.Join('/', process.Root.VisiblePath)).Append('\n');
-            builder.Append("cwd=").Append(string.Join('/', process.CurrentDirectory.VisiblePath)).Append('\n');
-            foreach (MountHead head in snapshot.MountHeads)
+            foreach (MountBinding binding in head.Mounts)
             {
-                foreach (MountBinding binding in head.Mounts)
-                {
-                    builder.Append("mount=").Append(binding.MountId).Append(' ')
-                        .Append(head.From.Identity.Provider).Append(':').Append(head.From.Identity.Device)
-                        .Append(" -> ").Append(binding.Target.Identity.Provider).Append(':').Append(binding.Target.Identity.Device)
-                        .Append(" flags=").Append(binding.Flags).Append('\n');
-                }
+                builder.Append("mount=").Append(binding.MountId).Append(' ')
+                    .Append(head.From.Identity.Provider).Append(':').Append(head.From.Identity.Device)
+                    .Append(" -> ").Append(binding.Target.Identity.Provider).Append(':').Append(binding.Target.Identity.Device)
+                    .Append(" flags=").Append(binding.Flags).Append('\n');
             }
-
-            return builder.ToString();
         }
 
-        return string.Empty;
+        return builder.ToString();
+    }
+
+    private async ValueTask ExecuteBindAsync(VProcess process, string[] parts, CancellationToken cancellationToken)
+    {
+        if (parts.Length is not (3 or 4))
+            throw new NamespaceException(NamespaceError.InvalidOperation, "The bind command requires source and target.");
+        await syscalls.BindAsync(process, parts[1], parts[2], ParseFlags(parts, 3), cancellationToken);
+    }
+
+    private static void ExecuteMountPolicy(VProcess process, string[] parts)
+    {
+        if (parts.Length != 2)
+            throw new NamespaceException(NamespaceError.InvalidOperation, "The mounts-disabled command requires a value.");
+        process.ProcessGroup.MountTable.SetMountsDisabled(ParseBoolean(parts[1]));
+    }
+
+    private async ValueTask ExecuteUnmountAsync(VProcess process, string[] parts, CancellationToken cancellationToken)
+    {
+        if (parts.Length is not (2 or 3))
+            throw new NamespaceException(NamespaceError.InvalidOperation, "The unmount command requires a target.");
+        await syscalls.UnmountAsync(process, parts[1], parts.Length == 3 ? parts[2] : null, cancellationToken);
+    }
+
+    private void ExecuteRfork(long processId, string[] parts)
+    {
+        if (parts.Length is not (2 or 3))
+            throw new NamespaceException(NamespaceError.InvalidOperation, "The rfork command requires a mode.");
+        processes.RforkNamespace(processId, ParseForkMode(parts[1]), parts.Length == 3 && parts[2] == "nomounts");
     }
 
     private string[] Children(string path)

@@ -87,6 +87,31 @@ public sealed class VirtualProcessGrainSteps
         remoteWalk = await operations.WalkAsync(parentState.ProcessGroupId, remoteChannel, new[] { "job" });
     }
 
+    [When("the process rforks a copied namespace with mounts disabled")]
+    public async Task RforkCopiedNamespace()
+    {
+        Assert.NotNull(parent);
+        childState = await parent.RforkNamespaceAsync(NamespaceForkModeModel.Copy, noMounts: true);
+    }
+
+    [Then("the process has an independent namespace group")]
+    public void ProcessHasIndependentNamespaceGroup()
+    {
+        Assert.NotNull(parentState);
+        Assert.NotNull(childState);
+        Assert.NotEqual(parentState.ProcessGroupId, childState.ProcessGroupId);
+    }
+
+    [Then("the copied namespace has mounts disabled")]
+    public async Task CopiedNamespaceHasMountsDisabled()
+    {
+        Assert.NotNull(childState);
+        NamespaceSnapshotModel snapshot = await OrleansTestEnvironment.Cluster.GrainFactory
+            .GetGrain<IVProcessGroupGrain>(childState.ProcessGroupId)
+            .GetSnapshotAsync();
+        Assert.True(snapshot.MountsDisabled);
+    }
+
     [Then("the child observes the parent mount")]
     public async Task ChildObservesParentMount()
     {

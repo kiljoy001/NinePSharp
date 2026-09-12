@@ -30,3 +30,10 @@ Feature: Orleans virtual process namespace ownership
     When a child is walked through the distributed namespace
     Then the walk reaches the remote resource grain
     And reading the remote directory returns its child
+
+  Scenario: A process can rfork into an isolated namespace group
+    Given an initialized Orleans virtual process
+    And the parent has an initial mount
+    When the process rforks a copied namespace with mounts disabled
+    Then the process has an independent namespace group
+    And the copied namespace has mounts disabled
