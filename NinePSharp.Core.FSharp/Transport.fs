@@ -35,7 +35,11 @@ module TransportSessionOps =
         | Error err ->
             { Session = session
               Message = Unchecked.defaultof<NinePMessage>
-              ErrorResponse = Rerror(tag, err) :> obj }
+              ErrorResponse =
+                if session.Protocol.Dialect = NinePDialect.NineP2000L then
+                    Rlerror(tag, uint32 LinuxErrorCode.EINVAL) :> obj
+                else
+                    Rerror(tag, err) :> obj }
         | Ok msg ->
             { Session = session
               Message = msg

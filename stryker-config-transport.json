@@ -1,0 +1,12 @@
+{
+  "stryker-config": {
+    "project": "NinePSharp.Server.csproj",
+    "test-projects": ["NinePSharp.Tests.csproj"],
+    "mutate": ["NinePConnectionProcessor.cs"],
+    "mutation-level": "Standard",
+    "ignore-mutations": ["String"],
+    "ignore-methods": ["LogInformation", "LogWarning", "LogError", "LogDebug"],
+    "thresholds": { "high": 95, "low": 90, "break": 90 },
+    "concurrency": 4
+  }
+}

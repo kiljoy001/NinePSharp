@@ -51,6 +51,7 @@ public class NinePClient : IDisposable
     private ushort _nextTag = 1;
     private uint _nextFid = 1;
     private uint _msize = 8192;
+    private bool _extendedAttach;
     private bool _isDisposed;
 
     public NinePClient(string host, int port)
@@ -94,13 +95,14 @@ public class NinePClient : IDisposable
         var tversion = new Tversion(tag, msize, version);
         var response = await SendInternalAsync<Rversion>(tversion, default);
         _msize = response.MSize;
+        _extendedAttach = response.Version is "9P2000.u" or "9P2000.L";
         return response;
     }
 
     public async Task<Rattach> AttachAsync(uint fid, uint afid, string uname, string aname)
     {
         var tag = GetNextTag();
-        var tattach = new Tattach(tag, fid, afid, uname, aname);
+        var tattach = new Tattach(tag, fid, afid, uname, aname, _extendedAttach ? uint.MaxValue : null);
         return await SendInternalAsync<Rattach>(tattach, default);
     }
 

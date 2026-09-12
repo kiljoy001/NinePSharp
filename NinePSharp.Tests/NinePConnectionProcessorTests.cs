@@ -1,5 +1,9 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Net;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -15,6 +19,261 @@ namespace NinePSharp.Tests;
 
 public class NinePConnectionProcessorTests
 {
+    [Fact]
+    public async Task DuplicateInFlightTagTerminatesWithoutDispatchingOrAnsweringTheDuplicate()
+    {
+        var complete = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatcher = new Mock<INinePFSDispatcher>();
+        int dispatched = 0;
+        dispatcher.Setup(value => value.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), null))
+            .Returns(() => { dispatched++; return complete.Task; });
+        var lifecycle = dispatcher.As<INinePSessionLifecycle>();
+        lifecycle.Setup(value => value.CloseSessionAsync(It.IsAny<string>())).Returns(() =>
+        {
+            complete.TrySetResult(new Rread(7, new byte[] { 42 }));
+            return Task.CompletedTask;
+        });
+        var buffers = new TrackingBufferPool();
+        var processor = new NinePConnectionProcessor(NullLogger.Instance, dispatcher.Object, null, buffers);
+        byte[] one = Serialize(new Tread(7, 1, 0, 1));
+        using var stream = new ScriptedDuplexStream(one.Concat(one).Concat(Serialize(new Tread(8, 1, 0, 1))).ToArray());
+        await processor.ProcessStreamAsync(stream, null, new NinePConnectionProcessor.ClientSession(), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, dispatched);
+        Assert.Equal(2, buffers.Rents);
+        Assert.Equal(2, buffers.Returns);
+        Assert.True(buffers.Cleared);
+        Assert.Equal(new[] { MessageTypes.Rread }, ResponseTypes(stream.Written.Span));
+        Assert.Equal(new byte[] { 42 }, new Rread(stream.Written).Data.ToArray());
+    }
+
+    [Fact]
+    public async Task DefaultTlsRejectsAnonymousClientAndClosesFailedTransport()
+    {
+        using var certificate = CreateSelfSignedCertificate();
+        string path = Path.Combine(Path.GetTempPath(), $"ninep-tls-{Guid.NewGuid():N}.pfx");
+        await File.WriteAllBytesAsync(path, certificate.Export(X509ContentType.Pfx));
+        try
+        {
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            using var client = new TcpClient();
+            await client.ConnectAsync((IPEndPoint)listener.LocalEndpoint);
+            using var accepted = await listener.AcceptTcpClientAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            NetworkStream transport = accepted.GetStream();
+            Task<TransportSecurityResult> server = new DefaultNinePTransportSecurity().AuthenticateAsync(transport,
+                new EndpointConfig { Protocol = "tls", ServerCertificatePath = path }, timeout.Token);
+            using var ssl = new SslStream(client.GetStream(), false, (_, _, _, _) => true);
+            Task handshake = ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = "localhost" }, timeout.Token);
+            await Assert.ThrowsAsync<AuthenticationException>(() => server);
+            _ = await Record.ExceptionAsync(() => handshake);
+            Assert.False(transport.CanRead);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task PartialHeaderNeverRentsAPayloadBuffer()
+    {
+        var buffers = new TrackingBufferPool();
+        var processor = new NinePConnectionProcessor(NullLogger.Instance, new Mock<INinePFSDispatcher>().Object, null, buffers);
+        using var stream = new ScriptedDuplexStream(new byte[] { 19, 0, 0 });
+        await processor.ProcessStreamAsync(stream, null, new NinePConnectionProcessor.ClientSession(), CancellationToken.None);
+        Assert.Equal(0, buffers.Rents);
+    }
+
+    [Fact]
+    public async Task FrameBeyondSupportedArrayBoundsClosesWithoutRenting()
+    {
+        var buffers = new TrackingBufferPool();
+        var processor = new NinePConnectionProcessor(NullLogger.Instance, new Mock<INinePFSDispatcher>().Object, null, buffers);
+        var session = new NinePConnectionProcessor.ClientSession();
+        session.State = new NinePSharp.Core.FSharp.TransportSession(session.State.Protocol, uint.MaxValue);
+        byte[] header = new byte[7];
+        BinaryPrimitives.WriteUInt32LittleEndian(header, uint.MaxValue);
+        using var stream = new ScriptedDuplexStream(header);
+        await processor.ProcessStreamAsync(stream, null, session, CancellationToken.None);
+        Assert.Equal(0, buffers.Rents);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FrameBuffersAreReturnedAndClearedForCompleteAndPartialFrames(bool partial)
+    {
+        var buffers = new TrackingBufferPool();
+        var dispatcher = new Mock<INinePFSDispatcher>();
+        dispatcher.Setup(value => value.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), null))
+            .ReturnsAsync(new Rflush(7));
+        var processor = new NinePConnectionProcessor(NullLogger.Instance, dispatcher.Object, null, buffers);
+        byte[] request = Serialize(new Tflush(7, 99));
+        using var stream = new ScriptedDuplexStream(partial ? request[..^1] : request);
+        await processor.ProcessStreamAsync(stream, null, new NinePConnectionProcessor.ClientSession(), CancellationToken.None);
+        Assert.Equal(1, buffers.Rents);
+        Assert.Equal(1, buffers.Returns);
+        Assert.True(buffers.Cleared);
+    }
+
+    [Fact]
+    public async Task CancelledPayloadReadReturnsItsRentedBuffer()
+    {
+        var buffers = new TrackingBufferPool();
+        var processor = new NinePConnectionProcessor(NullLogger.Instance, new Mock<INinePFSDispatcher>().Object, null, buffers);
+        using var stream = new ScriptedDuplexStream(Serialize(new Tflush(7, 99))) { CancelPayload = true };
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            processor.ProcessStreamAsync(stream, null, new NinePConnectionProcessor.ClientSession(), CancellationToken.None));
+        Assert.Equal(1, buffers.Returns);
+        Assert.True(buffers.Cleared);
+        Assert.Throws<ArgumentNullException>(() => new NinePConnectionProcessor(NullLogger.Instance, new Mock<INinePFSDispatcher>().Object, null, null!));
+    }
+
+    [Fact]
+    public async Task FrameExactlyAtMsizeIsAccepted()
+    {
+        var dispatcher = new Mock<INinePFSDispatcher>(MockBehavior.Strict);
+        dispatcher.Setup(value => value.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), NinePDialect.NineP2000, null))
+            .ReturnsAsync(new Rwrite(42, 8169));
+        var processor = CreateProcessor(dispatcher, new StubTransportSecurity());
+        using var stream = new ScriptedDuplexStream(Serialize(new Twrite(42, 1, 0, new byte[8169])));
+        await processor.ProcessStreamAsync(stream, null, new NinePConnectionProcessor.ClientSession(), CancellationToken.None);
+        Assert.Equal((byte)MessageTypes.Rwrite, stream.Written.Span[4]);
+        Assert.Equal((ushort)42, new Rwrite(stream.Written.Span).Tag);
+    }
+
+    [Fact]
+    public async Task NonFlushRequestWithNineBytesDoesNotWaitOnAnUnrelatedTag()
+    {
+        var readStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatcher = new Mock<INinePFSDispatcher>();
+        dispatcher.Setup(value => value.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), null))
+            .Returns(async (string id, NinePMessage message, NinePDialect dialect, X509Certificate2? certificate) =>
+            {
+                if (message is NinePMessage.MsgTread read)
+                {
+                    readStarted.TrySetResult();
+                    await releaseRead.Task;
+                    return (object)new Rread(read.Item.Tag, new byte[] { 1 });
+                }
+
+                throw new InvalidOperationException("only the read should dispatch");
+            });
+        var processor = CreateProcessor(dispatcher, new StubTransportSecurity());
+        byte[] malformed = { 9, 0, 0, 0, 255, 11, 0, 10, 0 };
+        using var stream = new ScriptedDuplexStream(Serialize(new Tread(10, 1, 0, 1)).Concat(malformed).ToArray());
+        Task processing = processor.ProcessStreamAsync(stream, null, new NinePConnectionProcessor.ClientSession(), CancellationToken.None);
+        await readStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        try
+        {
+            Assert.Contains(MessageTypes.Rerror, ResponseTypes(stream.Written.Span));
+        }
+        finally
+        {
+            releaseRead.TrySetResult();
+            await processing.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+    }
+
+    [Fact]
+    public async Task VersionIsAWireBarrierAndNextRequestUsesNewDialect()
+    {
+        var releaseRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var versionReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatcher = new Mock<INinePFSDispatcher>();
+        dispatcher.Setup(value => value.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), null))
+            .Returns(async (string id, NinePMessage message, NinePDialect dialect, X509Certificate2? certificate) =>
+            {
+                if (message is NinePMessage.MsgTread read)
+                {
+                    await releaseRead.Task;
+                    return (object)new Rread(read.Item.Tag, new byte[] { 1 });
+                }
+
+                if (message is NinePMessage.MsgTversion)
+                {
+                    versionReached.TrySetResult();
+                    return new Rversion(65535, 512, "9P2000.L");
+                }
+
+                Assert.Equal(NinePDialect.NineP2000L, dialect);
+                return new Rflush(12);
+            });
+        var processor = CreateProcessor(dispatcher, new StubTransportSecurity());
+        byte[] input = Serialize(new Tread(10, 1, 0, 1))
+            .Concat(Serialize(new Tversion(65535, 512, "9P2000.L")))
+            .Concat(Serialize(new Tflush(12, 10))).ToArray();
+        using var stream = new ScriptedDuplexStream(input);
+        var session = new NinePConnectionProcessor.ClientSession();
+        Task processing = processor.ProcessStreamAsync(stream, null, session, CancellationToken.None);
+        await versionReached.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        try
+        {
+            Assert.Empty(stream.Written.ToArray());
+        }
+        finally
+        {
+            releaseRead.TrySetResult();
+            await processing.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+
+        Assert.Equal(new[] { MessageTypes.Rread, MessageTypes.Rversion, MessageTypes.Rflush }, ResponseTypes(stream.Written.Span));
+        Assert.Equal(512U, session.MSize);
+        Assert.Equal(NinePDialect.NineP2000L, session.Dialect);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HandleClientProcessesRequestsAndClosesTheSocket(bool authenticationFails)
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        using var peer = new TcpClient();
+        await peer.ConnectAsync((IPEndPoint)listener.LocalEndpoint);
+        using var accepted = await listener.AcceptTcpClientAsync();
+        var security = new Mock<INinePTransportSecurity>();
+        security.Setup(value => value.AuthenticateAsync(It.IsAny<Stream>(), It.IsAny<EndpointConfig>(), It.IsAny<CancellationToken>()))
+            .Returns((Stream stream, EndpointConfig endpoint, CancellationToken token) => authenticationFails
+                ? Task.FromException<TransportSecurityResult>(new IOException("authentication failed"))
+                : Task.FromResult(new TransportSecurityResult(stream, null)));
+        var dispatcher = new Mock<INinePFSDispatcher>();
+        dispatcher.Setup(value => value.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), null))
+            .ReturnsAsync(new Rflush(7));
+        var processor = CreateProcessor(dispatcher, security.Object);
+        Task processing = processor.HandleClientAsync(accepted, new EndpointConfig(), CancellationToken.None);
+        if (!authenticationFails)
+        {
+            await peer.GetStream().WriteAsync(Serialize(new Tflush(7, 99)));
+            byte[] response = new byte[7];
+            await peer.GetStream().ReadExactlyAsync(response).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.Equal((byte)MessageTypes.Rflush, response[4]);
+            peer.Client.Shutdown(SocketShutdown.Send);
+        }
+
+        await processing.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Null(accepted.Client);
+        security.VerifyAll();
+    }
+
+    [Fact]
+    public async Task MalformedLinuxRequestReturnsNumericErrorWithoutCallingDispatcher()
+    {
+        var dispatcher = new Mock<INinePFSDispatcher>(MockBehavior.Strict);
+        var processor = CreateProcessor(dispatcher, new StubTransportSecurity());
+        var session = new NinePConnectionProcessor.ClientSession { Dialect = NinePDialect.NineP2000L };
+        byte[] malformed = { 7, 0, 0, 0, 255, 99, 0 };
+        using var stream = new ScriptedDuplexStream(malformed);
+        await processor.ProcessStreamAsync(stream, null, session, CancellationToken.None);
+        Assert.Equal((byte)MessageTypes.Rlerror, stream.Written.Span[4]);
+        var error = new Rlerror(stream.Written.Span);
+        Assert.Equal((ushort)99, error.Tag);
+        Assert.Equal((uint)LinuxErrorCode.EINVAL, error.Ecode);
+        dispatcher.VerifyNoOtherCalls();
+    }
+
     [Fact]
     public async Task AuthenticateTransportAsync_AuthorizedCertificate_StoresSessionCertificate()
     {
@@ -188,8 +447,8 @@ public class NinePConnectionProcessorTests
             .WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.Equal(
-            new[] { MessageTypes.Rflush, MessageTypes.Rread },
-            ResponseTypes(stream.Written.Span).Order());
+            new[] { MessageTypes.Rread, MessageTypes.Rflush },
+            ResponseTypes(stream.Written.Span));
         Assert.True(dispatcher.SessionClosed);
     }
 
@@ -288,6 +547,7 @@ public class NinePConnectionProcessorTests
         }
 
         public ReadOnlyMemory<byte> Written => _written.ToArray();
+        public bool CancelPayload { get; init; }
         public override bool CanRead => true;
         public override bool CanSeek => false;
         public override bool CanWrite => true;
@@ -319,6 +579,11 @@ public class NinePConnectionProcessorTests
 
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
+            if (CancelPayload && _position >= NinePConstants.HeaderSize)
+            {
+                throw new OperationCanceledException();
+            }
+
             int available = Math.Max(0, _input.Length - _position);
             int toCopy = Math.Min(buffer.Length, available);
             if (toCopy == 0)
@@ -344,5 +609,24 @@ public class NinePConnectionProcessorTests
 
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
+    }
+
+    private sealed class TrackingBufferPool : ArrayPool<byte>
+    {
+        internal int Rents { get; private set; }
+        internal int Returns { get; private set; }
+        internal bool Cleared { get; private set; }
+
+        public override byte[] Rent(int minimumLength)
+        {
+            Rents++;
+            return new byte[minimumLength];
+        }
+
+        public override void Return(byte[] array, bool clearArray = false)
+        {
+            Returns++;
+            Cleared = clearArray;
+        }
     }
 }

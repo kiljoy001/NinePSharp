@@ -20,14 +20,19 @@ public readonly struct Tattach : ISerializable
     public uint? NUname {get;} // 9P2000.u extension
 
     public Tattach(ushort tag, uint fid, uint afid, string? uname, string? aname)
+        : this(tag, fid, afid, uname, aname, null)
+    {
+    }
+
+    public Tattach(ushort tag, uint fid, uint afid, string? uname, string? aname, uint? nUname)
     {
         Tag = tag;
         Fid = fid;
         Afid = afid;
         Uname = uname ?? string.Empty;
         Aname = aname ?? string.Empty;
-        NUname = null;
-        Size = (uint)(NinePConstants.HeaderSize + 4 + 4 + 2 + System.Text.Encoding.UTF8.GetByteCount(Uname) + 2 + System.Text.Encoding.UTF8.GetByteCount(Aname));
+        NUname = nUname;
+        Size = (uint)(NinePConstants.HeaderSize + 4 + 4 + 2 + System.Text.Encoding.UTF8.GetByteCount(Uname) + 2 + System.Text.Encoding.UTF8.GetByteCount(Aname) + (nUname.HasValue ? 4 : 0));
     }
 
     public Tattach(ReadOnlySpan<byte> data, bool is9u = false)
@@ -56,7 +61,9 @@ public readonly struct Tattach : ISerializable
         }
     }
 
-    public void WriteTo(Span<byte> data, bool is9u = false)
+    public void WriteTo(Span<byte> data) => WriteTo(data, NUname.HasValue);
+
+    public void WriteTo(Span<byte> data, bool is9u)
     {
         data.WriteHeaders(Size, Tag, Type);
         int offset = NinePConstants.HeaderSize;

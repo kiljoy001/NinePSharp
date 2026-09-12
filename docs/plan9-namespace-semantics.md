@@ -73,7 +73,8 @@ the stream processor therefore permits requests after version negotiation to exe
 concurrently while the fid session provides the required per-fid ordering.
 
 The dispatcher also negotiates 9P2000.L and supports `Tlopen`, `Tlcreate`, `Treaddir`,
-and `Tgetattr`. Shared classic requests continue to use their ordinary encodings.
+and `Tgetattr`. Shared messages are parsed alongside Linux extensions; attach includes
+the numeric-user field for the Unix/Linux dialects.
 Other Linux-extension requests return `Rlerror` with `EOPNOTSUPP`; this is a maintained
 9P2000.L subset, not a claim of complete Linux dialect support.
 
@@ -82,6 +83,8 @@ Other Linux-extension requests return `Rlerror` with `EOPNOTSUPP`; this is a mai
 - Directory entries are concatenated in union order. Duplicate names are not removed,
   matching `unionread`.
 - `MCACHE` is represented but no cache policy is imposed by the namespace layer.
+- Providers own wire Qid allocation. `ResourceIdentity.Path` is emitted directly,
+  so devices combined into one export must use non-colliding stable Qid paths.
 - A distributed data operation sees a consistent mount snapshot fetched at its start;
   it does not restart automatically if the group changes while a remote grain call is
   in flight.
@@ -91,5 +94,8 @@ Other Linux-extension requests return `Rlerror` with `EOPNOTSUPP`; this is a mai
 - Nested mount-on-mount chains at one visible path and 9front's `mchan` alias used by
   selected unmount are not yet represented.
 
-These limits are explicit so later Orleans persistence and routing do not accidentally
+See [hosting the gateway](orleans-integration.md) for registration, security, delivery
+semantics, and the runnable example.
+
+These limits are explicit so Orleans persistence and routing do not accidentally
 claim stronger Plan 9 compatibility than the implementation provides.

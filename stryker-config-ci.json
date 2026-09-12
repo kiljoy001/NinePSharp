@@ -7,6 +7,7 @@
     "mutate": [
       "protocol/ProtocolActions.cs",
       "messages/Tversion.cs",
+      "messages/Tattach.cs",
       "messages/Rversion.cs",
       "messages/Tread.cs",
       "messages/Rread.cs",

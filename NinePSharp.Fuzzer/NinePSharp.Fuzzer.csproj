@@ -1,6 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\NinePSharp.Fog.Server\NinePSharp.Fog.Server.csproj" />
+    <ProjectReference Include="..\NinePSharp.Fog\NinePSharp.Fog.csproj" />
     <ProjectReference Include="..\NinePSharp.Namespaces\NinePSharp.Namespaces.csproj" />
     <ProjectReference Include="..\NinePSharp.Parser\NinePSharp.Parser.fsproj" />
     <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
@@ -10,6 +12,7 @@
 
   <ItemGroup>
     <PackageReference Include="SharpFuzz" Version="2.2.0" />
+    <PackageReference Include="Moq" Version="4.20.72" />
   </ItemGroup>
 
   <PropertyGroup>

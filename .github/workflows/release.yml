@@ -79,6 +79,13 @@ jobs:
             NinePSharp.Parser/NinePSharp.Parser.fsproj
             NinePSharp.Client/NinePSharp.Client.csproj
             NinePSharp.Server.Abstractions/NinePSharp.Server.Abstractions.csproj
+            NinePSharp.Core.FSharp/NinePSharp.Core.FSharp.fsproj
+            NinePSharp.Server.FSharp/NinePSharp.Server.FSharp.fsproj
+            NinePSharp.Server/NinePSharp.Server.csproj
+            NinePSharp.Namespaces/NinePSharp.Namespaces.csproj
+            NinePSharp.Namespaces.Orleans.Abstractions/NinePSharp.Namespaces.Orleans.Abstractions.csproj
+            NinePSharp.Namespaces.Orleans/NinePSharp.Namespaces.Orleans.csproj
+            NinePSharp.Namespaces.Orleans.Server/NinePSharp.Namespaces.Orleans.Server.csproj
           )
           mkdir -p artifacts/packages
           for project in "${projects[@]}"; do
@@ -96,8 +103,8 @@ jobs:
           shopt -s nullglob
           packages=(artifacts/packages/*.nupkg)
           symbols=(artifacts/packages/*.snupkg)
-          if [[ ${#packages[@]} -ne 4 || ${#symbols[@]} -ne 4 ]]; then
-            printf 'Expected four packages and four symbol packages; found %d and %d.\n' \
+          if [[ ${#packages[@]} -ne 11 || ${#symbols[@]} -ne 11 ]]; then
+            printf 'Expected eleven packages and eleven symbol packages; found %d and %d.\n' \
               "${#packages[@]}" "${#symbols[@]}" >&2
             exit 1
           fi

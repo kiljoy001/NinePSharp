@@ -40,19 +40,27 @@ public sealed class DefaultNinePTransportSecurity : INinePTransportSecurity
             throw new InvalidOperationException("TLS endpoints require a configured server certificate path.");
         }
 
-        var sslStream = new SslStream(transport, false);
-        var serverCertificate = X509CertificateLoader.LoadPkcs12FromFile(
+        using var serverCertificate = X509CertificateLoader.LoadPkcs12FromFile(
             endpoint.ServerCertificatePath,
             endpoint.ServerCertificatePassword,
             X509KeyStorageFlags.DefaultKeySet,
             Pkcs12LoaderLimits.Defaults);
-        await sslStream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+        var sslStream = new SslStream(transport, false);
+        try
         {
-            ServerCertificate = serverCertificate,
-            ClientCertificateRequired = true,
-        }, ct);
+            await sslStream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+            {
+                ServerCertificate = serverCertificate,
+                ClientCertificateRequired = true,
+            }, ct);
 
-        return new TransportSecurityResult(sslStream, sslStream.RemoteCertificate as X509Certificate2);
+            return new TransportSecurityResult(sslStream, sslStream.RemoteCertificate as X509Certificate2);
+        }
+        catch
+        {
+            await sslStream.DisposeAsync();
+            throw;
+        }
     }
 }
 
@@ -61,15 +69,26 @@ public sealed class NinePConnectionProcessor
     private readonly ILogger _logger;
     private readonly INinePFSDispatcher _dispatcher;
     private readonly INinePTransportSecurity _transportSecurity;
+    private readonly ArrayPool<byte> _buffers;
 
     public NinePConnectionProcessor(
         ILogger logger,
         INinePFSDispatcher dispatcher,
         INinePTransportSecurity? transportSecurity = null)
+        : this(logger, dispatcher, transportSecurity, ArrayPool<byte>.Shared)
+    {
+    }
+
+    public NinePConnectionProcessor(
+        ILogger logger,
+        INinePFSDispatcher dispatcher,
+        INinePTransportSecurity? transportSecurity,
+        ArrayPool<byte> buffers)
     {
         _logger = logger;
         _dispatcher = dispatcher;
         _transportSecurity = transportSecurity ?? new DefaultNinePTransportSecurity();
+        _buffers = buffers ?? throw new ArgumentNullException(nameof(buffers));
     }
 
     public sealed class ClientSession
@@ -132,6 +151,7 @@ public sealed class NinePConnectionProcessor
     {
         var headerBuffer = new byte[NinePConstants.HeaderSize];
         var pending = new List<Task>();
+        var responsesByTag = new Dictionary<ushort, Task>();
 
         try
         {
@@ -143,10 +163,36 @@ public sealed class NinePConnectionProcessor
                     break;
                 }
 
-                Task request = ProcessFrameAsync(stream, endPoint, session, frame.Value, ct);
+                // A tag is reusable only after its previous wire response. A duplicate cannot
+                // safely receive Rerror (it would ambiguously answer the original operation).
+                if (responsesByTag.TryGetValue(frame.Value.Tag, out Task? outstanding) && !outstanding.IsCompleted)
+                {
+                    _buffers.Return(frame.Value.Buffer, clearArray: true);
+                    break;
+                }
+
+                Task? precedingResponse = null;
+                if (frame.Value.Type == MessageTypes.Tflush && frame.Value.Size == NinePConstants.HeaderSize + 2)
+                {
+                    ushort oldTag = BinaryPrimitives.ReadUInt16LittleEndian(frame.Value.Buffer.AsSpan(NinePConstants.HeaderSize, 2));
+                    responsesByTag.TryGetValue(oldTag, out precedingResponse);
+                }
+                else if (frame.Value.Type == MessageTypes.Tversion)
+                {
+                    precedingResponse = Task.WhenAll(pending);
+                }
+
+                Task request = ProcessFrameAsync(stream, endPoint, session, frame.Value, ct, precedingResponse);
+                if (!responsesByTag.TryGetValue(frame.Value.Tag, out Task? previous) || previous.IsCompleted)
+                {
+                    responsesByTag[frame.Value.Tag] = request;
+                }
+
                 if (frame.Value.Type == MessageTypes.Tversion)
                 {
                     await request;
+                    responsesByTag.Clear();
+                    pending.Clear();
                 }
                 else
                 {
@@ -154,6 +200,10 @@ public sealed class NinePConnectionProcessor
                     if (pending.Count >= 64)
                     {
                         pending.RemoveAll(static task => task.IsCompleted);
+                        foreach (ushort tag in responsesByTag.Where(static pair => pair.Value.IsCompleted).Select(static pair => pair.Key).ToArray())
+                        {
+                            responsesByTag.Remove(tag);
+                        }
                     }
                 }
             }
@@ -174,7 +224,8 @@ public sealed class NinePConnectionProcessor
         EndPoint? endPoint,
         ClientSession session,
         FrameBuffer frame,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Task? precedingResponse)
     {
         try
         {
@@ -189,6 +240,12 @@ public sealed class NinePConnectionProcessor
                 frame.Type,
                 frame.Tag,
                 session);
+            // A flush/version reply is a wire barrier: older replies must already be sent.
+            if (precedingResponse is not null)
+            {
+                await precedingResponse;
+            }
+
             await SendResponseAsync(stream, response, session.WriteLock, cancellationToken);
         }
         catch (Exception ex)
@@ -209,7 +266,7 @@ public sealed class NinePConnectionProcessor
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(frame.Buffer, clearArray: true);
+            _buffers.Return(frame.Buffer, clearArray: true);
         }
     }
 
@@ -309,19 +366,27 @@ public sealed class NinePConnectionProcessor
             return null;
         }
 
-        var buffer = ArrayPool<byte>.Shared.Rent(frameSize);
+        var buffer = _buffers.Rent(frameSize);
         headerBuffer.CopyTo(buffer, 0);
 
         uint payloadSize = size - (uint)NinePConstants.HeaderSize;
-        if (payloadSize > 0)
+        try
         {
-            int payloadRead = await stream.ReadAtLeastAsync(buffer.AsMemory(NinePConstants.HeaderSize, (int)payloadSize), (int)payloadSize, throwOnEndOfStream: false, ct);
-            if (payloadRead < payloadSize)
+            if (payloadSize > 0)
             {
-                _logger.LogWarning("Client {EndPoint} disconnected mid-frame after {PayloadRead}/{PayloadSize} payload bytes.", endPoint, payloadRead, payloadSize);
-                ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
-                return null;
+                int payloadRead = await stream.ReadAtLeastAsync(buffer.AsMemory(NinePConstants.HeaderSize, (int)payloadSize), (int)payloadSize, throwOnEndOfStream: false, ct);
+                if (payloadRead < payloadSize)
+                {
+                    _logger.LogWarning("Client {EndPoint} disconnected mid-frame after {PayloadRead}/{PayloadSize} payload bytes.", endPoint, payloadRead, payloadSize);
+                    _buffers.Return(buffer, clearArray: true);
+                    return null;
+                }
             }
+        }
+        catch
+        {
+            _buffers.Return(buffer, clearArray: true);
+            throw;
         }
 
         return new FrameBuffer(

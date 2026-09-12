@@ -43,6 +43,18 @@ namespace NinePSharp.Fuzzer
             {
                 FuzzNamespace();
             }
+            else if (args.Length > 0 && args[0] == "orleans")
+            {
+                SharpFuzz.Fuzzer.OutOfProcess.Run(OrleansGatewayFuzz.Run);
+            }
+            else if (args.Length > 0 && args[0] == "fog")
+            {
+                SharpFuzz.Fuzzer.OutOfProcess.Run(FogControlFuzz.Run);
+            }
+            else if (args.Length > 0 && args[0] == "fog-files")
+            {
+                SharpFuzz.Fuzzer.OutOfProcess.Run(FogFileFuzz.Run);
+            }
             else
             {
                 FuzzParser();
@@ -120,16 +132,15 @@ namespace NinePSharp.Fuzzer
         {
             SharpFuzz.Fuzzer.OutOfProcess.Run(stream =>
             {
-                try
+                using (var ms = new MemoryStream())
                 {
-                    using (var ms = new MemoryStream())
+                    stream.CopyTo(ms);
+                    var data = ms.ToArray();
+                    foreach (var dialect in new[] { NinePDialect.NineP2000, NinePDialect.NineP2000U, NinePDialect.NineP2000L })
                     {
-                        stream.CopyTo(ms);
-                        var data = ms.ToArray();
-                        NinePSharp.Parser.NinePParser.parse(NinePDialect.NineP2000U, data.AsMemory());
+                        NinePSharp.Parser.NinePParser.parse(dialect, data.AsMemory());
                     }
                 }
-                catch (Exception) { }
             });
         }
 

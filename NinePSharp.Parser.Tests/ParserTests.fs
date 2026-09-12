@@ -9,6 +9,22 @@ open NinePSharp.Messages
 open NinePSharp.Constants
 open NinePSharp.Parser
 
+[<Property>]
+let ``Linux dialect also parses shared read messages`` (tag: uint16, fid: uint32, offset: uint64, count: uint32) =
+    let request = Tread(tag, fid, offset, count)
+    let data = Array.zeroCreate<byte> (int request.Size)
+    request.WriteTo(data.AsSpan())
+    match NinePParser.parse NinePDialect.NineP2000L (ReadOnlyMemory data) with
+    | Ok (MsgTread read) -> read.Tag = tag && read.Fid = fid && read.Offset = offset && read.Count = count
+    | _ -> false
+
+[<Fact>]
+let ``Linux dialect retains unknown opcode errors`` () =
+    let data = [| 7uy; 0uy; 0uy; 0uy; 255uy; 1uy; 0uy |]
+    match NinePParser.parse NinePDialect.NineP2000L (ReadOnlyMemory data) with
+    | Error message -> Assert.Contains("Unknown message type", message)
+    | _ -> Assert.Fail("Unknown opcode was accepted")
+
 [<Fact>]
 let ``Parser successfully parses valid Tversion binary vector`` () =
     let tversionBytes = 

@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using NinePSharp.Constants;
 using NinePSharp.Messages;
+using NinePSharp.Interfaces;
 using NinePSharp.Parser;
 using NinePSharp.Protocol;
 using NinePSharp.Server;
@@ -14,14 +16,22 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
     private readonly ConcurrentDictionary<string, SessionHolder> sessions = new(StringComparer.Ordinal);
     private readonly DistributedNamespaceOperations operations;
     private readonly IDistributedNamespaceAttachResolver attachResolver;
+    private readonly uint maximumMessageSize;
 
     /// <summary>Initializes a distributed namespace dispatcher.</summary>
     public DistributedNamespaceDispatcher(
         DistributedNamespaceOperations operations,
-        IDistributedNamespaceAttachResolver attachResolver)
+        IDistributedNamespaceAttachResolver attachResolver,
+        uint maximumMessageSize = 1024 * 1024)
     {
         this.operations = operations ?? throw new ArgumentNullException(nameof(operations));
         this.attachResolver = attachResolver ?? throw new ArgumentNullException(nameof(attachResolver));
+        if (maximumMessageSize < 256 || maximumMessageSize > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumMessageSize));
+        }
+
+        this.maximumMessageSize = maximumMessageSize;
     }
 
     /// <inheritdoc/>
@@ -38,7 +48,14 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         if (message is NinePMessage.MsgTversion version)
         {
             await CloseSessionAsync(sessionId);
-            return new Rversion(version.Item.Tag, version.Item.MSize, NegotiateVersion(version.Item.Version));
+            if (version.Item.MSize < 256)
+            {
+                return Error(tag, dialect, new ArgumentException("msize must be at least 256 bytes"));
+            }
+
+            uint size = Math.Min(version.Item.MSize, maximumMessageSize);
+            sessions[sessionId] = new SessionHolder { MessageSize = size };
+            return new Rversion(version.Item.Tag, size, NegotiateVersion(version.Item.Version));
         }
 
         SessionHolder holder = sessions.GetOrAdd(sessionId, static _ => new SessionHolder());
@@ -50,18 +67,22 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         var inFlight = new InFlightRequest();
         if (!holder.InFlight.TryAdd(tag, inFlight))
         {
+            inFlight.DisposeCancellation();
             return Error(tag, dialect, new NamespaceFidException("duplicate tag"));
         }
 
         try
         {
-            return await DispatchCoreAsync(
+            object response = await DispatchCoreAsync(
                 sessionId,
                 holder,
-                message,
+                LimitReadCount(message, holder.MessageSize),
                 dialect,
                 certificate,
                 inFlight.Cancellation.Token);
+            return response is ISerializable serializable && serializable.Size > holder.MessageSize
+                ? Error(tag, dialect, new IOException("response exceeds negotiated msize"))
+                : response;
         }
         catch (Exception exception)
         {
@@ -71,8 +92,21 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         {
             inFlight.Completion.TrySetResult();
             holder.InFlight.TryRemove(tag, out _);
-            inFlight.Cancellation.Dispose();
+            inFlight.DisposeCancellation();
         }
+    }
+
+    private static NinePMessage LimitReadCount(NinePMessage message, uint messageSize)
+    {
+        uint count = messageSize - NinePConstants.HeaderSize - 4;
+        return message switch
+        {
+            NinePMessage.MsgTread read => NinePMessage.NewMsgTread(
+                new Tread(read.Item.Tag, read.Item.Fid, read.Item.Offset, Math.Min(read.Item.Count, count))),
+            NinePMessage.MsgTreaddir read => NinePMessage.NewMsgTreaddir(
+                new Treaddir(read.Item.Size, read.Item.Tag, read.Item.Fid, read.Item.Offset, Math.Min(read.Item.Count, count))),
+            _ => message,
+        };
     }
 
     /// <inheritdoc/>
@@ -86,7 +120,7 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         InFlightRequest[] requests = holder.InFlight.Values.ToArray();
         foreach (InFlightRequest request in requests)
         {
-            request.Cancellation.Cancel();
+            request.Cancel();
         }
 
         await Task.WhenAll(requests.Select(request => request.Completion.Task));
@@ -164,6 +198,11 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
             request.NewFid,
             request.Wname,
             cancellationToken);
+        if (request.Wname.Length > 0 && result.Qids.Count == 0)
+        {
+            throw new FileNotFoundException("file does not exist");
+        }
+
         return new Rwalk(request.Tag, result.Qids.ToArray());
     }
 
@@ -316,7 +355,7 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
             {
                 holder.Descriptor = descriptor;
                 holder.Session = new NamespaceSession(
-                    sessionId,
+                    holder.OperationSessionId,
                     descriptor.ProcessId,
                     descriptor.User,
                     new DistributedNamespaceDataPlane(descriptor.ProcessGroupId, operations));
@@ -339,7 +378,7 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
     {
         if (holder.InFlight.TryGetValue(request.OldTag, out InFlightRequest? oldRequest))
         {
-            oldRequest.Cancellation.Cancel();
+            oldRequest.Cancel();
             await oldRequest.Completion.Task;
         }
 
@@ -421,6 +460,11 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
     {
         string message = ErrorMessage(exception);
         uint code = ErrorCode(exception, message);
+        if (Encoding.UTF8.GetByteCount(message) > 200)
+        {
+            message = "resource operation failed";
+        }
+
         return dialect == NinePDialect.NineP2000L
             ? new Rlerror(tag, code)
             : new Rerror(tag, message, dialect == NinePDialect.NineP2000U ? code : null);
@@ -599,11 +643,15 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         {
             NinePConstants.VersionString_9pl => NinePConstants.VersionString_9pl,
             NinePConstants.VersionString_9pu => NinePConstants.VersionString_9pu,
-            _ => NinePConstants.VersionString_9p,
+            _ => requested.StartsWith("9P", StringComparison.Ordinal) ? NinePConstants.VersionString_9p : "unknown",
         };
 
     private sealed class SessionHolder
     {
+        internal uint MessageSize { get; init; } = 8192;
+
+        internal string OperationSessionId { get; } = Guid.NewGuid().ToString("N");
+
         internal SemaphoreSlim Initialization { get; } = new(1, 1);
 
         internal ConcurrentDictionary<ushort, InFlightRequest> InFlight { get; } = new();
@@ -615,8 +663,31 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
 
     private sealed class InFlightRequest
     {
+        private readonly object gate = new();
+        private bool disposed;
+
         internal CancellationTokenSource Cancellation { get; } = new();
 
         internal TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal void Cancel()
+        {
+            lock (gate)
+            {
+                if (!disposed)
+                {
+                    Cancellation.Cancel();
+                }
+            }
+        }
+
+        internal void DisposeCancellation()
+        {
+            lock (gate)
+            {
+                disposed = true;
+                Cancellation.Dispose();
+            }
+        }
     }
 }

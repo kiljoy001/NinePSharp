@@ -16,6 +16,12 @@ public class Program
 {
     public static async Task Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "--orleans")
+        {
+            await OrleansExample.RunAsync(args.Length > 1 ? int.Parse(args[1]) : 5640);
+            return;
+        }
+
         var loggerFactory = LoggerFactory.Create(builder =>
         {
             builder.AddConsole();

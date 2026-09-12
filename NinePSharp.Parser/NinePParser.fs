@@ -23,7 +23,10 @@ module NinePParser =
                     
                     let result = 
                         match dialect with
-                        | NinePDialect.NineP2000L -> Linux.parse msgType msgData
+                        | NinePDialect.NineP2000L ->
+                            match Linux.parse msgType msgData with
+                            | Error (UnknownMessageType _) -> Classic.parse msgType msgData dialect
+                            | result -> result
                         | _ -> Classic.parse msgType msgData dialect
                     
                     match result with
