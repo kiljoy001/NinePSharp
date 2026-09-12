@@ -25,7 +25,7 @@ This document records why each feature exists and whether it is already covered 
 | `NS_SYS_008`–`NS_SYS_009` | `sys/man/2/bind`, `sysfile.c:sysunmount` | Complete unmount and invalid ordering flags are implemented by the mount table | Covered at the model level |
 | `NS_SYS_010` | `sys/man/2/bind`: `MCACHE` is valid for `mount`, not `bind` | The channel-based bind overload rejects `MountFlags.Cache`; the service-mount overload accepts it | Covered at the API boundary; cache policy remains provider-owned |
 | `NS_SYS_011` | `sys/man/2/bind`: a service mount's `old` target is a directory | The service-mount overload rejects replacement onto a regular-file target | Covered at the API boundary |
-| `NS_PROC_010` | `sysproc.c`: `RFNAMEG`/`RFCNAMEG` also operate without `RFPROC` | Current virtual process API only models forked children | Missing current-process rfork operation |
+| `NS_PROC_010` | `sysproc.c`: `RFNAMEG`/`RFCNAMEG` also operate without `RFPROC` | `VProcessTable.RforkNamespace` and `IVProcessGrain.RforkNamespaceAsync` replace the current process group without creating a child | Covered for namespace groups; other rfork groups remain |
 | `NS_CTL_001`–`NS_CTL_008` | No native 9P equivalent; native `bind`/`mount`/`unmount` are syscalls in `sys/man/2/bind` | No namespace control tree currently exists | NinePSharp distributed extension |
 | `NS_DEV_001` | `devproc.c:readns1` | No `/proc/<pid>/ns` provider currently exists | Missing |
 | `NS_DEV_002` | `devsrv.c`, `sys/man/3/srv` | Current Orleans resource registration is not a `/srv` descriptor registry | Distributed projection extension |

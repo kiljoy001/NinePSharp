@@ -43,7 +43,9 @@ persists a namespace-wide mount-disabled state and blocked device names, which m
 `IVProcessGroupGrain` is the durable, serialized owner of a mount table.
 `IVProcessGrain` stores a process's root and current-directory channels plus the key of
 that group. Forking with `Share` reuses the group key, `Copy` initializes a new group
-from `MountTable.Clone()`, and `Empty` initializes a blank group.
+from `MountTable.Clone()`, and `Empty` initializes a blank group. `RforkNamespaceAsync`
+applies the same share, copy, or empty choices to the current process without creating
+a child.
 
 Mountable application grains implement `IMountableResourceGrain`. Their logical grain
 key is the `Device` portion of `ResourceIdentity`; the `Provider` portion lets an
