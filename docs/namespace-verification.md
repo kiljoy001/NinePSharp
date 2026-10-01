@@ -1,5 +1,32 @@
 # Namespace verification
 
+## Resource authorization layer — 2026-10-01
+
+`NinePSharp.Namespaces.Authorization` is a separate layer over the provider interface used by
+`LocalNamespaceDataPlane`; `NinePSharp.Namespaces` is unchanged. A view for one principal
+intersects an enabled principal under the current policy generation, user and group grants
+(`self` or provider-attested `tree`), the 9front gefs `fsaccess` mode check and read-only mount
+roots. Rules follow 9front `sys/src/cmd/gefs/fs.c` (`fsaccess`, `ingroup`, `mode2bits`,
+`fswalk`, `fscreate`, `fsremove`) and the remove-on-close parent check of hjfs `fs2.c`. A user is
+a member of its same-name group; `none` gets only the other set; `nogroup` members lose the other
+set except to search directories. Objects with no granted right look absent. wstat is not exposed.
+
+- Features: `docs/specifications/fog-foundation/ResourceAuthorization.feature` (design) and the
+  executable `NinePSharp.Namespaces.Authorization.Tests/Features/ResourceAuthorization.feature`.
+- Tests: 96 passed, including the scenarios, construction unit tests and the shared fuzz model
+  (`NinePSharp.Fuzzer/AuthorizationFuzz.cs`) run as FsCheck properties.
+- Coverage: 100% lines, branches and methods. The standard gate first showed one uncovered
+  branch (remove through an open handle); a scenario now covers it.
+- Stryker (`stryker-config-namespaces-authorization.json`): 100%, 275 killed, 0 timeouts,
+  0 survivors, 0 uncovered. No exclusions. Equivalent mutants were removed by restructuring
+  (left-shifted permission masks, single-expression open requirements, nullable ancestry chain).
+  This also fixed an off-by-one: exactly `MaxAncestryDepth` ancestors was treated as unproven.
+- AFL `scripts/fuzz.sh authorization`, 60 s: 650,388 executions, 0 crashes, 0 hangs.
+- `bash scripts/run-quality.sh`: passed; merged coverage 85.63% lines, 76.59% branches.
+
+Not yet done: Fog per-principal views (`NamespaceViews.feature`), the LibTab policy bundle and
+epoch administration, job scopes, wstat authorization and union create selection under policy.
+
 ## Strict timeout policy — 2026-09-16
 
 `tools/mutation_summary.py` now reports timed-out mutants separately and counts

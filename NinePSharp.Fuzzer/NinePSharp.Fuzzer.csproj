@@ -4,10 +4,15 @@
     <ProjectReference Include="..\NinePSharp.Fog.Server\NinePSharp.Fog.Server.csproj" />
     <ProjectReference Include="..\NinePSharp.Fog\NinePSharp.Fog.csproj" />
     <ProjectReference Include="..\NinePSharp.Namespaces\NinePSharp.Namespaces.csproj" />
+    <ProjectReference Include="..\NinePSharp.Namespaces.Authorization\NinePSharp.Namespaces.Authorization.csproj" />
     <ProjectReference Include="..\NinePSharp.Parser\NinePSharp.Parser.fsproj" />
     <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
     <ProjectReference Include="..\NinePSharp.Server\NinePSharp.Server.csproj" />
     <ProjectReference Include="..\NinePSharp.Examples\NinePSharp.Examples.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../NinePSharp.Namespaces.Authorization.Tests/Support/TreeResources.cs" Link="TreeResources.cs" />
   </ItemGroup>
 
   <ItemGroup>

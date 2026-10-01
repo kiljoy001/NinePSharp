@@ -59,6 +59,10 @@ namespace NinePSharp.Fuzzer
             {
                 SharpFuzz.Fuzzer.OutOfProcess.Run(FogFileFuzz.Run);
             }
+            else if (args.Length > 0 && args[0] == "authorization")
+            {
+                SharpFuzz.Fuzzer.OutOfProcess.Run(AuthorizationFuzz.Run);
+            }
             else if (args.Length > 0 && args[0] == "fog-dispatcher")
             {
                 SharpFuzz.Fuzzer.OutOfProcess.Run(FogDispatcherFuzz.Run);
