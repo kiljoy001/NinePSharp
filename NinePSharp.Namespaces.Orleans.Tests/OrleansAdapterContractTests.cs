@@ -1,5 +1,7 @@
 using Moq;
 using NinePSharp.Constants;
+using NinePSharp.Messages;
+using NinePSharp.Parser;
 using NinePSharp.Namespaces.Orleans.Tests.Support;
 using Orleans;
 using Xunit;
@@ -231,6 +233,41 @@ public sealed class OrleansAdapterContractTests
         var operations = new DistributedNamespaceOperations(test.Factory.Object, test.Resources.Object);
         var channel = NamespaceChannel.Restore(new[] { new ChannelFrame("provider-root", GatewayTestContext.Root) });
         Assert.Equal("/", (await operations.StatAsync("group", channel)).Name);
+    }
+
+    [Fact]
+    public async Task AnAttachCanCarryResourceOperationsForItsSessionOnly()
+    {
+        var test = new GatewayTestContext();
+        var own = new Mock<IResourceDataOperations>();
+        own.Setup(value => value.WalkAsync(GatewayTestContext.Root, "private", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(GatewayTestContext.File);
+        test.Attach.Resources = own.Object;
+        Assert.IsType<Rattach>(await test.SendAsync(NinePMessage.NewMsgTattach(new Tattach(1, 1, NinePConstants.NoFid, "user", "/")), "own"));
+        test.Attach.Resources = null;
+        Assert.IsType<Rattach>(await test.SendAsync(NinePMessage.NewMsgTattach(new Tattach(1, 1, NinePConstants.NoFid, "user", "/")), "shared"));
+
+        Assert.Single(Assert.IsType<Rwalk>(await test.SendAsync(NinePMessage.NewMsgTwalk(new Twalk(2, 1, 2, ["private"])), "own")).Wqid);
+        Assert.IsType<Rerror>(await test.SendAsync(NinePMessage.NewMsgTwalk(new Twalk(2, 1, 2, ["private"])), "shared"));
+        Assert.Single(Assert.IsType<Rwalk>(await test.SendAsync(NinePMessage.NewMsgTwalk(new Twalk(3, 1, 3, ["file"])), "shared")).Wqid);
+        Assert.IsType<Rerror>(await test.SendAsync(NinePMessage.NewMsgTwalk(new Twalk(3, 1, 3, ["file"])), "own"));
+    }
+
+    [Fact]
+    public async Task WithResourcesKeepsTheGrainFactoryAndLeavesTheOriginalUnchanged()
+    {
+        var test = new GatewayTestContext();
+        var operations = new DistributedNamespaceOperations(test.Factory.Object, test.Resources.Object);
+        var other = new Mock<IResourceOperations>();
+        other.Setup(value => value.WalkAsync(GatewayTestContext.Root, "file", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((ResourceHandle?)null);
+        DistributedNamespaceOperations sibling = operations.WithResources(other.Object);
+        var channel = NamespaceChannel.Restore(new[] { new ChannelFrame("/", GatewayTestContext.Root) });
+
+        Assert.NotSame(operations, sibling);
+        Assert.True((await operations.WalkAsync("group", channel, ["file"])).Complete(1));
+        Assert.False((await sibling.WalkAsync("group", channel, ["file"])).Complete(1));
+        Assert.Throws<ArgumentNullException>(() => operations.WithResources(null!));
     }
 
     [Fact]

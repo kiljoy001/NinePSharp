@@ -9,7 +9,14 @@ public sealed record DistributedNamespaceAttach(
     string ProcessGroupId,
     long ProcessId,
     string User,
-    ResourceHandle Root);
+    ResourceHandle Root)
+{
+    /// <summary>
+    /// Resource operations for this attach's session only, such as an authorization view for its
+    /// principal; null uses the dispatcher's shared operations.
+    /// </summary>
+    public IResourceOperations? Resources { get; init; }
+}
 
 /// <summary>Authenticates and resolves an attach name to an Orleans process namespace.</summary>
 public interface IDistributedNamespaceAttachResolver

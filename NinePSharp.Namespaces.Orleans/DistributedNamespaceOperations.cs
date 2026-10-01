@@ -15,6 +15,9 @@ public sealed class DistributedNamespaceOperations
         this.resources = resources ?? throw new ArgumentNullException(nameof(resources));
     }
 
+    /// <summary>Returns operations on the same process groups that route resources through <paramref name="other"/>.</summary>
+    public DistributedNamespaceOperations WithResources(IResourceOperations other) => new(grainFactory, other);
+
     /// <summary>Attaches a resource root and crosses a mount at that identity.</summary>
     public async Task<NamespaceChannel> AttachAsync(
         string processGroupId,

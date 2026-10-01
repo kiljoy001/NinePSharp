@@ -369,7 +369,9 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
                 holder.OperationSessionId,
                 descriptor.ProcessId,
                 descriptor.User,
-                new DistributedNamespaceDataPlane(descriptor.ProcessGroupId, operations));
+                new DistributedNamespaceDataPlane(
+                    descriptor.ProcessGroupId,
+                    descriptor.Resources is null ? operations : operations.WithResources(descriptor.Resources)));
         }
         else if (!SameNamespace(holder.Descriptor!, descriptor))
         {
