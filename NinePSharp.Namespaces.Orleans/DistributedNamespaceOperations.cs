@@ -119,6 +119,12 @@ public sealed class DistributedNamespaceOperations
         return result with { Name = visibleName };
     }
 
+    /// <summary>Reads metadata for an already opened resource.</summary>
+    public async Task<ResourceStat> StatAsync(
+        ResourceOpenHandle openHandle,
+        CancellationToken cancellationToken = default)
+        => await RequireDataOperations().StatAsync(openHandle.Resource, cancellationToken);
+
     /// <summary>Creates and opens through the current MCREATE union member.</summary>
     public async Task<NamespaceCreateResult> CreateAndOpenAsync(
         string processGroupId,

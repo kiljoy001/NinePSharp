@@ -42,6 +42,9 @@ public interface INamespaceDataPlane
     /// <summary>Reads metadata through the namespace.</summary>
     ValueTask<ResourceStat> StatAsync(NamespaceChannel channel, CancellationToken cancellationToken);
 
+    /// <summary>Reads metadata for an already opened resource.</summary>
+    ValueTask<ResourceStat> StatAsync(ResourceOpenHandle openHandle, CancellationToken cancellationToken);
+
     /// <summary>Creates in the selected union member and opens the child.</summary>
     ValueTask<NamespaceCreateResult> CreateAndOpenAsync(
         NamespaceChannel channel,
@@ -77,7 +80,7 @@ public sealed class LocalNamespaceDataPlane : INamespaceDataPlane
     /// <summary>Initializes a local namespace data plane.</summary>
     public LocalNamespaceDataPlane(MountTable mounts, IResourceDataOperations resources)
     {
-        this.resources = resources ?? throw new ArgumentNullException(nameof(resources));
+        this.resources = resources; // NamespaceNavigator validates this dependency below.
         navigator = new NamespaceNavigator(mounts, resources);
     }
 
@@ -144,6 +147,15 @@ public sealed class LocalNamespaceDataPlane : INamespaceDataPlane
         ResourceStat stat = await resources.StatAsync(channel.Current, cancellationToken);
         string visibleName = channel.Frames[^1].Name;
         return stat with { Name = visibleName };
+    }
+
+    /// <inheritdoc/>
+    public ValueTask<ResourceStat> StatAsync(
+        ResourceOpenHandle openHandle,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(openHandle);
+        return resources.StatAsync(openHandle.Resource, cancellationToken);
     }
 
     /// <inheritdoc/>

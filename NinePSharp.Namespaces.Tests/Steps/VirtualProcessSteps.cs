@@ -15,6 +15,28 @@ public sealed class VirtualProcessSteps
     private ResourceHandle? secondTarget;
     private VProcess? parent;
     private VProcess? child;
+    private VProcessGroup? retainedGroup;
+
+    [When("the parent terminates")]
+    public void ParentTerminates()
+    {
+        retainedGroup = parent!.ProcessGroup;
+        Assert.True(processes.Terminate(parent.Id));
+    }
+
+    [When("the child terminates")]
+    public void ChildTerminates() => Assert.True(processes.Terminate(child!.Id));
+
+    [Then("the shared namespace has one owner")]
+    public void OneOwner() => Assert.Equal(1, retainedGroup!.OwnerCount);
+
+    [Then("the shared namespace is closed and empty")]
+    public void ClosedAndEmpty()
+    {
+        Assert.True(retainedGroup!.MountTable.IsClosed);
+        Assert.Empty(retainedGroup.MountTable.Snapshot().MountHeads);
+        Assert.Empty(processes.Snapshot());
+    }
 
     [Given("a parent virtual process")]
     public void GivenParent()

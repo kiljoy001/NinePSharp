@@ -26,13 +26,40 @@ public sealed record NamespaceSnapshot(
 /// <summary>
 /// Models the mount table held by a Plan 9 process group.
 /// </summary>
-public sealed class MountTable
+public sealed partial class MountTable
 {
     private readonly object gate = new();
     private readonly Dictionary<ResourceIdentity, MountHead> heads = new();
     private readonly HashSet<string> blockedMountDevices = new(StringComparer.Ordinal);
     private long nextMountId;
     private bool mountsDisabled;
+    private bool closed;
+
+    /// <summary>Gets whether the last namespace owner released this table.</summary>
+    public bool IsClosed
+    {
+        get { lock (gate) { return closed; } }
+    }
+
+    internal void Close()
+    {
+        lock (gate)
+        {
+            closed = true;
+            foreach (DirectoryMountHead head in directoryHeads.Values) _ = head.RetireAsync();
+            directoryHeads.Clear();
+            heads.Clear();
+        }
+    }
+
+    internal void EnsureOpen()
+    {
+        lock (gate)
+        {
+            if (closed)
+                throw new NamespaceException(NamespaceError.NamespaceClosed, "The namespace is closed.");
+        }
+    }
 
     /// <summary>Gets whether all service mounts are disabled for this namespace.</summary>
     public bool MountsDisabled
@@ -51,6 +78,7 @@ public sealed class MountTable
     {
         lock (gate)
         {
+            EnsureOpen();
             mountsDisabled = disabled;
         }
     }
@@ -61,6 +89,7 @@ public sealed class MountTable
         ArgumentException.ThrowIfNullOrWhiteSpace(device);
         lock (gate)
         {
+            EnsureOpen();
             if (blocked)
             {
                 blockedMountDevices.Add(device);
@@ -132,7 +161,8 @@ public sealed class MountTable
         ResourceHandle mountedOn,
         MountFlags flags,
         string? spec,
-        IReadOnlyList<MountBinding>? sourceMounts)
+        IReadOnlyList<MountBinding>? sourceMounts,
+        DirectoryMountHead? heldHead = null)
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(mountedOn);
@@ -141,6 +171,8 @@ public sealed class MountTable
 
         lock (gate)
         {
+            EnsureOpen();
+            using IDisposable? directoryMutation = EnterDirectoryMutation(mountedOn.Identity, heldHead);
             var newMounts = new List<MountBinding> { NewBinding(target, flags, spec) };
             MountFlags copiedOrder = flags.Order() == MountFlags.Replace ? MountFlags.After : flags.Order();
             if (sourceMounts is not null)
@@ -157,6 +189,7 @@ public sealed class MountTable
             if (flags.Order() == MountFlags.Replace)
             {
                 heads[mountedOn.Identity] = new MountHead(mountedOn, newMounts.ToArray());
+                UpdateDirectoryHead(mountedOn.Identity, heads[mountedOn.Identity].Mounts);
                 return binding;
             }
 
@@ -175,17 +208,23 @@ public sealed class MountTable
             }
 
             heads[mountedOn.Identity] = new MountHead(mountedOn, mounts.ToArray());
+            UpdateDirectoryHead(mountedOn.Identity, heads[mountedOn.Identity].Mounts);
             return binding;
         }
     }
 
     /// <summary>Removes every mount or one selected union member from a mount point.</summary>
     public void Unmount(ResourceHandle mountedOn, ResourceHandle? mounted = null)
+        => UnmountCore(mountedOn, mounted, null);
+
+    private void UnmountCore(ResourceHandle mountedOn, ResourceHandle? mounted, DirectoryMountHead? heldHead)
     {
         ArgumentNullException.ThrowIfNull(mountedOn);
 
         lock (gate)
         {
+            EnsureOpen();
+            using IDisposable? directoryMutation = EnterDirectoryMutation(mountedOn.Identity, heldHead);
             if (!heads.TryGetValue(mountedOn.Identity, out MountHead? head))
             {
                 throw new NamespaceException(NamespaceError.MountNotFound, "The resource is not a mount point.");
@@ -194,6 +233,7 @@ public sealed class MountTable
             if (mounted is null)
             {
                 heads.Remove(mountedOn.Identity);
+                UpdateDirectoryHead(mountedOn.Identity, null);
                 return;
             }
 
@@ -208,10 +248,12 @@ public sealed class MountTable
             if (mounts.Count == 0)
             {
                 heads.Remove(mountedOn.Identity);
+                UpdateDirectoryHead(mountedOn.Identity, null);
             }
             else
             {
                 heads[mountedOn.Identity] = head with { Mounts = mounts.ToArray() };
+                UpdateDirectoryHead(mountedOn.Identity, heads[mountedOn.Identity].Mounts);
             }
         }
     }
@@ -221,6 +263,7 @@ public sealed class MountTable
     {
         lock (gate)
         {
+            EnsureOpen();
             return heads.TryGetValue(identity, out MountHead? head) ? Copy(head) : null;
         }
     }
@@ -238,6 +281,7 @@ public sealed class MountTable
     /// <summary>Creates an independent namespace snapshot with the same mount ordering.</summary>
     public MountTable Clone()
     {
+        EnsureOpen();
         NamespaceSnapshot snapshot = Snapshot();
         var clone = new MountTable();
         var ids = snapshot.MountHeads
@@ -349,6 +393,7 @@ public sealed class MountTable
     {
         lock (gate)
         {
+            EnsureOpen();
             if (mountsDisabled || blockedMountDevices.Contains(target.Identity.Device))
             {
                 throw new NamespaceException(

@@ -123,13 +123,23 @@ public sealed class NamespaceNavigator
         => mounts.Mount(source, mountedOn, flags, spec);
 
     /// <summary>Walks path elements with Plan 9 replacement and union fallback behavior.</summary>
-    public async ValueTask<NamespaceWalkResult> WalkAsync(
+    public ValueTask<NamespaceWalkResult> WalkAsync(
         NamespaceChannel source,
         IReadOnlyList<string> names,
         CancellationToken cancellationToken = default)
+        => WalkAsync(source, names, true, cancellationToken);
+
+    // Amount in 9front uses the ordinary union walk, but leaves its final
+    // resource on the mounted-upon side. Abind crosses that final mount too.
+    internal async ValueTask<NamespaceWalkResult> WalkAsync(
+        NamespaceChannel source,
+        IReadOnlyList<string> names,
+        bool crossFinalMount,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(names);
+        mounts.EnsureOpen();
 
         NamespaceChannel channel = source.Clone();
         var qids = new List<Qid>();
@@ -162,7 +172,11 @@ public sealed class NamespaceNavigator
             }
 
             channel.Push(new ChannelFrame(name, child));
-            CrossMount(channel);
+            if (crossFinalMount || qids.Count < names.Count - 1)
+            {
+                CrossMount(channel);
+            }
+
             qids.Add(channel.Current.Qid);
         }
 
@@ -214,11 +228,8 @@ public sealed class NamespaceNavigator
             return frame.Handle;
         }
 
-        if (frame.MountedFrom is not null)
-        {
-            return mounts.SelectCreateTarget(frame.MountedFrom.Identity);
-        }
-
+        // Use the resolved union consistently; a second mount-table lookup could
+        // select from a different snapshot after a concurrent namespace change.
         return union.FirstOrDefault(binding => (binding.Flags & MountFlags.Create) != 0)?.Target
             ?? throw new NamespaceException(
                 NamespaceError.CreateNotPermitted,
@@ -236,7 +247,8 @@ public sealed class NamespaceNavigator
         ArgumentNullException.ThrowIfNull(created);
         NamespaceChannel channel = parent.Clone();
         channel.Push(new ChannelFrame(name, created));
-        CrossMount(channel);
+        // chan.c:Acreate returns the newly created channel directly. Re-entering
+        // mount resolution here could redirect it or lose an owned handle on exit.
         return channel;
     }
 
@@ -290,7 +302,9 @@ public sealed class NamespaceNavigator
     {
         if (frame.MountedFrom is null)
         {
-            return frame.Union;
+            // Root/current-directory channels can remain on the mounted-upon side.
+            // Resolve a new mount there before walking or choosing a create member.
+            return mounts.Find(frame.Handle.Identity)?.Mounts ?? frame.Union;
         }
 
         return mounts.Find(frame.MountedFrom.Identity)?.Mounts;

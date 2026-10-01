@@ -5,6 +5,7 @@ using NinePSharp.Messages;
 using NinePSharp.Namespaces.Orleans.Server;
 using NinePSharp.Parser;
 using Orleans;
+using Xunit;
 
 namespace NinePSharp.Namespaces.Orleans.Tests.Support;
 
@@ -45,13 +46,16 @@ internal sealed class GatewayTestContext
 
     internal async Task OpenFileAsync(string session = "unit")
     {
-        await SendAsync(NinePMessage.NewMsgTattach(new Tattach(1, 1, NinePConstants.NoFid, "user", "/")), session);
-        await SendAsync(NinePMessage.NewMsgTwalk(new Twalk(2, 1, 2, new[] { "file" })), session);
-        await SendAsync(NinePMessage.NewMsgTopen(new Topen(3, 2, NinePConstants.ORDWR)), session);
+        Assert.IsType<Rattach>(await SendAsync(
+            NinePMessage.NewMsgTattach(new Tattach(1, 1, NinePConstants.NoFid, "user", "/")), session));
+        Assert.IsType<Rwalk>(await SendAsync(
+            NinePMessage.NewMsgTwalk(new Twalk(2, 1, 2, new[] { "file" })), session));
+        Assert.IsType<Ropen>(await SendAsync(
+            NinePMessage.NewMsgTopen(new Topen(3, 2, NinePConstants.ORDWR)), session));
     }
 
-    internal Task<object> SendAsync(NinePMessage request, string session = "unit", NinePDialect dialect = NinePDialect.NineP2000)
-        => Dispatcher.DispatchAsync(session, request, dialect);
+    internal async Task<object> SendAsync(NinePMessage request, string session = "unit", NinePDialect dialect = NinePDialect.NineP2000)
+        => await Dispatcher.DispatchAsync(session, request, dialect).WaitAsync(TimeSpan.FromSeconds(1));
 }
 
 public sealed class TestAttachResolver : IDistributedNamespaceAttachResolver

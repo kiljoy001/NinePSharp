@@ -102,6 +102,17 @@ public sealed class GatewayRegistrationTests
     }
 
     [Fact]
+    public void ListenerRegistrationProvidesDefaultOptionsWithoutAConfigureCallback()
+    {
+        var services = new ServiceCollection();
+        services.AddNinePOrleansListener();
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<IOptions<NinePOrleansListenerOptions>>().Value;
+        Assert.Equal(5640, options.Endpoint.Port);
+        Assert.Equal(256, options.MaxConnections);
+    }
+
+    [Fact]
     public void ListenerDefaultsAreLoopbackAndAdmissionIsBounded()
     {
         var options = new NinePOrleansListenerOptions();

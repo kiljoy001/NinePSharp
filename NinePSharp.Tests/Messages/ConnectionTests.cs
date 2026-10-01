@@ -20,7 +20,8 @@ public class ConnectionTests : TestBase
         RoundTripTest<Tversion>(size, tag,
             buffer => new Tversion(buffer),
             msg => { Assert.Equal(msize, msg.MSize); Assert.Equal(version, msg.Version); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tversion);
                 int offset = NinePConstants.HeaderSize;
@@ -42,7 +43,8 @@ public class ConnectionTests : TestBase
         RoundTripTest<Rversion>(size, tag,
             buffer => new Rversion(buffer),
             msg => { Assert.Equal(msize, msg.MSize); Assert.Equal(version, msg.Version); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rversion);
                 int offset = NinePConstants.HeaderSize;
@@ -65,7 +67,8 @@ public class ConnectionTests : TestBase
         RoundTripTest<Tauth>(size, tag,
             buffer => new Tauth(buffer, is9u: false),
             msg => { Assert.Equal(afid, msg.Afid); Assert.Equal(uname, msg.Uname); Assert.Equal(aname, msg.Aname); Assert.False(msg.NUname.HasValue); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tauth);
                 int offset = NinePConstants.HeaderSize;
@@ -86,7 +89,8 @@ public class ConnectionTests : TestBase
         RoundTripTest<Rauth>(size, tag,
             buffer => new Rauth(buffer),
             msg => { Assert.Equal(qid.Type, msg.Aqid.Type); Assert.Equal(qid.Version, msg.Aqid.Version); Assert.Equal(qid.Path, msg.Aqid.Path); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rauth);
                 int offset = NinePConstants.HeaderSize;
@@ -109,7 +113,8 @@ public class ConnectionTests : TestBase
         RoundTripTest<Tattach>(size, tag,
             buffer => new Tattach(buffer, is9u: false),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(afid, msg.Afid); Assert.Equal(uname, msg.Uname); Assert.Equal(aname, msg.Aname); Assert.False(msg.NUname.HasValue); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tattach);
                 int offset = NinePConstants.HeaderSize;
@@ -131,7 +136,8 @@ public class ConnectionTests : TestBase
         RoundTripTest<Rattach>(size, tag,
             buffer => new Rattach(buffer),
             msg => { Assert.Equal(qid.Type, msg.Qid.Type); Assert.Equal(qid.Version, msg.Qid.Version); Assert.Equal(qid.Path, msg.Qid.Path); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rattach);
                 int offset = NinePConstants.HeaderSize;
@@ -151,7 +157,8 @@ public class ConnectionTests : TestBase
         RoundTripTest<Rerror>(size, tag,
             buffer => new Rerror(buffer, is9u: false),
             msg => { Assert.Equal(errName, msg.Ename); Assert.False(msg.Ecode.HasValue); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rerror);
                 int offset = NinePConstants.HeaderSize;
@@ -170,7 +177,8 @@ public class ConnectionTests : TestBase
         RoundTripTest<Rlerror>(size, tag,
             buffer => new Rlerror(buffer),
             msg => { Assert.Equal(ecode, msg.Ecode); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rlerror);
                 int offset = NinePConstants.HeaderSize;

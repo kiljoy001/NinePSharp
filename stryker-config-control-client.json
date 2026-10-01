@@ -1,10 +1,18 @@
 {
   "stryker-config": {
     "project": "NinePSharp.Client.csproj",
-    "test-projects": ["NinePSharp.Fog.Server.Tests.csproj"],
-    "mutate": ["NinePSequentialClient.cs"],
+    "test-projects": [
+      "NinePSharp.Fog.Server.Tests.csproj"
+    ],
+    "mutate": [
+      "NinePSequentialClient.cs"
+    ],
     "mutation-level": "Standard",
-    "thresholds": { "high": 95, "low": 90, "break": 90 },
+    "thresholds": {
+      "high": 100,
+      "low": 100,
+      "break": 100
+    },
     "concurrency": 4
   }
 }

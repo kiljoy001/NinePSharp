@@ -19,7 +19,8 @@ public class LinearIOTests : TestBase
         RoundTripTest<Topen>(size, tag,
             buffer => new Topen(buffer),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(mode, msg.Mode); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Topen);
                 int offset = NinePConstants.HeaderSize;
@@ -40,7 +41,8 @@ public class LinearIOTests : TestBase
         RoundTripTest<Ropen>(size, tag,
             buffer => new Ropen(buffer),
             msg => { Assert.Equal(qid.Type, msg.Qid.Type); Assert.Equal(qid.Path, msg.Qid.Path); Assert.Equal(iounit, msg.Iounit); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Ropen);
                 int offset = NinePConstants.HeaderSize;
@@ -63,7 +65,8 @@ public class LinearIOTests : TestBase
         RoundTripTest<Tcreate>(size, tag,
             buffer => new Tcreate(buffer),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(name, msg.Name); Assert.Equal(perm, msg.Perm); Assert.Equal(mode, msg.Mode); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tcreate);
                 int offset = NinePConstants.HeaderSize;
@@ -86,7 +89,8 @@ public class LinearIOTests : TestBase
         RoundTripTest<Rcreate>(size, tag,
             buffer => new Rcreate(buffer),
             msg => { Assert.Equal(qid.Type, msg.Qid.Type); Assert.Equal(qid.Path, msg.Qid.Path); Assert.Equal(iounit, msg.Iounit); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rcreate);
                 int offset = NinePConstants.HeaderSize;
@@ -108,7 +112,8 @@ public class LinearIOTests : TestBase
         RoundTripTest<Tread>(size, tag,
             buffer => new Tread(buffer),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(fileOffset, msg.Offset); Assert.Equal(count, msg.Count); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tread);
                 int offset = NinePConstants.HeaderSize;
@@ -131,7 +136,8 @@ public class LinearIOTests : TestBase
         RoundTripTest<Rread>(size, tag,
             buffer => new Rread(new ReadOnlyMemory<byte>(buffer.ToArray())),
             msg => { Assert.Equal(count, msg.Count); Assert.True(msg.Data.Span.SequenceEqual(dataContent)); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rread);
                 int offset = NinePConstants.HeaderSize;
@@ -155,7 +161,8 @@ public class LinearIOTests : TestBase
         RoundTripTest<Twrite>(size, tag,
             buffer => new Twrite(new ReadOnlyMemory<byte>(buffer.ToArray())),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(fileOffset, msg.Offset); Assert.Equal(count, msg.Count); Assert.True(msg.Data.Span.SequenceEqual(dataContent)); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Twrite);
                 int offset = NinePConstants.HeaderSize;
@@ -177,7 +184,8 @@ public class LinearIOTests : TestBase
         RoundTripTest<Rwrite>(size, tag,
             buffer => new Rwrite(buffer),
             msg => { Assert.Equal(count, msg.Count); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rwrite);
                 int offset = NinePConstants.HeaderSize;

@@ -15,7 +15,6 @@ public static class NinePOrleansServiceCollectionExtensions
     public static IServiceCollection AddNinePOrleans<TAttachResolver>(this IServiceCollection services)
         where TAttachResolver : class, IDistributedNamespaceAttachResolver
     {
-        ArgumentNullException.ThrowIfNull(services);
         services.AddLogging();
         services.TryAddSingleton<IDistributedNamespaceAttachResolver, TAttachResolver>();
         services.TryAddSingleton<IMountableResourceResolver, RegisteredMountableResourceResolver>();
@@ -32,7 +31,6 @@ public static class NinePOrleansServiceCollectionExtensions
     public static IServiceCollection AddNinePResource<TGrain>(this IServiceCollection services, string provider)
         where TGrain : class, IMountableResourceGrain
     {
-        ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton(ResourceProviderRegistration.For<TGrain>(provider));
         return services;
     }
@@ -42,7 +40,6 @@ public static class NinePOrleansServiceCollectionExtensions
         this IServiceCollection services,
         Action<NinePOrleansListenerOptions>? configure = null)
     {
-        ArgumentNullException.ThrowIfNull(services);
         services.AddOptions<NinePOrleansListenerOptions>();
         if (configure is not null)
         {

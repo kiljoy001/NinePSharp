@@ -38,6 +38,14 @@ ordinary shared namespace group, `RFNAMEG`, and `RFCNAMEG` behavior. The table a
 persists a namespace-wide mount-disabled state and blocked device names, which model
 `RFNOMNT` and the device mask checked by `canmount`.
 
+Local virtual processes retain their group on creation and release it on termination
+or group replacement. `VProcessTable.Terminate(pid)` removes the process and releases
+its root/current channels. Shared children retain their own ownership; the last
+owner closes and empties the mount table. Existing references to a terminated
+process or closed namespace reject further namespace operations. A closed table's
+snapshot remains available for diagnostics. Terminating an already absent PID
+returns false, and process IDs are not reused within the table.
+
 ## Orleans Distribution Boundary
 
 `IVProcessGroupGrain` is the durable, serialized owner of a mount table.
@@ -77,7 +85,7 @@ the server attach name, and closes a successfully mounted source descriptor.
 
 `NamespaceControlResource` projects a process table as a 9P resource tree. An attached
 control root exposes `/proc/<pid>/ns` and `/proc/<pid>/status` for inspection and a
-writable `/proc/<pid>/ctl` accepting `bind`, `mounts-disabled`, `unmount`, and `rfork`
+writable `/proc/<pid>/ctl` accepting `bind`, `mounts-disabled`, `unmount`, `rfork`, and `kill`
 commands. It implements `IResourceDataOperations`, so hosts can attach it to the local
 data plane or register an equivalent provider for the Orleans gateway.
 
@@ -106,10 +114,29 @@ Other Linux-extension requests return `Rlerror` with `EOPNOTSUPP`; this is a mai
   it does not restart automatically if the group changes while a remote grain call is
   in flight.
 - Resource grains expose traversal, directory reads, creation, open file I/O, stat,
-  clunk, and remove. Wstat/setattr and the remaining 9P2000.L operations remain backend
-  and protocol work.
+  clunk, and remove. Providers can add retained-handle stat and atomic wstat through
+  `IOpenStatResourceGrain` and `IWStatResourceGrain`; other 9P2000.L operations remain
+  backend and protocol work.
 - Nested mount-on-mount chains at one visible path and 9front's `mchan` alias used by
   selected unmount are not yet represented.
+- Termination and last-owner cleanup currently apply to the local process table.
+  Orleans process/group grains still need durable owner registration, termination
+  tombstones, and recoverable group-transfer/release operations. Grain deactivation
+  must not be treated as process termination.
+- Fid sessions remain connection-owned. Local processes now own independent
+  `DescriptorGroup` memberships; share/copy/empty inheritance, dup, close, explicit
+  close-on-exec, and final-owner release are implemented. `TerminateAsync` awaits
+  the release of process-owned descriptor references; the synchronous `Terminate`
+  exposes completion through `VProcess.TerminationCompletion`. Admitted I/O leases
+  and surviving processes retain their own references. Path-based fd open/create,
+  shared file offsets/directory cursors, mount-fd consumption, and durable provider
+  cleanup are still pending. Existing connection fids are not implicitly process fds.
+- `/proc/<pid>/ns` reports diagnostic identities; it does not yet emit native,
+  replayable `bind`, `mount`, and `cd` commands in global mount-allocation order.
+- `/srv` service-descriptor publication and `/shr` global shared mounts are missing.
+- The control filesystem currently implements synchronous commands. Its proposed
+  operation IDs, asynchronous replies, namespace-version checks, principal isolation,
+  and recovery across reconnects remain separate distributed-control work.
 
 See [hosting the gateway](orleans-integration.md) for registration, security, delivery
 semantics, and the runnable example.

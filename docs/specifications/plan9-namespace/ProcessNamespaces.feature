@@ -35,10 +35,21 @@ Feature: Process namespace groups
     And its root channel is unchanged
 
   @NS_PROC_005
-  Scenario: A child cannot use a namespace group after it is closed
-    Given a virtual process whose namespace group is closed
-    When the process attempts a mount or walk
+  Scenario: The final process owner closes its namespace group
+    Given a virtual process that is the final owner of its namespace group
+    When the process terminates
+    Then its root and current channels are released
+    And the namespace group has no mounted resources
+    When a retained reference attempts a mount or walk in that namespace
     Then the operation fails with a closed-namespace error
+
+  @NS_PROC_011
+  Scenario: Terminating a parent preserves a shared child's namespace
+    Given a virtual process with a mounted resource
+    And a child sharing its namespace group
+    When the parent terminates
+    Then the child retains the mounted resource
+    And the namespace group remains open until its final owner terminates
 
   @NS_PROC_006
   Scenario: Mount permission is enforced by the process namespace

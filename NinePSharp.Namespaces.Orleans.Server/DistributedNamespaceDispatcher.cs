@@ -64,13 +64,31 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
             return await FlushAsync(holder, flush.Item);
         }
 
-        var inFlight = new InFlightRequest();
+        var inFlight = new InFlightRequest(cancellationToken => DispatchTrackedAsync(
+            sessionId,
+            holder,
+            message,
+            dialect,
+            certificate,
+            tag,
+            cancellationToken));
         if (!holder.InFlight.TryAdd(tag, inFlight))
         {
-            inFlight.DisposeCancellation();
             return Error(tag, dialect, new NamespaceFidException("duplicate tag"));
         }
 
+        return await inFlight.Completion;
+    }
+
+    private async Task<object> DispatchTrackedAsync(
+        string sessionId,
+        SessionHolder holder,
+        NinePMessage message,
+        NinePDialect dialect,
+        X509Certificate2? certificate,
+        ushort tag,
+        CancellationToken cancellationToken)
+    {
         try
         {
             object response = await DispatchCoreAsync(
@@ -79,7 +97,7 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
                 LimitReadCount(message, holder.MessageSize),
                 dialect,
                 certificate,
-                inFlight.Cancellation.Token);
+                cancellationToken);
             return response is ISerializable serializable && serializable.Size > holder.MessageSize
                 ? Error(tag, dialect, new IOException("response exceeds negotiated msize"))
                 : response;
@@ -90,9 +108,7 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         }
         finally
         {
-            inFlight.Completion.TrySetResult();
             holder.InFlight.TryRemove(tag, out _);
-            inFlight.DisposeCancellation();
         }
     }
 
@@ -123,13 +139,12 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
             request.Cancel();
         }
 
-        await Task.WhenAll(requests.Select(request => request.Completion.Task));
+        await Task.WhenAll(requests.Select(request => request.Completion));
         if (holder.Session is not null)
         {
             await holder.Session.DisposeAsync();
         }
 
-        holder.Initialization.Dispose();
     }
 
     private Task<object> DispatchCoreAsync(
@@ -210,10 +225,10 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         NamespaceSession session,
         Topen request,
         CancellationToken cancellationToken)
-    {
-        ResourceOpenHandle result = await session.OpenAsync(request.Fid, request.Mode, cancellationToken);
-        return new Ropen(request.Tag, result.Resource.Qid, result.IoUnit);
-    }
+        => OpenResponse(request, await session.OpenAsync(request.Fid, request.Mode, cancellationToken));
+
+    private static Ropen OpenResponse(Topen request, ResourceOpenHandle result)
+        => new(request.Tag, result.Resource.Qid, result.IoUnit);
 
     private static async Task<object> ReadAsync(
         NamespaceSession session,
@@ -235,34 +250,30 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         NamespaceSession session,
         Twrite request,
         CancellationToken cancellationToken)
-    {
-        uint count = await session.WriteAsync(request.Fid, request.Offset, request.Data, cancellationToken);
-        return new Rwrite(request.Tag, count);
-    }
+        => new Rwrite(
+            request.Tag,
+            await session.WriteAsync(request.Fid, request.Offset, request.Data, cancellationToken));
 
     private static async Task<object> StatAsync(
         NamespaceSession session,
         Tstat request,
         NinePDialect dialect,
         CancellationToken cancellationToken)
-    {
-        ResourceStat result = await session.StatAsync(request.Fid, cancellationToken);
-        return new Rstat(request.Tag, ToStat(result, dialect));
-    }
+        => new Rstat(request.Tag, ToStat(await session.StatAsync(request.Fid, cancellationToken), dialect));
 
     private static async Task<object> CreateAsync(
         NamespaceSession session,
         Tcreate request,
         CancellationToken cancellationToken)
-    {
-        ResourceOpenHandle result = await session.CreateAsync(
+        => CreateResponse(request, await session.CreateAsync(
             request.Fid,
             request.Name,
             request.Perm,
             request.Mode,
-            cancellationToken);
-        return new Rcreate(request.Tag, result.Resource.Qid, result.IoUnit);
-    }
+            cancellationToken));
+
+    private static Rcreate CreateResponse(Tcreate request, ResourceOpenHandle result)
+        => new(request.Tag, result.Resource.Qid, result.IoUnit);
 
     private static async Task<object> ClunkAsync(
         NamespaceSession session,
@@ -319,9 +330,9 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         IReadOnlyList<ResourceStat> entries = await session.ReadDirectoryAsync(request.Fid, cancellationToken);
         ReadOnlyMemory<byte> data = LinuxProtocol.EncodeDirectory(entries, request.Offset, request.Count);
         return new Rreaddir(
-            checked((uint)(NinePConstants.HeaderSize + 4 + data.Length)),
+            NinePConstants.HeaderSize + 4U + (uint)data.Length,
             request.Tag,
-            checked((uint)data.Length),
+            (uint)data.Length,
             data);
     }
 
@@ -342,36 +353,31 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         X509Certificate2? certificate,
         CancellationToken cancellationToken)
     {
-        await holder.Initialization.WaitAsync(cancellationToken);
-        try
+        using SemaphoreLease initialization = await SemaphoreLease.EnterAsync(
+            holder.Initialization,
+            cancellationToken);
+        DistributedNamespaceAttach descriptor = await attachResolver.ResolveAsync(
+            sessionId,
+            request,
+            dialect,
+            certificate,
+            cancellationToken);
+        if (holder.Session is null)
         {
-            DistributedNamespaceAttach descriptor = await attachResolver.ResolveAsync(
-                sessionId,
-                request,
-                dialect,
-                certificate,
-                cancellationToken);
-            if (holder.Session is null)
-            {
-                holder.Descriptor = descriptor;
-                holder.Session = new NamespaceSession(
-                    holder.OperationSessionId,
-                    descriptor.ProcessId,
-                    descriptor.User,
-                    new DistributedNamespaceDataPlane(descriptor.ProcessGroupId, operations));
-            }
-            else if (!SameNamespace(holder.Descriptor!, descriptor))
-            {
-                throw new InvalidOperationException("A connection cannot attach to different process namespaces.");
-            }
+            holder.Descriptor = descriptor;
+            holder.Session = new NamespaceSession(
+                holder.OperationSessionId,
+                descriptor.ProcessId,
+                descriptor.User,
+                new DistributedNamespaceDataPlane(descriptor.ProcessGroupId, operations));
+        }
+        else if (!SameNamespace(holder.Descriptor!, descriptor))
+        {
+            throw new InvalidOperationException("A connection cannot attach to different process namespaces.");
+        }
 
-            ResourceHandle root = await holder.Session.AttachAsync(request.Fid, descriptor.Root, cancellationToken);
-            return new Rattach(request.Tag, root.Qid);
-        }
-        finally
-        {
-            holder.Initialization.Release();
-        }
+        ResourceHandle root = await holder.Session.AttachAsync(request.Fid, descriptor.Root, cancellationToken);
+        return new Rattach(request.Tag, root.Qid);
     }
 
     private static async Task<object> FlushAsync(SessionHolder holder, Tflush request)
@@ -379,7 +385,7 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         if (holder.InFlight.TryGetValue(request.OldTag, out InFlightRequest? oldRequest))
         {
             oldRequest.Cancel();
-            await oldRequest.Completion.Task;
+            await oldRequest.Completion;
         }
 
         return new Rflush(request.Tag);
@@ -400,7 +406,7 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         int startIndex = 0;
         while (startIndex < entries.Count && position < requestedOffset)
         {
-            position = checked(position + ToStat(entries[startIndex], dialect).Size);
+            position += ToStat(entries[startIndex], dialect).Size;
             startIndex++;
         }
 
@@ -414,7 +420,7 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
             throw new ArgumentOutOfRangeException(nameof(requestedOffset), "offset is not a directory boundary");
         }
 
-        int budget = checked((int)Math.Min(count, int.MaxValue));
+        int budget = (int)Math.Min(count, int.MaxValue);
         int length = 0;
         int endIndex = startIndex;
         while (endIndex < entries.Count)
@@ -528,24 +534,19 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         => exception is OperationCanceledException ? "interrupted" : exception.Message;
 
     private static ushort GetTag(NinePMessage message)
-    {
-        if (TryGetSessionTag(message, out ushort tag)
-            || TryGetClassicTag(message, out tag)
-            || TryGetLinuxOpenTag(message, out tag)
-            || TryGetLinuxMetadataTag(message, out tag)
-            || TryGetLinuxIoTag(message, out tag)
-            || TryGetLinuxControlTag(message, out tag)
-            || TryGetLinuxPathTag(message, out tag))
-        {
-            return tag;
-        }
+        => GetSessionTag(message)
+            ?? GetClassicFileTag(message)
+            ?? GetLinuxCreateTag(message)
+            ?? GetLinuxReadTag(message)
+            ?? GetLinuxAttributeTag(message)
+            ?? GetLinuxExtendedAttributeTag(message)
+            ?? GetLinuxLockTag(message)
+            ?? GetLinuxLinkTag(message)
+            ?? GetLinuxPathTag(message)
+            ?? NinePConstants.NoTag;
 
-        return NinePConstants.NoTag;
-    }
-
-    private static bool TryGetSessionTag(NinePMessage message, out ushort tag)
-    {
-        tag = message switch
+    private static ushort? GetSessionTag(NinePMessage message)
+        => message switch
         {
             NinePMessage.MsgTversion value => value.Item.Tag,
             NinePMessage.MsgTauth value => value.Item.Tag,
@@ -553,90 +554,82 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
             NinePMessage.MsgTwalk value => value.Item.Tag,
             NinePMessage.MsgTopen value => value.Item.Tag,
             NinePMessage.MsgTflush value => value.Item.Tag,
-            _ => NinePConstants.NoTag,
-        };
-        return tag != NinePConstants.NoTag;
-    }
-
-    private static bool TryGetClassicTag(NinePMessage message, out ushort tag)
-    {
-        tag = message switch
-        {
             NinePMessage.MsgTread value => value.Item.Tag,
             NinePMessage.MsgTwrite value => value.Item.Tag,
             NinePMessage.MsgTclunk value => value.Item.Tag,
+            _ => null,
+        };
+
+    private static ushort? GetClassicFileTag(NinePMessage message)
+        => message switch
+        {
             NinePMessage.MsgTstat value => value.Item.Tag,
             NinePMessage.MsgTcreate value => value.Item.Tag,
             NinePMessage.MsgTwstat value => value.Item.Tag,
             NinePMessage.MsgTremove value => value.Item.Tag,
-            _ => NinePConstants.NoTag,
-        };
-        return tag != NinePConstants.NoTag;
-    }
-
-    private static bool TryGetLinuxOpenTag(NinePMessage message, out ushort tag)
-    {
-        tag = message switch
-        {
             NinePMessage.MsgTstatfs value => value.Item.Tag,
             NinePMessage.MsgTlopen value => value.Item.Tag,
             NinePMessage.MsgTlcreate value => value.Item.Tag,
-            NinePMessage.MsgTsymlink value => value.Item.Tag,
-            _ => NinePConstants.NoTag,
+            _ => null,
         };
-        return tag != NinePConstants.NoTag;
-    }
 
-    private static bool TryGetLinuxMetadataTag(NinePMessage message, out ushort tag)
-    {
-        tag = message switch
+    private static ushort? GetLinuxCreateTag(NinePMessage message)
+        => message switch
         {
+            NinePMessage.MsgTsymlink value => value.Item.Tag,
             NinePMessage.MsgTmknod value => value.Item.Tag,
+            _ => null,
+        };
+
+    private static ushort? GetLinuxReadTag(NinePMessage message)
+        => message switch
+        {
             NinePMessage.MsgTrename value => value.Item.Tag,
             NinePMessage.MsgTreaddir value => value.Item.Tag,
-            NinePMessage.MsgTreadlink value => value.Item.Tag,
-            _ => NinePConstants.NoTag,
+            _ => null,
         };
-        return tag != NinePConstants.NoTag;
-    }
 
-    private static bool TryGetLinuxIoTag(NinePMessage message, out ushort tag)
-    {
-        tag = message switch
+    private static ushort? GetLinuxAttributeTag(NinePMessage message)
+        => message switch
         {
+            NinePMessage.MsgTreadlink value => value.Item.Tag,
             NinePMessage.MsgTgetattr value => value.Item.Tag,
             NinePMessage.MsgTsetattr value => value.Item.Tag,
+            _ => null,
+        };
+
+    private static ushort? GetLinuxExtendedAttributeTag(NinePMessage message)
+        => message switch
+        {
             NinePMessage.MsgTxattrwalk value => value.Item.Tag,
             NinePMessage.MsgTxattrcreate value => value.Item.Tag,
-            _ => NinePConstants.NoTag,
+            _ => null,
         };
-        return tag != NinePConstants.NoTag;
-    }
 
-    private static bool TryGetLinuxControlTag(NinePMessage message, out ushort tag)
-    {
-        tag = message switch
+    private static ushort? GetLinuxLockTag(NinePMessage message)
+        => message switch
         {
             NinePMessage.MsgTfsync value => value.Item.Tag,
             NinePMessage.MsgTlock value => value.Item.Tag,
             NinePMessage.MsgTgetlock value => value.Item.Tag,
-            NinePMessage.MsgTlink value => value.Item.Tag,
-            _ => NinePConstants.NoTag,
+            _ => null,
         };
-        return tag != NinePConstants.NoTag;
-    }
 
-    private static bool TryGetLinuxPathTag(NinePMessage message, out ushort tag)
-    {
-        tag = message switch
+    private static ushort? GetLinuxLinkTag(NinePMessage message)
+        => message switch
         {
+            NinePMessage.MsgTlink value => value.Item.Tag,
             NinePMessage.MsgTmkdir value => value.Item.Tag,
+            _ => null,
+        };
+
+    private static ushort? GetLinuxPathTag(NinePMessage message)
+        => message switch
+        {
             NinePMessage.MsgTrenameat value => value.Item.Tag,
             NinePMessage.MsgTunlinkat value => value.Item.Tag,
-            _ => NinePConstants.NoTag,
+            _ => null,
         };
-        return tag != NinePConstants.NoTag;
-    }
 
     private static string NegotiateVersion(string requested)
         => requested switch
@@ -663,31 +656,18 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
 
     private sealed class InFlightRequest
     {
-        private readonly object gate = new();
-        private bool disposed;
+        private readonly Lazy<Task<object>> completion;
+
+        internal InFlightRequest(Func<CancellationToken, Task<object>> execute)
+        {
+            completion = new Lazy<Task<object>>(() => execute(Cancellation.Token));
+        }
 
         internal CancellationTokenSource Cancellation { get; } = new();
 
-        internal TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal Task<object> Completion => completion.Value;
 
         internal void Cancel()
-        {
-            lock (gate)
-            {
-                if (!disposed)
-                {
-                    Cancellation.Cancel();
-                }
-            }
-        }
-
-        internal void DisposeCancellation()
-        {
-            lock (gate)
-            {
-                disposed = true;
-                Cancellation.Dispose();
-            }
-        }
+            => Cancellation.Cancel();
     }
 }

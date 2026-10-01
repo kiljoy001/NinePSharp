@@ -1,28 +1,17 @@
-# Local runtime dependency evidence — 2026-09-11
+# Runtime dependency notes
 
-AngouriMath now has an installed experimental direct-worker bundle; Wasmtime remains
-a discovered development dependency. No `fogruntime-lock-v1` approval has been
-inferred. Full supervisor/profile conformance remains required before registration.
-No sibling repository was modified.
+Current development focuses on Plan 9 namespace emulation and Orleans resource
+adapters. The symbolic-math execution project and its package dependencies have
+been removed. No guest execution runtime is required for namespace operations.
 
-The built-in execution profiles are AngouriMath and WASM. External assistants use the
-proposed MCP gateway; that gateway does not
-require a local language model or an inference runtime.
+The following Wasmtime notes are historical development evidence for a deferred
+workload-provider proposal, not evidence of an implemented or registered provider.
 
-## AngouriMath
+Current primary target: [dotnet-webassembly with a Fog WASI bridge](specifications/fog-v1-profiles/Wasm.md).
+Run `bash scripts/check-wasm-compatibility.sh /path/to/pinned/dotnet-webassembly`
+for the selected source baseline. No production engine bundle is installed by that test.
 
-The former Lisp proposal is replaced by [fog-math-v1](specifications/fog-v1-profiles/Math.md).
-The [AngouriMath 2.4.0 package](https://www.nuget.org/packages/AngouriMath/2.4.0)
-is now installed and locked with its transitive dependencies in
-`NinePSharp.Fog.Math/packages.lock.json`. The [direct-worker demo](fog-math-demo.md)
-uses it with a self-contained .NET 10.0.9 runtime and has actual engine and
-physical two-machine execution evidence. This does not register the full proposed
-`fog-math-v1` provider or certify its supervisor contract.
-
-[Exploratory experiments](fog-experiments.md) describe possible uses without
-treating the project as an application already built for a known problem.
-
-## Wasmtime
+## Wasmtime (superseded development evidence)
 
 No existing Wasmtime build was found in the sibling repositories. With permission,
 downloaded the official [Wasmtime 44.0.0 Linux x86_64 release](https://github.com/bytecodealliance/wasmtime/releases/tag/v44.0.0)

@@ -384,6 +384,211 @@ public sealed class NamespaceSessionTests
         Assert.True(test.Session.ContainsFid(1));
     }
 
+    [Fact]
+    public async Task CancelledTwoFidWalkReleasesItsFirstLockWhileAnotherWalkHoldsTheSecond()
+    {
+        await using var test = CreateSession("child");
+        await test.Session.AttachAsync(1, test.Root);
+        await test.Session.AttachAsync(2, test.Root);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        test.Resources.BeforeWalk = () => { entered.TrySetResult(); return resume.Task; };
+        var active = test.Session.WalkAsync(2, 3, new[] { "child" }).AsTask();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        using var cancel = new CancellationTokenSource();
+        var waiting = test.Session.WalkAsync(1, 2, Array.Empty<string>(), cancel.Token).AsTask();
+        try
+        {
+            Assert.False(waiting.IsCompleted);
+            cancel.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
+            await test.Session.StatAsync(1).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally { resume.TrySetResult(); }
+        await active;
+    }
+
+    [Fact]
+    public async Task DisposingDuringWalkWaitsForItAndRejectsItsLateFidPublication()
+    {
+        await using var test = CreateSession("child");
+        await test.Session.AttachAsync(1, test.Root);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        test.Resources.BeforeWalk = () => { entered.TrySetResult(); return resume.Task; };
+        var walking = test.Session.WalkAsync(1, 2, new[] { "child" }).AsTask();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var closing = test.Session.DisposeAsync().AsTask();
+        try { Assert.False(closing.IsCompleted); }
+        finally { resume.TrySetResult(); }
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => walking);
+        await closing.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(test.Session.ContainsFid(2));
+    }
+
+    [Fact]
+    public async Task UnknownClunkAndWhitespaceCreateHaveExplicitErrors()
+    {
+        await using var test = CreateSession();
+        await test.Session.AttachAsync(1, test.Root);
+        await Assert.ThrowsAsync<NamespaceFidException>(() => test.Session.ClunkAsync(99).AsTask());
+        await Assert.ThrowsAsync<ArgumentException>(() => test.Session.CreateAsync(99, " ", 0, 0).AsTask());
+    }
+
+    [Fact]
+    public async Task ClosedAndDuplicateFidsAreRejectedBeforeCallingTheProvider()
+    {
+        await using var test = CreateSession();
+        await test.Session.AttachAsync(1, test.Root);
+        await Assert.ThrowsAsync<NamespaceFidException>(() => test.Session.AttachAsync(1, null!).AsTask());
+        test.Resources.BeforeWalk = () => throw new IOException("provider must not be reached");
+        await test.Session.AttachAsync(2, test.Root);
+        await Assert.ThrowsAsync<NamespaceFidException>(() => test.Session.WalkAsync(1, 2, new[] { "missing" }).AsTask());
+        await test.Session.DisposeAsync();
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => test.Session.AttachAsync(3, null!).AsTask());
+    }
+
+    [Fact]
+    public async Task QueuedClunkCannotRunAfterDisposalBeginsAndRepeatedDisposeIsImmediate()
+    {
+        await using var test = CreateSession("child");
+        await test.Session.AttachAsync(1, test.Root);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        test.Resources.BeforeWalk = () => { entered.TrySetResult(); return resume.Task; };
+        var walking = test.Session.WalkAsync(1, 2, new[] { "child" }).AsTask();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var clunking = test.Session.ClunkAsync(1).AsTask();
+        var closing = test.Session.DisposeAsync().AsTask();
+        try { Assert.True(test.Session.DisposeAsync().IsCompletedSuccessfully); }
+        finally { resume.TrySetResult(); }
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => walking);
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => clunking);
+        await closing.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task ExhaustedOperationSequencesFailBeforeSendingAMutation()
+    {
+        await using var test = CreateSession("child");
+        await test.Session.AttachAsync(1, test.Root);
+        await test.Session.WalkAsync(1, 2, new[] { "child" });
+        typeof(NamespaceSession).GetField("operationSequence", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(test.Session, long.MaxValue);
+        await Assert.ThrowsAsync<OverflowException>(() => test.Session.OpenAsync(2, 0).AsTask());
+    }
+
+    [Fact]
+    public async Task AttachFinishingAfterDisposalCannotPublishAFid()
+    {
+        var resources = new MemoryDataResources();
+        var root = resources.Directory("root");
+        var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var plane = new ControlledDataPlane(new LocalNamespaceDataPlane(new MountTable(), resources)) { BeforeAttach = () => resume.Task };
+        await using var session = new NamespaceSession("attach-race", 1, "user", plane);
+        var attaching = session.AttachAsync(1, root).AsTask();
+        var closing = session.DisposeAsync().AsTask();
+        resume.SetResult();
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => attaching);
+        await closing.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(session.ContainsFid(1));
+    }
+
+    [Fact]
+    public async Task FileOpenRejectsUnknownFlagsBeforeProviderAccess()
+    {
+        await using var test = CreateSession("child");
+        await test.Session.AttachAsync(1, test.Root);
+        await test.Session.WalkAsync(1, 2, new[] { "child" });
+        await Assert.ThrowsAsync<NamespaceFidException>(() => test.Session.OpenAsync(2, 0x80).AsTask());
+    }
+
+    [Fact]
+    public async Task DisposalReleasesAllAdmittedGateWaitersAndDisposesOwnedSemaphores()
+    {
+        var resources = new MemoryDataResources();
+        var root = resources.Directory("root");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var plane = new ControlledDataPlane(new LocalNamespaceDataPlane(new MountTable(), resources))
+        {
+            BeforeClunk = () => { entered.TrySetResult(); return resume.Task; },
+        };
+        await using var session = new NamespaceSession("cleanup", 1, "user", plane);
+        await session.AttachAsync(1, root);
+        await session.AttachAsync(2, root);
+        await session.OpenAsync(1, 0);
+        // Capture the owned synchronization resources to verify their lifetime,
+        // including an admitted caller paused between obtaining a gate and waiting.
+        var gates = (Dictionary<uint, SemaphoreSlim>)typeof(NamespaceSession).GetField("fidGates", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(session)!;
+        var semaphores = gates.Values.ToArray();
+        var closing = session.DisposeAsync().AsTask();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var admitted = semaphores.Select(semaphore => semaphore.WaitAsync()).ToArray();
+        resume.SetResult();
+        await closing.WaitAsync(TimeSpan.FromSeconds(2));
+        await Task.WhenAll(admitted).WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Empty(gates);
+        foreach (var semaphore in semaphores)
+            Assert.Throws<ObjectDisposedException>(() => semaphore.Wait(0));
+    }
+
+    [Fact]
+    public async Task ReverseWalkDoesNotHoldTheHigherFidWhileWaitingForTheLowerFid()
+    {
+        await using var test = CreateSession("child");
+        await test.Session.AttachAsync(1, test.Root);
+        await test.Session.AttachAsync(2, test.Root);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        test.Resources.BeforeWalk = () => { entered.TrySetResult(); return resume.Task; };
+        var active = test.Session.WalkAsync(1, 1, new[] { "child" }).AsTask();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        using var cancel = new CancellationTokenSource();
+        var reverse = test.Session.WalkAsync(2, 1, Array.Empty<string>(), cancel.Token).AsTask();
+        try
+        {
+            // Keeping the higher fid available is the shared lock-order contract
+            // that prevents a cycle with disposal and other two-fid operations.
+            await test.Session.StatAsync(2).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            cancel.Cancel();
+            resume.TrySetResult();
+        }
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reverse);
+        await active;
+    }
+
+    [Fact]
+    public async Task DisposalUsesTheSameAscendingFidOrderAsWalk()
+    {
+        await using var test = CreateSession("child");
+        // Insert in reverse order so dictionary insertion order is insufficient.
+        await test.Session.AttachAsync(2, test.Root);
+        await test.Session.AttachAsync(1, test.Root);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        test.Resources.BeforeWalk = () => { entered.TrySetResult(); return resume.Task; };
+        var active = test.Session.WalkAsync(1, 1, new[] { "child" }).AsTask();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var gates = (Dictionary<uint, SemaphoreSlim>)typeof(NamespaceSession).GetField("fidGates", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(test.Session)!;
+        var closing = test.Session.DisposeAsync().AsTask();
+        try
+        {
+            // Disposal must not own the higher gate while blocked on the lower
+            // one: a previously admitted ascending walk could otherwise deadlock.
+            bool acquired = await gates[2].WaitAsync(TimeSpan.FromSeconds(2));
+            if (acquired) gates[2].Release();
+            Assert.True(acquired);
+        }
+        finally { resume.TrySetResult(); }
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => active);
+        await closing.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
     private static TestSession CreateSession(params string[] children)
     {
         var resources = new MemoryDataResources();

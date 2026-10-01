@@ -56,7 +56,7 @@ public sealed class NamespaceSession : IAsyncDisposable
         lock (gate)
         {
             EnsureOpen();
-            EnsureFidAbsent(fid);
+            // AcquireAsync owns this fid until publication completes.
             fids.Add(fid, new FidState(channel));
         }
 
@@ -94,11 +94,7 @@ public sealed class NamespaceSession : IAsyncDisposable
             lock (gate)
             {
                 EnsureOpen();
-                if (fid != newFid)
-                {
-                    EnsureFidAbsent(newFid);
-                }
-
+                // Both fid locks remain held across the provider walk.
                 fids[newFid] = new FidState(result.Channel);
             }
         }

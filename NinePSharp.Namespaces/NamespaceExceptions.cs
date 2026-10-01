@@ -41,6 +41,15 @@ public enum NamespaceError
 
     /// <summary>A path component could not be resolved.</summary>
     ResourceNotFound,
+
+    /// <summary>The process or namespace group has released its ownership.</summary>
+    NamespaceClosed,
+
+    /// <summary>A path ending in a slash or dot selected a regular file.</summary>
+    ResourceNotDirectory,
+
+    /// <summary>Exclusive creation found an existing namespace entry.</summary>
+    ResourceAlreadyExists,
 }
 
 /// <summary>Reports a failed namespace operation without depending on a wire dialect.</summary>

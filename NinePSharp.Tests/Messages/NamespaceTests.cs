@@ -18,14 +18,16 @@ public class NamespaceTests : TestBase
         uint size = NinePConstants.HeaderSize + 4 + 4 + 2 + (uint)(2 + 1) + (uint)(2 + 1);
         RoundTripTest<Twalk>(size, tag,
             buffer => new Twalk(buffer),
-            msg => {
+            msg =>
+            {
                 Assert.Equal(fid, msg.Fid);
                 Assert.Equal(newFid, msg.NewFid);
                 Assert.Equal(wnames.Length, msg.Wname.Length);
                 Assert.Equal(wnames[0], msg.Wname[0]);
                 Assert.Equal(wnames[1], msg.Wname[1]);
             },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.AsSpan().WriteHeaders(size, tag, MessageTypes.Twalk);
                 int offset = NinePConstants.HeaderSize;
@@ -47,12 +49,14 @@ public class NamespaceTests : TestBase
         uint size = NinePConstants.HeaderSize + 2 + (uint)(qids.Length * 13);
         RoundTripTest<Rwalk>(size, tag,
             buffer => new Rwalk(buffer),
-            msg => {
+            msg =>
+            {
                 Assert.Equal(qids.Length, msg.Wqid.Length);
                 Assert.Equal(qids[0].Path, msg.Wqid[0].Path);
                 Assert.Equal(qids[1].Path, msg.Wqid[1].Path);
             },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.AsSpan().WriteHeaders(size, tag, MessageTypes.Rwalk);
                 int offset = NinePConstants.HeaderSize;
@@ -73,7 +77,8 @@ public class NamespaceTests : TestBase
         RoundTripTest<Tclunk>(size, tag,
             buffer => new Tclunk(buffer),
             msg => { Assert.Equal(fid, msg.Fid); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.AsSpan().WriteHeaders(size, tag, MessageTypes.Tclunk);
                 int offset = NinePConstants.HeaderSize;
@@ -91,7 +96,8 @@ public class NamespaceTests : TestBase
         RoundTripTest<Rclunk>(size, tag,
             buffer => new Rclunk(buffer),
             msg => { Assert.Equal(tag, msg.Tag); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.AsSpan().WriteHeaders(size, tag, MessageTypes.Rclunk);
                 return new Rclunk(buf);
@@ -108,7 +114,8 @@ public class NamespaceTests : TestBase
         RoundTripTest<Tremove>(size, tag,
             buffer => new Tremove(buffer),
             msg => { Assert.Equal(fid, msg.Fid); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.AsSpan().WriteHeaders(size, tag, MessageTypes.Tremove);
                 int offset = NinePConstants.HeaderSize;
@@ -126,7 +133,8 @@ public class NamespaceTests : TestBase
         RoundTripTest<Rremove>(size, tag,
             buffer => new Rremove(buffer),
             msg => { Assert.Equal(tag, msg.Tag); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.AsSpan().WriteHeaders(size, tag, MessageTypes.Rremove);
                 return new Rremove(buf);

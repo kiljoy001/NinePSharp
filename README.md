@@ -64,7 +64,7 @@ xUnit, and FsCheck suites, merged Coverlet coverage, stale-coverage checks, cove
 thresholds, CRAP scoring, and the custom Semgrep rules in `quality/semgrep.yml` when
 Semgrep is installed.
 
-`--full` also runs the scoped Stryker mutation gate (`MIN_MUTATION=90` by default)
+`--full` also runs the scoped Stryker mutation gate (`MIN_MUTATION=100` by default)
 and bounded SharpFuzz/AFL++ parser, filesystem, namespace, namespace-syscall, Orleans gateway, and Fog campaigns.
 Mutation scopes include the Orleans adapters, gateway, shared transport, Fog core/server,
 and sequential control client. Coverage
@@ -77,16 +77,27 @@ Run a read-only, loopback example with `dotnet run --project NinePSharp.Examples
 Attach as `guest` and read `/hello`. See [hosting, provider registration, security,
 and lifetime semantics](docs/orleans-integration.md) for embedding the gateway in your own host.
 
-## Exploratory fog
+## Plan 9 namespaces and Fog
 
-The [Fog control adapter](NinePSharp.Fog.Server/README.md) exposes bounded transactions
-as ordinary 9P files. The broader [fog contracts](docs/specifications/fog-v1-profiles/README.md)
-propose AngouriMath jobs and WASM programs behind the same workload interface;
-an [experimental direct math worker](docs/fog-math-demo.md) now runs AngouriMath jobs
-on another Linux machine and retains results across client reconnects. The full
-provider/scheduler protocols and WASM runner remain to be implemented.
-[Experiments](docs/fog-experiments.md) explore mathematical workbenches, parameter
-sweeps, procedural generation and visible failure/recovery behavior.
+Current development focuses on Plan 9 namespace behavior: virtual processes and
+process groups, bind/mount/unmount, union mounts, channel and fid lifetime, and
+control files. See the [namespace semantics](docs/plan9-namespace-semantics.md) and
+[BDD specifications](docs/specifications/plan9-namespace/README.md).
+Current [namespace validation evidence](docs/namespace-verification.md) records
+the tested scope and its limitations.
+
+The local namespace feature set includes independent descriptor groups and
+explicit resource cleanup: final-owner exit, close-on-exec, empty-table rfork,
+admitted I/O references, and provider-close failure handling. These have
+[executable cleanup scenarios](NinePSharp.Namespaces.Tests/Features/DescriptorCleanup.feature).
+Durable Orleans ownership and cleanup recovery remain separate implementation work.
+
+The [Fog control adapter](NinePSharp.Fog.Server/README.md) provides generic bounded
+transactions over 9P. The selected primary workload is
+[dotnet-webassembly with WASI file access](docs/specifications/fog-v1-profiles/Wasm.md)
+through the virtual namespace. Pinned engine compatibility tests run in CI; the full
+WASI bridge and supervised workload host remain implementation work.
+The symbolic-math workload, execution bundle, and direct-worker demo have been removed.
 
 ## NuGet Packages
 

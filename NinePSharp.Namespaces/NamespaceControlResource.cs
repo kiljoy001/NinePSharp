@@ -15,7 +15,7 @@ public sealed class NamespaceControlResource : IResourceDataOperations
     public NamespaceControlResource(VProcessTable processes, IResourceOperations resources)
     {
         this.processes = processes ?? throw new ArgumentNullException(nameof(processes));
-        syscalls = new NamespaceSyscalls(resources ?? throw new ArgumentNullException(nameof(resources)));
+        syscalls = new NamespaceSyscalls(resources);
         Root = Handle("/");
     }
 
@@ -84,13 +84,9 @@ public sealed class NamespaceControlResource : IResourceDataOperations
     {
         cancellationToken.ThrowIfCancellationRequested();
         byte[] content = Encoding.UTF8.GetBytes(ReadFile(PathOf(openHandle.Resource)));
-        if (offset >= (ulong)content.Length)
-        {
-            return ValueTask.FromResult<ReadOnlyMemory<byte>>(ReadOnlyMemory<byte>.Empty);
-        }
-
-        int start = checked((int)offset);
-        int length = Math.Min(checked((int)count), content.Length - start);
+        // Clamp before narrowing: 9P offsets and counts exceed CLR array ranges.
+        int start = (int)Math.Min(offset, (ulong)content.Length);
+        int length = (int)Math.Min(count, (ulong)(content.Length - start));
         return ValueTask.FromResult<ReadOnlyMemory<byte>>(content.AsMemory(start, length));
     }
 
@@ -110,7 +106,7 @@ public sealed class NamespaceControlResource : IResourceDataOperations
 
         string command = Encoding.UTF8.GetString(data.Span).Trim();
         await ExecuteAsync(PathOf(openHandle.Resource), command, cancellationToken);
-        return checked((uint)data.Length);
+        return (uint)data.Length;
     }
 
     /// <inheritdoc/>
@@ -123,7 +119,7 @@ public sealed class NamespaceControlResource : IResourceDataOperations
         uint mode = directory
             ? (uint)NinePConstants.FileMode9P.DMDIR | NinePConstants.Mode0755
             : NinePConstants.Mode0644;
-        ulong length = directory ? 0 : checked((ulong)Encoding.UTF8.GetByteCount(ReadFile(path)));
+        ulong length = directory ? 0 : (ulong)Encoding.UTF8.GetByteCount(ReadFile(path));
         return ValueTask.FromResult(new ResourceStat(resource, name, mode, 0, 0, length, "system", "system", "system"));
     }
 
@@ -167,6 +163,11 @@ public sealed class NamespaceControlResource : IResourceDataOperations
         string[] parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         switch (parts[0])
         {
+            case "kill":
+                if (parts.Length != 1)
+                    throw new NamespaceException(NamespaceError.InvalidOperation, "The kill command takes no arguments.");
+                processes.Terminate(processId);
+                return;
             case "bind":
                 await ExecuteBindAsync(process, parts, cancellationToken);
                 return;

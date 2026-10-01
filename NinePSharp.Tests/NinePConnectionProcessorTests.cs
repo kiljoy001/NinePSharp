@@ -41,7 +41,7 @@ public class NinePConnectionProcessorTests
         Assert.Equal(1, dispatched);
         Assert.Equal(2, buffers.Rents);
         Assert.Equal(2, buffers.Returns);
-        Assert.True(buffers.Cleared);
+        Assert.Equal(new[] { true, true }, buffers.ClearFlags);
         Assert.Equal(new[] { MessageTypes.Rread }, ResponseTypes(stream.Written.Span));
         Assert.Equal(new byte[] { 42 }, new Rread(stream.Written).Data.ToArray());
     }
@@ -115,6 +115,43 @@ public class NinePConnectionProcessorTests
         Assert.Equal(1, buffers.Rents);
         Assert.Equal(1, buffers.Returns);
         Assert.True(buffers.Cleared);
+    }
+
+    [Fact]
+    public async Task ConnectionWorkSetTracksOnlyOutstandingResponsesAndBuildsBarriers()
+    {
+        var work = new NinePConnectionProcessor.ConnectionWorkSet();
+        var first = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        work.Track(7, first.Task);
+        Assert.Equal(1, work.PendingCount);
+        Assert.Equal(1, work.ResponseCount);
+        Assert.True(work.TryGetOutstanding(7, out Task? outstanding));
+        Assert.Same(first.Task, outstanding);
+        Assert.Same(first.Task, work.FindResponse(7));
+        Assert.Null(work.FindResponse(8));
+        Task barrier = work.Barrier();
+        Assert.False(barrier.IsCompleted);
+
+        first.TrySetResult();
+        await barrier.WaitAsync(TimeSpan.FromSeconds(1));
+        await WaitForAsync(() => work.PendingCount == 0 && work.ResponseCount == 0);
+        Assert.False(work.TryGetOutstanding(7, out outstanding));
+        Assert.Null(outstanding);
+
+        var older = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var newer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        work.Track(9, older.Task);
+        work.Track(9, newer.Task);
+        older.TrySetResult();
+        await WaitForAsync(() => work.PendingCount == 1);
+        Assert.Equal(1, work.ResponseCount);
+        Assert.Same(newer.Task, work.FindResponse(9));
+        newer.TrySetResult();
+        await WaitForAsync(() => work.PendingCount == 0 && work.ResponseCount == 0);
+
+        work.Track(8, Task.FromException(new IOException("failed")));
+        await WaitForAsync(() => work.PendingCount == 0 && work.ResponseCount == 0);
+        await work.Barrier().WaitAsync(TimeSpan.FromSeconds(1));
     }
 
     [Fact]
@@ -222,6 +259,52 @@ public class NinePConnectionProcessorTests
         Assert.Equal(new[] { MessageTypes.Rread, MessageTypes.Rversion, MessageTypes.Rflush }, ResponseTypes(stream.Written.Span));
         Assert.Equal(512U, session.MSize);
         Assert.Equal(NinePDialect.NineP2000L, session.Dialect);
+    }
+
+    [Fact]
+    public async Task VersionNegotiationCompletesBeforeTheProcessorReadsTheNextRequest()
+    {
+        var versionStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseVersion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var nextDispatched = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatcher = new Mock<INinePFSDispatcher>();
+        dispatcher.Setup(value => value.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), null))
+            .Returns(async (string id, NinePMessage message, NinePDialect dialect, X509Certificate2? certificate) =>
+            {
+                if (message is NinePMessage.MsgTversion)
+                {
+                    versionStarted.TrySetResult();
+                    await releaseVersion.Task;
+                    return (object)new Rversion(NinePConstants.NoTag, 512, "9P2000");
+                }
+
+                nextDispatched.TrySetResult();
+                return new Rflush(12);
+            });
+        var processor = CreateProcessor(dispatcher, new StubTransportSecurity());
+        byte[] input = Serialize(new Tversion(NinePConstants.NoTag, 512, "9P2000"))
+            .Concat(Serialize(new Tflush(12, 99))).ToArray();
+        using var stream = new ScriptedDuplexStream(input);
+        Task processing = processor.ProcessStreamAsync(
+            stream,
+            null,
+            new NinePConnectionProcessor.ClientSession(),
+            CancellationToken.None);
+        await versionStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        try
+        {
+            Assert.NotSame(nextDispatched.Task, await Task.WhenAny(
+                nextDispatched.Task,
+                Task.Delay(100)));
+        }
+        finally
+        {
+            releaseVersion.TrySetResult();
+            await processing.WaitAsync(TimeSpan.FromSeconds(1));
+        }
+
+        Assert.True(nextDispatched.Task.IsCompletedSuccessfully);
+        Assert.Equal(new[] { MessageTypes.Rversion, MessageTypes.Rflush }, ResponseTypes(stream.Written.Span));
     }
 
     [Theory]
@@ -488,6 +571,15 @@ public class NinePConnectionProcessorTests
         return result;
     }
 
+    private static async Task WaitForAsync(Func<bool> predicate)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        while (!predicate())
+        {
+            await Task.Delay(1, timeout.Token);
+        }
+    }
+
     private sealed class StubTransportSecurity : INinePTransportSecurity
     {
         public TransportSecurityResult Result { get; set; }
@@ -616,6 +708,7 @@ public class NinePConnectionProcessorTests
         internal int Rents { get; private set; }
         internal int Returns { get; private set; }
         internal bool Cleared { get; private set; }
+        internal List<bool> ClearFlags { get; } = new();
 
         public override byte[] Rent(int minimumLength)
         {
@@ -627,6 +720,7 @@ public class NinePConnectionProcessorTests
         {
             Returns++;
             Cleared = clearArray;
+            ClearFlags.Add(clearArray);
         }
     }
 }

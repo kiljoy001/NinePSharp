@@ -65,6 +65,12 @@ public sealed class DistributedNamespaceDataPlane : INamespaceDataPlane
         => await operations.StatAsync(processGroupId, channel, cancellationToken);
 
     /// <inheritdoc/>
+    public async ValueTask<ResourceStat> StatAsync(
+        ResourceOpenHandle openHandle,
+        CancellationToken cancellationToken)
+        => await operations.StatAsync(openHandle, cancellationToken);
+
+    /// <inheritdoc/>
     public async ValueTask<NamespaceCreateResult> CreateAndOpenAsync(
         NamespaceChannel channel,
         string name,

@@ -150,8 +150,7 @@ public sealed class NinePConnectionProcessor
     public async Task ProcessStreamAsync(Stream stream, EndPoint? endPoint, ClientSession session, CancellationToken ct)
     {
         var headerBuffer = new byte[NinePConstants.HeaderSize];
-        var pending = new List<Task>();
-        var responsesByTag = new Dictionary<ushort, Task>();
+        var work = new ConnectionWorkSet();
 
         try
         {
@@ -165,7 +164,7 @@ public sealed class NinePConnectionProcessor
 
                 // A tag is reusable only after its previous wire response. A duplicate cannot
                 // safely receive Rerror (it would ambiguously answer the original operation).
-                if (responsesByTag.TryGetValue(frame.Value.Tag, out Task? outstanding) && !outstanding.IsCompleted)
+                if (work.TryGetOutstanding(frame.Value.Tag, out _))
                 {
                     _buffers.Return(frame.Value.Buffer, clearArray: true);
                     break;
@@ -175,36 +174,19 @@ public sealed class NinePConnectionProcessor
                 if (frame.Value.Type == MessageTypes.Tflush && frame.Value.Size == NinePConstants.HeaderSize + 2)
                 {
                     ushort oldTag = BinaryPrimitives.ReadUInt16LittleEndian(frame.Value.Buffer.AsSpan(NinePConstants.HeaderSize, 2));
-                    responsesByTag.TryGetValue(oldTag, out precedingResponse);
+                    precedingResponse = work.FindResponse(oldTag);
                 }
                 else if (frame.Value.Type == MessageTypes.Tversion)
                 {
-                    precedingResponse = Task.WhenAll(pending);
+                    precedingResponse = work.Barrier();
                 }
 
                 Task request = ProcessFrameAsync(stream, endPoint, session, frame.Value, ct, precedingResponse);
-                if (!responsesByTag.TryGetValue(frame.Value.Tag, out Task? previous) || previous.IsCompleted)
-                {
-                    responsesByTag[frame.Value.Tag] = request;
-                }
+                work.Track(frame.Value.Tag, request);
 
                 if (frame.Value.Type == MessageTypes.Tversion)
                 {
                     await request;
-                    responsesByTag.Clear();
-                    pending.Clear();
-                }
-                else
-                {
-                    pending.Add(request);
-                    if (pending.Count >= 64)
-                    {
-                        pending.RemoveAll(static task => task.IsCompleted);
-                        foreach (ushort tag in responsesByTag.Where(static pair => pair.Value.IsCompleted).Select(static pair => pair.Key).ToArray())
-                        {
-                            responsesByTag.Remove(tag);
-                        }
-                    }
                 }
             }
         }
@@ -215,7 +197,7 @@ public sealed class NinePConnectionProcessor
                 await lifecycle.CloseSessionAsync(session.SessionId);
             }
 
-            await Task.WhenAll(pending);
+            await work.Barrier();
         }
     }
 
@@ -372,15 +354,16 @@ public sealed class NinePConnectionProcessor
         uint payloadSize = size - (uint)NinePConstants.HeaderSize;
         try
         {
-            if (payloadSize > 0)
+            int payloadRead = await stream.ReadAtLeastAsync(
+                buffer.AsMemory(NinePConstants.HeaderSize, (int)payloadSize),
+                (int)payloadSize,
+                throwOnEndOfStream: false,
+                ct);
+            if (payloadRead < payloadSize)
             {
-                int payloadRead = await stream.ReadAtLeastAsync(buffer.AsMemory(NinePConstants.HeaderSize, (int)payloadSize), (int)payloadSize, throwOnEndOfStream: false, ct);
-                if (payloadRead < payloadSize)
-                {
-                    _logger.LogWarning("Client {EndPoint} disconnected mid-frame after {PayloadRead}/{PayloadSize} payload bytes.", endPoint, payloadRead, payloadSize);
-                    _buffers.Return(buffer, clearArray: true);
-                    return null;
-                }
+                _logger.LogWarning("Client {EndPoint} disconnected mid-frame after {PayloadRead}/{PayloadSize} payload bytes.", endPoint, payloadRead, payloadSize);
+                _buffers.Return(buffer, clearArray: true);
+                return null;
             }
         }
         catch
@@ -394,6 +377,96 @@ public sealed class NinePConnectionProcessor
             (MessageTypes)headerBuffer[4],
             BinaryPrimitives.ReadUInt16LittleEndian(headerBuffer.AsSpan(5, 2)),
             buffer);
+    }
+
+    internal sealed class ConnectionWorkSet
+    {
+        private readonly object gate = new();
+        private readonly HashSet<Task> pending = new();
+        private readonly Dictionary<ushort, Task> responsesByTag = new();
+
+        internal int PendingCount
+        {
+            get
+            {
+                lock (gate)
+                {
+                    return pending.Count;
+                }
+            }
+        }
+
+        internal int ResponseCount
+        {
+            get
+            {
+                lock (gate)
+                {
+                    return responsesByTag.Count;
+                }
+            }
+        }
+
+        internal bool TryGetOutstanding(ushort tag, out Task? response)
+        {
+            lock (gate)
+            {
+                if (responsesByTag.TryGetValue(tag, out response) && !response.IsCompleted)
+                {
+                    return true;
+                }
+
+                response = null;
+                return false;
+            }
+        }
+
+        internal Task? FindResponse(ushort tag)
+        {
+            lock (gate)
+            {
+                return responsesByTag.GetValueOrDefault(tag);
+            }
+        }
+
+        internal Task Barrier()
+        {
+            lock (gate)
+            {
+                return Task.WhenAll(pending);
+            }
+        }
+
+        internal void Track(ushort tag, Task response)
+        {
+            lock (gate)
+            {
+                pending.Add(response);
+                responsesByTag[tag] = response;
+            }
+
+            _ = ForgetWhenCompleteAsync(tag, response);
+        }
+
+        private async Task ForgetWhenCompleteAsync(ushort tag, Task response)
+        {
+            try
+            {
+                await response;
+            }
+            catch
+            {
+            }
+
+            lock (gate)
+            {
+                pending.Remove(response);
+                if (responsesByTag.TryGetValue(tag, out Task? current) && ReferenceEquals(current, response))
+                {
+                    responsesByTag.Remove(tag);
+                }
+            }
+        }
     }
 
     private readonly record struct FrameBuffer(int Size, MessageTypes Type, ushort Tag, byte[] Buffer);

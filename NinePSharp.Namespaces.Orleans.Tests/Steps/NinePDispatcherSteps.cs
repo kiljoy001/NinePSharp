@@ -140,7 +140,12 @@ public sealed class NinePDispatcherSteps
     {
         NinePMessage request = operation switch
         {
+            "symlink" => NinePMessage.NewMsgTsymlink(new Tsymlink(26, 20, 1, "link", "job", 0)),
+            "rename" => NinePMessage.NewMsgTrename(new Trename(21, 20, 1, 1, "name")),
+            "readlink" => NinePMessage.NewMsgTreadlink(new Treadlink(11, 20, 1)),
+            "xattrwalk" => NinePMessage.NewMsgTxattrwalk(new Txattrwalk(21, 20, 1, 2, "name")),
             "fsync" => NinePMessage.NewMsgTfsync(new Tfsync(15, 20, 1, 0)),
+            "link" => NinePMessage.NewMsgTlink(new Tlink(21, 20, 1, 1, "name")),
             "unlinkat" => NinePMessage.NewMsgTunlinkat(new Tunlinkat(20, 20, 1, "job", 0)),
             _ => throw new ArgumentOutOfRangeException(nameof(operation)),
         };

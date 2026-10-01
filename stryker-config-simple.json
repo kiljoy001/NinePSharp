@@ -6,9 +6,9 @@
     ],
     "mutation-level": "Complete",
     "thresholds": {
-      "break": 70,
-      "low": 75,
-      "high": 90
+      "break": 100,
+      "low": 100,
+      "high": 100
     },
     "reporters": [
       "html",

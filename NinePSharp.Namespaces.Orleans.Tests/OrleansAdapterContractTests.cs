@@ -9,6 +9,143 @@ namespace NinePSharp.Namespaces.Orleans.Tests;
 public sealed class OrleansAdapterContractTests
 {
     [Fact]
+    public async Task NativeOpenStatPassesTheExactHandleAndPreservesErrors()
+    {
+        var grain = new Mock<IOpenStatResourceGrain>(MockBehavior.Strict);
+        var resolver = new Mock<IMountableResourceResolver>(MockBehavior.Strict);
+        var handle = new ResourceOpenHandle(GatewayTestContext.File, "retained-open", 1, 99);
+        resolver.Setup(r => r.Resolve(handle.Resource.Identity.ToModel())).Returns(grain.Object);
+        var expected = new ResourceStat(handle.Resource, "provider-name", 42, 11, 12, 51, "u", "g", "m");
+        grain.Setup(g => g.StatOpenAsync(handle.ToModel())).ReturnsAsync(expected.ToModel());
+        var adapter = new OrleansResourceOperations(resolver.Object);
+        Assert.Equal(expected, await adapter.StatOpenAsync(handle, default));
+        var failure = new IOException("provider rejected handle");
+        grain.Setup(g => g.StatOpenAsync(handle.ToModel())).ThrowsAsync(failure);
+        Assert.Same(failure, await Assert.ThrowsAsync<IOException>(() => adapter.StatOpenAsync(handle, default).AsTask()));
+        grain.Verify(g => g.StatOpenAsync(handle.ToModel()), Times.Exactly(2));
+        grain.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task NativeOpenStatRejectsMissingCapabilityAndCancelledAdmission()
+    {
+        var resolver = new Mock<IMountableResourceResolver>(MockBehavior.Strict);
+        var handle = new ResourceOpenHandle(GatewayTestContext.File, "retained", 0, 0);
+        resolver.Setup(r => r.Resolve(handle.Resource.Identity.ToModel())).Returns(new Mock<IMountableResourceGrain>().Object);
+        var adapter = new OrleansResourceOperations(resolver.Object);
+        await Assert.ThrowsAsync<NotSupportedException>(() => adapter.StatOpenAsync(handle, default).AsTask());
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => adapter.StatOpenAsync(handle, cancellation.Token).AsTask());
+        resolver.Verify(r => r.Resolve(It.IsAny<ResourceIdentityModel>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task NativeWstatForwardsExactSentinelsContextAndRetainedHandle()
+    {
+        var grain = new Mock<IWStatResourceGrain>(MockBehavior.Strict);
+        var resolver = new Mock<IMountableResourceResolver>(MockBehavior.Strict);
+        var handle = new ResourceOpenHandle(GatewayTestContext.File, "retained-open", 1, 99, true);
+        var context = new ResourceOperationContext(new("wstat", 1), 7, "glenda");
+        ResourceWStat update = ResourceWStat.Unchanged(57) with { Name = "new", Mode = NinePConstants.Mode0600 };
+        resolver.Setup(r => r.Resolve(handle.Resource.Identity.ToModel())).Returns(grain.Object);
+        grain.Setup(g => g.WStatAsync(handle.Resource.ToModel(), update.ToModel(), context.ToModel())).ReturnsAsync(57U);
+        grain.Setup(g => g.WStatOpenAsync(handle.ToModel(), update.ToModel(), context.ToModel())).ReturnsAsync(23U);
+        var adapter = new OrleansResourceOperations(resolver.Object);
+        Assert.Equal(57U, await adapter.WStatAsync(handle.Resource, update, context, default));
+        Assert.Equal(23U, await adapter.WStatOpenAsync(handle, update, context, default));
+        Assert.True(handle.ToModel().IsMountTransport);
+        grain.VerifyAll();
+    }
+
+    [Fact]
+    public async Task NativeWstatRejectsMissingCapabilityAndCancelledAdmission()
+    {
+        var resolver = new Mock<IMountableResourceResolver>(MockBehavior.Strict);
+        var resource = GatewayTestContext.File;
+        var handle = new ResourceOpenHandle(resource, "retained", 0, 0);
+        var context = new ResourceOperationContext(new("wstat", 1), 1, "user");
+        resolver.Setup(r => r.Resolve(resource.Identity.ToModel())).Returns(new Mock<IMountableResourceGrain>().Object);
+        var adapter = new OrleansResourceOperations(resolver.Object);
+        await Assert.ThrowsAsync<NotSupportedException>(() => adapter.WStatAsync(resource, ResourceWStat.Unchanged(), context, default).AsTask());
+        await Assert.ThrowsAsync<NotSupportedException>(() => adapter.WStatOpenAsync(handle, ResourceWStat.Unchanged(), context, default).AsTask());
+        var cancelled = new CancellationToken(true);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => adapter.WStatAsync(resource, ResourceWStat.Unchanged(), context, cancelled).AsTask());
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => adapter.WStatOpenAsync(handle, ResourceWStat.Unchanged(), context, cancelled).AsTask());
+        resolver.Verify(r => r.Resolve(It.IsAny<ResourceIdentityModel>()), Times.Exactly(2));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NativeWstatTranslatesOnlyDefiniteProviderRejections(bool retained)
+    {
+        var grain = new Mock<IWStatResourceGrain>(MockBehavior.Strict);
+        var resolver = new Mock<IMountableResourceResolver>(MockBehavior.Strict);
+        ResourceHandle resource = GatewayTestContext.File;
+        var handle = new ResourceOpenHandle(resource, "retained", 0, 0);
+        var context = new ResourceOperationContext(new("wstat-rejection", 1), 1, "user");
+        ResourceWStat update = ResourceWStat.Unchanged();
+        resolver.Setup(r => r.Resolve(resource.Identity.ToModel())).Returns(grain.Object);
+        grain.Setup(g => g.WStatAsync(resource.ToModel(), update.ToModel(), context.ToModel()))
+            .ThrowsAsync(new ResourceWStatRejectedGrainException("denied"));
+        grain.Setup(g => g.WStatOpenAsync(handle.ToModel(), update.ToModel(), context.ToModel()))
+            .ThrowsAsync(new ResourceWStatRejectedGrainException("denied"));
+        var adapter = new OrleansResourceOperations(resolver.Object);
+        Func<Task> invoke = retained
+            ? () => adapter.WStatOpenAsync(handle, update, context, default).AsTask()
+            : () => adapter.WStatAsync(resource, update, context, default).AsTask();
+        Assert.Equal("denied", (await Assert.ThrowsAsync<ResourceWStatRejectedException>(invoke)).Message);
+
+        var uncertain = new IOException("reply lost");
+        if (retained)
+            grain.Setup(g => g.WStatOpenAsync(handle.ToModel(), update.ToModel(), context.ToModel())).ThrowsAsync(uncertain);
+        else
+            grain.Setup(g => g.WStatAsync(resource.ToModel(), update.ToModel(), context.ToModel())).ThrowsAsync(uncertain);
+        Assert.Same(uncertain, await Assert.ThrowsAsync<IOException>(invoke));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DirectoryRejectionsAreTranslatedButTransportFailuresRemainUncertain(bool open)
+    {
+        var grain = new Mock<IMountableResourceGrain>(MockBehavior.Strict);
+        var resolver = new Mock<IMountableResourceResolver>(MockBehavior.Strict);
+        resolver.Setup(r => r.Resolve(It.IsAny<ResourceIdentityModel>())).Returns(grain.Object);
+        var adapter = new OrleansResourceOperations(resolver.Object);
+        var resource = GatewayTestContext.Root;
+        var handle = new ResourceOpenHandle(resource, "directory", 0, 0);
+        var context = new ResourceOperationContext(new("directory", 1), 1, "user");
+        Exception failure = new ResourceDirectoryRejectedGrainException("denied");
+        grain.Setup(g => g.OpenAsync(It.IsAny<ResourceHandleModel>(), 0, It.IsAny<ResourceOperationContextModel>()))
+            .Returns(() => Task.FromException<ResourceOpenHandleModel>(failure));
+        grain.Setup(g => g.ReadAsync(It.IsAny<ResourceOpenHandleModel>(), 0, 10))
+            .Returns(() => Task.FromException<byte[]>(failure));
+        Func<Task> invoke = open
+            ? () => adapter.OpenAsync(resource, 0, context, default).AsTask()
+            : () => adapter.ReadAsync(handle, 0, 10, default).AsTask();
+        Assert.Equal("denied", (await Assert.ThrowsAsync<ResourceDirectoryRejectedException>(invoke)).Message);
+        failure = new IOException("lost reply");
+        Assert.Same(failure, await Assert.ThrowsAsync<IOException>(invoke));
+    }
+
+    [Fact]
+    public async Task OpenHandleStatBypassesNamespaceLookupAndPreservesCancellation()
+    {
+        var factory = new Mock<IGrainFactory>(MockBehavior.Strict);
+        var data = new Mock<IResourceDataOperations>(MockBehavior.Strict);
+        var handle = new ResourceOpenHandle(GatewayTestContext.File, "retained", 2, 0);
+        var expected = new ResourceStat(handle.Resource, "file", 0, 0, 0, 42, "u", "g", "u");
+        using var cancellation = new CancellationTokenSource();
+        data.Setup(x => x.StatAsync(handle.Resource, cancellation.Token)).ReturnsAsync(expected);
+        var plane = new DistributedNamespaceDataPlane("group", new DistributedNamespaceOperations(factory.Object, data.Object));
+        Assert.Equal(expected, await plane.StatAsync(handle, cancellation.Token));
+        data.VerifyAll();
+        factory.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public void NullAdapterDependenciesAreRejected()
     {
         Assert.Throws<ArgumentNullException>(() => new OrleansResourceOperations(null!));
@@ -27,6 +164,8 @@ public sealed class OrleansAdapterContractTests
     [InlineData("create-open")]
     [InlineData("clunk")]
     [InlineData("remove")]
+    [InlineData("wstat")]
+    [InlineData("fwstat")]
     public async Task AlreadyCancelledCallsNeverReachAResourceGrain(string operation)
     {
         var resolver = new Mock<IMountableResourceResolver>(MockBehavior.Strict);
@@ -47,6 +186,8 @@ public sealed class OrleansAdapterContractTests
             "create-open" => () => adapter.CreateAndOpenAsync(root, "file", 0, 0, context, token).AsTask(),
             "clunk" => () => adapter.ClunkAsync(handle, context, token).AsTask(),
             "remove" => () => adapter.RemoveAsync(root, handle, context, token).AsTask(),
+            "wstat" => () => adapter.WStatAsync(root, ResourceWStat.Unchanged(), context, token).AsTask(),
+            "fwstat" => () => adapter.WStatOpenAsync(handle, ResourceWStat.Unchanged(), context, token).AsTask(),
             _ => throw new InvalidOperationException(),
         };
         await Assert.ThrowsAnyAsync<OperationCanceledException>(call);
@@ -66,6 +207,21 @@ public sealed class OrleansAdapterContractTests
         factory.VerifyNoOtherCalls();
         var channel = NamespaceChannel.Restore(new[] { new ChannelFrame("/", GatewayTestContext.Root) });
         await Assert.ThrowsAsync<NotSupportedException>(() => operations.OpenAsync(channel, 0, context));
+    }
+
+    [Fact]
+    public async Task CreateUsesTheProcessGroupSnapshotAndBindValidatesBeforeResolvingIt()
+    {
+        var test = new GatewayTestContext();
+        var operations = new DistributedNamespaceOperations(test.Factory.Object, test.Resources.Object);
+        var channel = NamespaceChannel.Restore(new[] { new ChannelFrame("/", GatewayTestContext.Root) });
+        test.Resources.Setup(r => r.CreateAsync(GatewayTestContext.Root, "new", true, default)).ReturnsAsync(GatewayTestContext.File);
+        Assert.Equal(GatewayTestContext.File, await operations.CreateAsync("group", channel, "new", true));
+        var factory = new Mock<IGrainFactory>(MockBehavior.Strict);
+        var guarded = new DistributedNamespaceOperations(factory.Object, test.Resources.Object);
+        await Assert.ThrowsAsync<ArgumentException>(() => guarded.BindAsync(" ", channel, GatewayTestContext.Root));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => guarded.BindAsync("group", channel, GatewayTestContext.Root, cancellationToken: new CancellationToken(true)));
+        factory.VerifyNoOtherCalls();
     }
 
     [Fact]

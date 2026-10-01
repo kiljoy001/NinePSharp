@@ -88,16 +88,17 @@ public sealed class NinePOrleansListener : BackgroundService
             while (!stoppingToken.IsCancellationRequested)
             {
                 TcpClient client = await listener.AcceptTcpClientAsync(stoppingToken);
-                if (connections.Count >= maxConnections)
+                if (connections.Count < maxConnections)
+                {
+                    client = ConfigureAcceptedClient(client);
+                    Task processing = processor.HandleClientAsync(client, endpoint, stoppingToken);
+                    connections.TryAdd(client, processing);
+                    _ = RemoveCompletedAsync(client, processing);
+                }
+                else
                 {
                     client.Dispose();
-                    continue;
                 }
-
-                client.NoDelay = true;
-                Task processing = processor.HandleClientAsync(client, endpoint, stoppingToken);
-                connections.TryAdd(client, processing);
-                _ = RemoveCompletedAsync(client, processing);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -107,24 +108,14 @@ public sealed class NinePOrleansListener : BackgroundService
         {
             listener.Stop();
             KeyValuePair<TcpClient, Task>[] active = connections.ToArray();
-            foreach (var connection in active)
-            {
-                connection.Key.Dispose();
-            }
-
             await Task.WhenAll(active.Select(static connection => connection.Value));
         }
     }
 
-    /// <inheritdoc/>
-    public override void Dispose()
+    internal static TcpClient ConfigureAcceptedClient(TcpClient client)
     {
-        base.Dispose();
-        listener.Stop();
-        foreach (TcpClient client in connections.Keys)
-        {
-            client.Dispose();
-        }
+        client.NoDelay = true;
+        return client;
     }
 
     private async Task RemoveCompletedAsync(TcpClient client, Task processing)

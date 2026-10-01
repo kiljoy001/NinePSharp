@@ -60,6 +60,37 @@ public sealed class GatewayProtocolTests
     }
 
     [Fact]
+    public async Task ConcurrentRequestsCannotReuseAnInFlightTag()
+    {
+        var test = new GatewayTestContext();
+        await test.OpenFileAsync();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        test.Resources.Setup(value => value.ReadAsync(It.IsAny<ResourceOpenHandle>(), It.IsAny<ulong>(), It.IsAny<uint>(), It.IsAny<CancellationToken>()))
+            .Returns(async (ResourceOpenHandle handle, ulong offset, uint count, CancellationToken token) =>
+            {
+                started.TrySetResult();
+                await release.Task;
+                return ReadOnlyMemory<byte>.Empty;
+            });
+        Task<object> first = test.SendAsync(NinePMessage.NewMsgTread(new Tread(50, 2, 0, 1)));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        try
+        {
+            var duplicate = Assert.IsType<Rerror>(await test.SendAsync(
+                NinePMessage.NewMsgTstat(new Tstat(50, 2))));
+            Assert.Equal((ushort)50, duplicate.Tag);
+            Assert.Contains("duplicate", duplicate.Ename);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await first.WaitAsync(TimeSpan.FromSeconds(1));
+            await test.Dispatcher.CloseSessionAsync("unit").WaitAsync(TimeSpan.FromSeconds(1));
+        }
+    }
+
+    [Fact]
     public async Task CloseWaitsForInitializingAttachAndCancelsIt()
     {
         var test = new GatewayTestContext();
@@ -188,6 +219,30 @@ public sealed class GatewayProtocolTests
         test.Resources.Verify(value => value.CreateAndOpenAsync(It.IsAny<ResourceHandle>(), "new", 0x1A4, NinePConstants.ORDWR,
             It.IsAny<ResourceOperationContext>(), It.IsAny<CancellationToken>()), Times.Once);
         await test.Dispatcher.CloseSessionAsync("unit");
+    }
+
+    [Fact]
+    public async Task ClassicCreateReturnsTheCreatedResourceAndIoUnit()
+    {
+        var test = new GatewayTestContext();
+        await test.SendAsync(NinePMessage.NewMsgTattach(
+            new Tattach(1, 1, NinePConstants.NoFid, "user", "/")));
+        test.Resources.Setup(value => value.CreateAndOpenAsync(
+                It.IsAny<ResourceHandle>(),
+                "new",
+                NinePConstants.Mode0600,
+                NinePConstants.ORDWR,
+                It.IsAny<ResourceOperationContext>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ResourceOpenHandle(GatewayTestContext.File, "new", NinePConstants.ORDWR, 99));
+
+        var created = Assert.IsType<Rcreate>(await test.SendAsync(NinePMessage.NewMsgTcreate(
+            new Tcreate(2, 1, "new", NinePConstants.Mode0600, NinePConstants.ORDWR))));
+
+        Assert.Equal((ushort)2, created.Tag);
+        Assert.Equal(GatewayTestContext.File.Qid, created.Qid);
+        Assert.Equal(99U, created.Iounit);
+        await test.Dispatcher.CloseSessionAsync("unit").WaitAsync(TimeSpan.FromSeconds(1));
     }
 
     [Fact]

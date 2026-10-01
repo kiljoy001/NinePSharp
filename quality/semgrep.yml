@@ -6,9 +6,11 @@ rules:
       - csharp
     paths:
       include:
-        - NinePSharp.Client/**
-        - NinePSharp.Server/**
-        - NinePSharp.Server.Abstractions/**
+        - /NinePSharp.Client/**
+        - /NinePSharp.Server/**
+        - /NinePSharp.Server.Abstractions/**
+        - /NinePSharp.Namespaces/**
+        - /NinePSharp.Namespaces.Orleans/**
     pattern: lock (this) { ... }
 
   - id: ninepsharp-no-generic-exception
@@ -18,7 +20,9 @@ rules:
       - csharp
     paths:
       include:
-        - NinePSharp.Client/**
-        - NinePSharp.Server/**
-        - NinePSharp.Server.Abstractions/**
+        - /NinePSharp.Client/**
+        - /NinePSharp.Server/**
+        - /NinePSharp.Server.Abstractions/**
+        - /NinePSharp.Namespaces/**
+        - /NinePSharp.Namespaces.Orleans/**
     pattern: throw new Exception(...)

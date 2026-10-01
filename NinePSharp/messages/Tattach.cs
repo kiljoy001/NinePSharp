@@ -9,15 +9,15 @@ namespace NinePSharp.Messages;
 // size[4] Tattach tag[2] fid[4] afid[4] uname[s] aname[s]
 public readonly struct Tattach : ISerializable
 {
-    public uint Size {get;}
+    public uint Size { get; }
     public MessageTypes Type => MessageTypes.Tattach;
-    public ushort Tag {get;}
+    public ushort Tag { get; }
 
-    public uint Fid {get;}
-    public uint Afid {get;}
-    public string Uname {get;}
-    public string Aname {get;}
-    public uint? NUname {get;} // 9P2000.u extension
+    public uint Fid { get; }
+    public uint Afid { get; }
+    public string Uname { get; }
+    public string Aname { get; }
+    public uint? NUname { get; } // 9P2000.u extension
 
     public Tattach(ushort tag, uint fid, uint afid, string? uname, string? aname)
         : this(tag, fid, afid, uname, aname, null)
@@ -53,7 +53,6 @@ public readonly struct Tattach : ISerializable
         if (is9u && offset + 4 <= data.Length)
         {
             NUname = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
-            offset += 4;
         }
         else
         {
@@ -80,7 +79,6 @@ public readonly struct Tattach : ISerializable
         if (is9u && NUname.HasValue)
         {
             BinaryPrimitives.WriteUInt32LittleEndian(data.Slice(offset, 4), NUname.Value);
-            offset += 4;
         }
     }
 

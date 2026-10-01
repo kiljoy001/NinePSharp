@@ -8,7 +8,7 @@ public interface IMountableResourceResolver
 }
 
 /// <summary>Routes pure namespace data operations to mountable Orleans resource grains.</summary>
-public sealed class OrleansResourceOperations : IResourceDataOperations
+public sealed class OrleansResourceOperations : IResourceDataOperations, IResourceOpenStatOperations, IResourceWStatOperations
 {
     private readonly IMountableResourceResolver resolver;
 
@@ -65,10 +65,17 @@ public sealed class OrleansResourceOperations : IResourceDataOperations
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        ResourceOpenHandleModel result = await resolver.Resolve(resource.Identity.ToModel())
-            .OpenAsync(resource.ToModel(), mode, context.ToModel())
-            .WaitAsync(cancellationToken);
-        return result.ToDomain();
+        try
+        {
+            ResourceOpenHandleModel result = await resolver.Resolve(resource.Identity.ToModel())
+                .OpenAsync(resource.ToModel(), mode, context.ToModel())
+                .WaitAsync(cancellationToken);
+            return result.ToDomain();
+        }
+        catch (ResourceDirectoryRejectedGrainException rejected)
+        {
+            throw new ResourceDirectoryRejectedException(rejected.Message);
+        }
     }
 
     /// <inheritdoc/>
@@ -79,10 +86,17 @@ public sealed class OrleansResourceOperations : IResourceDataOperations
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        byte[] result = await resolver.Resolve(openHandle.Resource.Identity.ToModel())
-            .ReadAsync(openHandle.ToModel(), offset, count)
-            .WaitAsync(cancellationToken);
-        return result;
+        try
+        {
+            byte[] result = await resolver.Resolve(openHandle.Resource.Identity.ToModel())
+                .ReadAsync(openHandle.ToModel(), offset, count)
+                .WaitAsync(cancellationToken);
+            return result;
+        }
+        catch (ResourceDirectoryRejectedGrainException rejected)
+        {
+            throw new ResourceDirectoryRejectedException(rejected.Message);
+        }
     }
 
     /// <inheritdoc/>
@@ -112,6 +126,51 @@ public sealed class OrleansResourceOperations : IResourceDataOperations
     }
 
     /// <inheritdoc/>
+    public async ValueTask<ResourceStat> StatOpenAsync(ResourceOpenHandle handle, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var grain = resolver.Resolve(handle.Resource.Identity.ToModel()) as IOpenStatResourceGrain
+            ?? throw new NotSupportedException("Register an IOpenStatResourceGrain provider for retained-handle stat.");
+        return (await grain.StatOpenAsync(handle.ToModel()).WaitAsync(cancellationToken)).ToDomain();
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<uint> WStatAsync(ResourceHandle resource, ResourceWStat stat,
+        ResourceOperationContext context, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var grain = resolver.Resolve(resource.Identity.ToModel()) as IWStatResourceGrain
+            ?? throw new NotSupportedException("Register an IWStatResourceGrain provider for metadata mutation.");
+        try
+        {
+            return await grain.WStatAsync(resource.ToModel(), stat.ToModel(), context.ToModel())
+                .WaitAsync(cancellationToken);
+        }
+        catch (ResourceWStatRejectedGrainException rejected)
+        {
+            throw new ResourceWStatRejectedException(rejected.Message);
+        }
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<uint> WStatOpenAsync(ResourceOpenHandle handle, ResourceWStat stat,
+        ResourceOperationContext context, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var grain = resolver.Resolve(handle.Resource.Identity.ToModel()) as IWStatResourceGrain
+            ?? throw new NotSupportedException("Register an IWStatResourceGrain provider for retained-handle metadata mutation.");
+        try
+        {
+            return await grain.WStatOpenAsync(handle.ToModel(), stat.ToModel(), context.ToModel())
+                .WaitAsync(cancellationToken);
+        }
+        catch (ResourceWStatRejectedGrainException rejected)
+        {
+            throw new ResourceWStatRejectedException(rejected.Message);
+        }
+    }
+
+    /// <inheritdoc/>
     public async ValueTask<ResourceOpenHandle> CreateAndOpenAsync(
         ResourceHandle directory,
         string name,
@@ -121,10 +180,17 @@ public sealed class OrleansResourceOperations : IResourceDataOperations
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        ResourceOpenHandleModel result = await resolver.Resolve(directory.Identity.ToModel())
-            .CreateAndOpenAsync(directory.ToModel(), name, permissions, mode, context.ToModel())
-            .WaitAsync(cancellationToken);
-        return result.ToDomain();
+        try
+        {
+            ResourceOpenHandleModel result = await resolver.Resolve(directory.Identity.ToModel())
+                .CreateAndOpenAsync(directory.ToModel(), name, permissions, mode, context.ToModel())
+                .WaitAsync(cancellationToken);
+            return result.ToDomain();
+        }
+        catch (ResourceCreateRejectedGrainException rejected)
+        {
+            throw new ResourceCreateRejectedException(rejected.Message);
+        }
     }
 
     /// <inheritdoc/>

@@ -10,7 +10,7 @@ The proposed next-stage behavior is specified in the
 Those scenarios are specification-only; the transport described there is not yet
 implemented by this gateway.
 
-The proposed AngouriMath/WASM workload interface is specified in the
+The proposed future workload interface is specified in the
 [LibTab compute-job BDD contract](specifications/libtab-compute-jobs/README.md).
 It uses LibTab metadata and Plan 9 text controls over ordinary 9P files; those
 workloads and job lifecycle are also specification-only.
@@ -118,16 +118,25 @@ migration; fids themselves do not survive gateway failure or reconnect.
 
 Mutating provider calls receive `ResourceOperationContext`, including a stable
 operation ID. Providers must implement idempotency/replay validation and any
-necessary durable storage themselves; the gateway does not promise exactly-once
-execution. Orleans delivery failures and cancellation can leave the outcome of a
-mutation uncertain. `Tflush` cancels the gateway wait and orders replies so no old
+necessary durable storage themselves. For native wstat/fwstat, wrap
+`FileStatOperations` in `DurableFileStatOperations` with an
+`OrleansWStatRecoveryStore`. Its session-keyed journal is written before provider
+dispatch and stores the selected resource or retained open handle. A lost reply
+raises `WStatRecoveryPendingException`; `RecoverAsync` replays the exact request
+and operation identity, allowing the provider to return its durable original
+result without applying the mutation again. `ResourceWStatRejectedGrainException`
+is reserved for definite no-effect rejection and becomes a terminal rejected
+journal entry. Other Orleans failures remain pending. This protocol depends on
+provider idempotency and does not make an arbitrary grain method exactly-once.
+
+`Tflush` cancels the gateway wait and orders replies so no old
 reply follows `Rflush`; it is not rollback or preemption of a running grain call.
 Providers owning handles need bounded lifetimes/leases as well as idempotent clunk
 to recover from client/gateway failure or interrupted open/create calls.
 
 The hosted listener limits concurrent connections, not CPU work inside grains.
 Gas limits, deadlines inside workloads, and resource quotas belong to the provider.
-No AngouriMath execution provider is included in this integration.
+Workload execution providers are outside the current Plan 9 namespace milestone.
 
 ## Protocol boundary and verification
 

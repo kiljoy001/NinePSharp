@@ -61,7 +61,7 @@ public sealed class NamespaceSyscalls
         ArgumentNullException.ThrowIfNull(process);
         NamespaceChannel source = await ResolveAsync(process, name, crossFinalMount: true, cancellationToken: cancellationToken);
         NamespaceChannel target = await ResolveAsync(process, old, crossFinalMount: false, cancellationToken: cancellationToken);
-        return process.ProcessGroup.MountTable.Mount(source, target.Current, flags);
+        return await process.ProcessGroup.MountTable.MountAsync(source, target.Current, flags, cancellationToken: cancellationToken);
     }
 
     /// <summary>Mounts an authenticated read-write service descriptor onto a target path.</summary>
@@ -89,11 +89,11 @@ public sealed class NamespaceSyscalls
         }
 
         NamespaceChannel target = await ResolveAsync(process, old, crossFinalMount: false, cancellationToken: cancellationToken);
-        MountBinding binding = process.ProcessGroup.MountTable.Mount(
+        MountBinding binding = await process.ProcessGroup.MountTable.MountAsync(
             source.Root.Current,
             target.Current,
             flags,
-            source.AttachName);
+            source.AttachName, cancellationToken);
         if (source.CloseAsync is not null)
         {
             await source.CloseAsync();
@@ -114,7 +114,7 @@ public sealed class NamespaceSyscalls
         ResourceHandle? mounted = name is null
             ? null
             : (await ResolveAsync(process, name, crossFinalMount: true, cancellationToken: cancellationToken)).Current;
-        process.ProcessGroup.MountTable.Unmount(target.Current, mounted);
+        await process.ProcessGroup.MountTable.UnmountAsync(target.Current, mounted, cancellationToken);
     }
 
     private async ValueTask<NamespaceChannel> ResolveAsync(
@@ -127,34 +127,22 @@ public sealed class NamespaceSyscalls
         NamespaceChannel channel = path.StartsWith("/", StringComparison.Ordinal)
             ? process.Root.Clone()
             : process.CurrentDirectory.Clone();
-        string[] names = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (!crossFinalMount && names.Length > 0)
-        {
-            string finalName = names[^1];
-            string[] parentNames = names[..^1];
-            NamespaceWalkResult parent = await new NamespaceNavigator(process.ProcessGroup.MountTable, resources)
-                .WalkAsync(channel, parentNames, cancellationToken);
-            if (!parent.Complete(parentNames.Length))
-            {
-                throw new NamespaceException(NamespaceError.ResourceNotFound, "The namespace path could not be resolved.");
-            }
-
-            ResourceHandle? final = await resources.WalkAsync(parent.Channel.Current, finalName, cancellationToken);
-            if (final is null)
-            {
-                throw new NamespaceException(NamespaceError.ResourceNotFound, "The namespace path could not be resolved.");
-            }
-
-            NamespaceChannel target = parent.Channel.Clone();
-            target.Push(new ChannelFrame(finalName, final));
-            return target;
-        }
+        // Like parsename, discard dot elements without collapsing dot-dot across
+        // mount boundaries. A trailing dot must not turn Amount into Abind.
+        string[] names = path.Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .Where(name => name != ".").ToArray();
 
         NamespaceWalkResult result = await new NamespaceNavigator(process.ProcessGroup.MountTable, resources)
-            .WalkAsync(channel, names, cancellationToken);
+            .WalkAsync(channel, names, crossFinalMount, cancellationToken);
         if (!result.Complete(names.Length))
         {
             throw new NamespaceException(NamespaceError.ResourceNotFound, "The namespace path could not be resolved.");
+        }
+
+        if ((path.EndsWith("/", StringComparison.Ordinal) || path.EndsWith("/.", StringComparison.Ordinal))
+            && !result.Channel.Current.IsDirectory)
+        {
+            throw new NamespaceException(NamespaceError.ResourceNotDirectory, "The namespace path is not a directory.");
         }
 
         return result.Channel;

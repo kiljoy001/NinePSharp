@@ -18,7 +18,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Tstatfs>(size, tag,
             buffer => new Tstatfs(buffer),
             msg => { Assert.Equal(fid, msg.Fid); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tstatfs);
                 int offset = NinePConstants.HeaderSize;
@@ -36,7 +37,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rstatfs>(size, tag,
             buffer => new Rstatfs(buffer),
             msg => { Assert.Equal(1u, msg.FsType); Assert.Equal(4096u, msg.BSize); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rstatsfs);
                 int offset = NinePConstants.HeaderSize;
@@ -64,7 +66,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Tlopen>(size, tag,
             buffer => new Tlopen(buffer),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(flags, msg.Flags); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tlopen);
                 int offset = NinePConstants.HeaderSize;
@@ -85,7 +88,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rlopen>(size, tag,
             buffer => new Rlopen(buffer),
             msg => { Assert.Equal(qid.Type, msg.Qid.Type); Assert.Equal(iounit, msg.Iounit); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.RLopen);
                 int offset = NinePConstants.HeaderSize;
@@ -109,7 +113,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Tlcreate>(size, tag,
             buffer => new Tlcreate(buffer),
             msg => { Assert.Equal(name, msg.Name); Assert.Equal(flags, msg.Flags); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tlcreate);
                 int offset = NinePConstants.HeaderSize;
@@ -133,7 +138,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rlcreate>(size, tag,
             buffer => new Rlcreate(buffer),
             msg => { Assert.Equal(qid.Path, msg.Qid.Path); Assert.Equal(iounit, msg.Iounit); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rlcreate);
                 int offset = NinePConstants.HeaderSize;
@@ -156,7 +162,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Tsymlink>(size, tag,
             buffer => new Tsymlink(buffer),
             msg => { Assert.Equal(name, msg.Name); Assert.Equal(symtgt, msg.Symtgt); Assert.Equal(gid, msg.Gid); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tsymlink);
                 int offset = NinePConstants.HeaderSize;
@@ -178,7 +185,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rsymlink>(size, tag,
             buffer => new Rsymlink(buffer),
             msg => { Assert.Equal(qid.Version, msg.Qid.Version); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rsymlink);
                 int offset = NinePConstants.HeaderSize;
@@ -202,7 +210,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Tmknod>(size, tag,
             buffer => new Tmknod(buffer),
             msg => { Assert.Equal(name, msg.Name); Assert.Equal(minor, msg.Minor); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tmknod);
                 int offset = NinePConstants.HeaderSize;
@@ -226,7 +235,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rmknod>(size, tag,
             buffer => new Rmknod(buffer),
             msg => { Assert.Equal(qid.Path, msg.Qid.Path); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rmknod);
                 int offset = NinePConstants.HeaderSize;
@@ -247,7 +257,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Trename>(size, tag,
             buffer => new Trename(buffer),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(name, msg.Name); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Trename);
                 int offset = NinePConstants.HeaderSize;
@@ -267,7 +278,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rrename>(size, tag,
             buffer => new Rrename(buffer),
             msg => { Assert.Equal(tag, msg.Tag); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rrename);
                 return new Rrename(buf);
@@ -284,7 +296,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Treadlink>(size, tag,
             buffer => new Treadlink(buffer),
             msg => { Assert.Equal(fid, msg.Fid); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Treadlink);
                 int offset = NinePConstants.HeaderSize;
@@ -303,7 +316,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rreadlink>(size, tag,
             buffer => new Rreadlink(buffer),
             msg => { Assert.Equal(target, msg.Target); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rreadlink);
                 int offset = NinePConstants.HeaderSize;
@@ -323,7 +337,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Tgetattr>(size, tag,
             buffer => new Tgetattr(buffer),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(requestMask, msg.RequestMask); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tgetattr);
                 int offset = NinePConstants.HeaderSize;
@@ -342,7 +357,8 @@ public class LinuxTests : TestBase
         RoundTripTest<NinePSharp.Messages.Rgetattr>(size, tag,
             buffer => new NinePSharp.Messages.Rgetattr(buffer),
             msg => { Assert.Equal(0x3FFFu, msg.Valid); Assert.Equal(1u, msg.Mode); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rgetattr);
                 int offset = NinePConstants.HeaderSize;
@@ -380,7 +396,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Tsetattr>(size, tag,
             buffer => new Tsetattr(buffer),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(1u, msg.Valid); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tsetattr);
                 int offset = NinePConstants.HeaderSize;
@@ -407,7 +424,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rsetattr>(size, tag,
             buffer => new Rsetattr(buffer),
             msg => { Assert.Equal(tag, msg.Tag); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rsetattr);
                 return new Rsetattr(buf);
@@ -426,7 +444,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Txattrwalk>(size, tag,
             buffer => new Txattrwalk(buffer),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(newfid, msg.NewFid); Assert.Equal(name, msg.Name); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Txattrwalk);
                 int offset = NinePConstants.HeaderSize;
@@ -447,7 +466,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rxattrwalk>(size, tag,
             buffer => new Rxattrwalk(buffer),
             msg => { Assert.Equal(xattrSize, msg.XattrSize); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rxattrwalk);
                 int offset = NinePConstants.HeaderSize;
@@ -469,7 +489,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Txattrcreate>(size, tag,
             buffer => new Txattrcreate(buffer),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(name, msg.Name); Assert.Equal(attrSize, msg.AttrSize); Assert.Equal(flags, msg.Flags); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Txattrcreate);
                 int offset = NinePConstants.HeaderSize;
@@ -490,7 +511,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rxattrcreate>(size, tag,
             buffer => new Rxattrcreate(buffer),
             msg => { Assert.Equal(tag, msg.Tag); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rxattrcreate);
                 return new Rxattrcreate(buf);
@@ -509,7 +531,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Treaddir>(size, tag,
             buffer => new Treaddir(buffer),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(offset_val, msg.Offset); Assert.Equal(count, msg.Count); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Treaddir);
                 int offset = NinePConstants.HeaderSize;
@@ -531,7 +554,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rreaddir>(size, tag,
             buffer => new Rreaddir(buffer),
             msg => { Assert.Equal(count, msg.Count); Assert.True(msg.Data.Span.SequenceEqual(data)); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rreaddir);
                 int offset = NinePConstants.HeaderSize;
@@ -552,7 +576,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Tfsync>(size, tag,
             buffer => new Tfsync(buffer),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(datasync, msg.Datasync); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tfsync);
                 int offset = NinePConstants.HeaderSize;
@@ -571,7 +596,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rfsync>(size, tag,
             buffer => new Rfsync(buffer),
             msg => { Assert.Equal(tag, msg.Tag); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rfsync);
                 return new Rfsync(buf);
@@ -594,7 +620,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Tlock>(size, tag,
             buffer => new Tlock(buffer),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(lockType, msg.LockType); Assert.Equal(clientId, msg.ClientId); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tlock);
                 int offset = NinePConstants.HeaderSize;
@@ -619,7 +646,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rlock>(size, tag,
             buffer => new Rlock(buffer),
             msg => { Assert.Equal(status, msg.Status); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rlock);
                 buf[NinePConstants.HeaderSize] = status;
@@ -642,7 +670,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Tgetlock>(size, tag,
             buffer => new Tgetlock(buffer),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(start, msg.Start); Assert.Equal(clientId, msg.ClientId); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tgetlock);
                 int offset = NinePConstants.HeaderSize;
@@ -670,7 +699,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rgetlock>(size, tag,
             buffer => new Rgetlock(buffer),
             msg => { Assert.Equal(lockType, msg.LockType); Assert.Equal(start, msg.Start); Assert.Equal(clientId, msg.ClientId); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rgetlock);
                 int offset = NinePConstants.HeaderSize;
@@ -695,7 +725,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Tlink>(size, tag,
             buffer => new Tlink(buffer),
             msg => { Assert.Equal(dfid, msg.Dfid); Assert.Equal(fid, msg.Fid); Assert.Equal(name, msg.Name); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tlink);
                 int offset = NinePConstants.HeaderSize;
@@ -715,7 +746,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rlink>(size, tag,
             buffer => new Rlink(buffer),
             msg => { Assert.Equal(tag, msg.Tag); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rlink);
                 return new Rlink(buf);
@@ -735,7 +767,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Tmkdir>(size, tag,
             buffer => new Tmkdir(buffer),
             msg => { Assert.Equal(dfid, msg.Dfid); Assert.Equal(name, msg.Name); Assert.Equal(mode, msg.Mode); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tmkdir);
                 int offset = NinePConstants.HeaderSize;
@@ -757,7 +790,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rmkdir>(size, tag,
             buffer => new Rmkdir(buffer),
             msg => { Assert.Equal(qid.Version, msg.Qid.Version); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rmkdir);
                 int offset = NinePConstants.HeaderSize;
@@ -779,7 +813,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Trenameat>(size, tag,
             buffer => new Trenameat(buffer),
             msg => { Assert.Equal(oldDirFid, msg.OldDirFid); Assert.Equal(newName, msg.NewName); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Trenameat);
                 int offset = NinePConstants.HeaderSize;
@@ -800,7 +835,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rrenameat>(size, tag,
             buffer => new Rrenameat(buffer),
             msg => { Assert.Equal(tag, msg.Tag); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Rrenameat);
                 return new Rrenameat(buf);
@@ -819,7 +855,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Tunlinkat>(size, tag,
             buffer => new Tunlinkat(buffer),
             msg => { Assert.Equal(dirFd, msg.DirFd); Assert.Equal(name, msg.Name); Assert.Equal(flags, msg.Flags); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Tunlinkat);
                 int offset = NinePConstants.HeaderSize;
@@ -839,7 +876,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Runlinkat>(size, tag,
             buffer => new Runlinkat(buffer),
             msg => { Assert.Equal(tag, msg.Tag); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.WriteHeaders(size, tag, MessageTypes.Runlinkat);
                 return new Runlinkat(buf);
@@ -856,7 +894,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Tflush>(size, tag,
             buffer => new Tflush(buffer),
             msg => { Assert.Equal(oldTag, msg.OldTag); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.AsSpan().WriteHeaders(size, tag, MessageTypes.Tflush);
                 int offset = NinePConstants.HeaderSize;
@@ -874,7 +913,8 @@ public class LinuxTests : TestBase
         RoundTripTest<Rflush>(size, tag,
             buffer => new Rflush(buffer),
             msg => { Assert.Equal(tag, msg.Tag); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.AsSpan().WriteHeaders(size, tag, MessageTypes.Rflush);
                 return new Rflush(buf);

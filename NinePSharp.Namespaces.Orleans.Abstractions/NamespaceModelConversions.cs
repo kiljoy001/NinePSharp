@@ -37,11 +37,11 @@ public static class NamespaceModelConversions
 
     /// <summary>Converts an open handle to its wire model.</summary>
     public static ResourceOpenHandleModel ToModel(this ResourceOpenHandle value)
-        => new(value.Resource.ToModel(), value.HandleId, value.Mode, value.IoUnit);
+        => new(value.Resource.ToModel(), value.HandleId, value.Mode, value.IoUnit, value.IsMountTransport);
 
     /// <summary>Converts an open handle from its wire model.</summary>
     public static ResourceOpenHandle ToDomain(this ResourceOpenHandleModel value)
-        => new(value.Resource.ToDomain(), value.HandleId, value.Mode, value.IoUnit);
+        => new(value.Resource.ToDomain(), value.HandleId, value.Mode, value.IoUnit, value.IsMountTransport);
 
     /// <summary>Converts resource metadata to its wire model.</summary>
     public static ResourceStatModel ToModel(this ResourceStat value)
@@ -68,6 +68,78 @@ public static class NamespaceModelConversions
             value.User,
             value.Group,
             value.LastModifier);
+
+    /// <summary>Converts a metadata update to its wire model without changing sentinels.</summary>
+    public static ResourceWStatModel ToModel(this ResourceWStat value)
+        => new(
+            value.Type,
+            value.Device,
+            value.Qid.Type,
+            value.Qid.Version,
+            value.Qid.Path,
+            value.Mode,
+            value.AccessTime,
+            value.ModificationTime,
+            value.Length,
+            value.Name,
+            value.User,
+            value.Group,
+            value.LastModifier,
+            value.EncodedLength);
+
+    /// <summary>Converts a metadata update from its wire model without changing sentinels.</summary>
+    public static ResourceWStat ToDomain(this ResourceWStatModel value)
+        => new(
+            value.Type,
+            value.Device,
+            new NinePSharp.Constants.Qid(value.QidType, value.QidVersion, value.QidPath),
+            value.Mode,
+            value.AccessTime,
+            value.ModificationTime,
+            value.Length,
+            value.Name,
+            value.User,
+            value.Group,
+            value.LastModifier,
+            value.EncodedLength);
+
+    /// <summary>Converts a saved wstat request to its wire model.</summary>
+    public static WStatRecoveryRequestModel ToModel(this WStatRecoveryRequest value)
+        => new(
+            value.Context.ToModel(),
+            value.Resource.ToModel(),
+            value.OpenHandle?.ToModel(),
+            value.Stat.ToArray(),
+            value.Fingerprint);
+
+    /// <summary>Converts a saved wstat request from its wire model and verifies its fingerprint.</summary>
+    public static WStatRecoveryRequest ToDomain(this WStatRecoveryRequestModel value)
+    {
+        if (value.OpenHandle is not null && value.OpenHandle.Resource != value.Resource)
+            throw new InvalidDataException("The durable wstat open handle identifies a different resource.");
+        WStatRecoveryRequest request = value.OpenHandle is null
+            ? WStatRecoveryRequest.ForResource(value.Resource.ToDomain(), value.Stat, value.Context.ToDomain())
+            : WStatRecoveryRequest.ForOpenHandle(value.OpenHandle.ToDomain(), value.Stat, value.Context.ToDomain());
+        if (!string.Equals(request.Fingerprint, value.Fingerprint, StringComparison.Ordinal))
+            throw new InvalidDataException("The durable wstat request fingerprint is invalid.");
+        return request;
+    }
+
+    /// <summary>Converts a durable wstat journal entry to its wire model.</summary>
+    public static WStatRecoveryRecordModel ToModel(this WStatRecoveryRecord value)
+        => new(value.Request.ToModel(), (WStatRecoveryStateModel)value.State, value.Result, value.Error);
+
+    /// <summary>Converts a durable wstat journal entry from its wire model.</summary>
+    public static WStatRecoveryRecord ToDomain(this WStatRecoveryRecordModel value)
+    {
+        if (!Enum.IsDefined(value.State))
+            throw new InvalidDataException("The durable wstat recovery state is invalid.");
+        return new WStatRecoveryRecord(
+            value.Request.ToDomain(),
+            (WStatRecoveryState)value.State,
+            value.Result,
+            value.Error);
+    }
 
     /// <summary>Converts a mount binding to its wire model.</summary>
     public static MountBindingModel ToModel(this MountBinding value)

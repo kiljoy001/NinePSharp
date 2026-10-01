@@ -41,7 +41,8 @@ public sealed record ResourceOpenHandleModel(
     [property: Id(0)] ResourceHandleModel Resource,
     [property: Id(1)] string HandleId,
     [property: Id(2)] byte Mode,
-    [property: Id(3)] uint IoUnit);
+    [property: Id(3)] uint IoUnit,
+    [property: Id(4)] bool IsMountTransport = false);
 
 /// <summary>Serializable provider-neutral metadata for a 9P stat response.</summary>
 [GenerateSerializer]
@@ -55,6 +56,54 @@ public sealed record ResourceStatModel(
     [property: Id(6)] string User,
     [property: Id(7)] string Group,
     [property: Id(8)] string LastModifier);
+
+/// <summary>Serializable exact-width Plan 9 metadata update.</summary>
+[GenerateSerializer]
+public sealed record ResourceWStatModel(
+    [property: Id(0)] ushort Type,
+    [property: Id(1)] uint Device,
+    [property: Id(2)] QidType QidType,
+    [property: Id(3)] uint QidVersion,
+    [property: Id(4)] ulong QidPath,
+    [property: Id(5)] uint Mode,
+    [property: Id(6)] uint AccessTime,
+    [property: Id(7)] uint ModificationTime,
+    [property: Id(8)] ulong Length,
+    [property: Id(9)] string Name,
+    [property: Id(10)] string User,
+    [property: Id(11)] string Group,
+    [property: Id(12)] string LastModifier,
+    [property: Id(13)] uint EncodedLength);
+
+/// <summary>The durable resolution state of an admitted metadata mutation.</summary>
+public enum WStatRecoveryStateModel
+{
+    /// <summary>The request may or may not have reached its provider.</summary>
+    Pending,
+
+    /// <summary>The provider result has been durably recorded.</summary>
+    Committed,
+
+    /// <summary>The provider definitively rejected the request without applying it.</summary>
+    Rejected,
+}
+
+/// <summary>The exact target and payload saved before a wstat provider dispatch.</summary>
+[GenerateSerializer]
+public sealed record WStatRecoveryRequestModel(
+    [property: Id(0)] ResourceOperationContextModel Context,
+    [property: Id(1)] ResourceHandleModel Resource,
+    [property: Id(2)] ResourceOpenHandleModel? OpenHandle,
+    [property: Id(3)] byte[] Stat,
+    [property: Id(4)] string Fingerprint);
+
+/// <summary>A serializable durable metadata-mutation journal entry.</summary>
+[GenerateSerializer]
+public sealed record WStatRecoveryRecordModel(
+    [property: Id(0)] WStatRecoveryRequestModel Request,
+    [property: Id(1)] WStatRecoveryStateModel State,
+    [property: Id(2)] uint? Result,
+    [property: Id(3)] string? Error);
 
 /// <summary>A serializable ordered mount member.</summary>
 [GenerateSerializer]

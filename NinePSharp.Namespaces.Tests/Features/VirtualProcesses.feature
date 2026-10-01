@@ -20,3 +20,13 @@ Feature: Virtual processes own Plan 9 process-group namespaces
     Given a parent virtual process with an existing mount
     And a child forked with an empty namespace
     Then the child has no mount at that resource
+
+  @NS_PROC_LIFETIME
+  Scenario: Terminating a parent preserves the shared child's namespace
+    Given a parent virtual process with an existing mount
+    And a child forked with a shared namespace
+    When the parent terminates
+    Then the child retains the original mounted resource
+    And the shared namespace has one owner
+    When the child terminates
+    Then the shared namespace is closed and empty

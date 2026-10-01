@@ -1,5 +1,43 @@
 namespace NinePSharp.Namespaces.Orleans;
 
+/// <summary>Optional resource capability for metadata on an already retained open instance.</summary>
+public interface IOpenStatResourceGrain : IMountableResourceGrain
+{
+    /// <summary>Stats the given open handle without pathname lookup or consuming it.</summary>
+    Task<ResourceStatModel> StatOpenAsync(ResourceOpenHandleModel handle);
+}
+
+/// <summary>Optional resource capability for atomic path and retained-handle metadata updates.</summary>
+public interface IWStatResourceGrain : IOpenStatResourceGrain
+{
+    /// <summary>Applies one exact-width update to a resolved resource.</summary>
+    Task<uint> WStatAsync(ResourceHandleModel resource, ResourceWStatModel stat,
+        ResourceOperationContextModel context);
+
+    /// <summary>Applies one exact-width update through a retained open handle.</summary>
+    Task<uint> WStatOpenAsync(ResourceOpenHandleModel handle, ResourceWStatModel stat,
+        ResourceOperationContextModel context);
+}
+
+/// <summary>Owns the durable wstat recovery journal for one session epoch.</summary>
+public interface IWStatRecoveryJournalGrain : IGrainWithStringKey
+{
+    /// <summary>Durably admits a request or returns its matching existing entry.</summary>
+    Task<WStatRecoveryRecordModel> BeginAsync(WStatRecoveryRequestModel request);
+
+    /// <summary>Returns one admitted operation, or null when it does not exist.</summary>
+    Task<WStatRecoveryRecordModel?> GetAsync(ulong sequence);
+
+    /// <summary>Returns unresolved entries in operation order.</summary>
+    Task<WStatRecoveryRecordModel[]> GetPendingAsync();
+
+    /// <summary>Records a provider result for the matching admitted request.</summary>
+    Task CommitAsync(ulong sequence, string fingerprint, uint result);
+
+    /// <summary>Records a definite provider rejection for the matching admitted request.</summary>
+    Task RejectAsync(ulong sequence, string fingerprint, string error);
+}
+
 /// <summary>Owns the durable mount table shared by one or more virtual processes.</summary>
 public interface IVProcessGroupGrain : IGrainWithStringKey
 {
@@ -92,7 +130,12 @@ public interface IMountableResourceGrain : IGrainWithStringKey
     /// <summary>Reads metadata for a resource.</summary>
     Task<ResourceStatModel> StatAsync(ResourceHandleModel resource);
 
-    /// <summary>Creates and opens a child atomically with its idempotency record.</summary>
+    /// <summary>
+    /// Creates an absent child atomically with its idempotency record; existing names
+    /// fail without truncation. A definite rejection uses ResourceCreateRejectedGrainException.
+    /// Transport/storage uncertainty must not be reported as a definite rejection.
+    /// Replaying a completed create returns its original handle.
+    /// </summary>
     Task<ResourceOpenHandleModel> CreateAndOpenAsync(
         ResourceHandleModel directory,
         string name,

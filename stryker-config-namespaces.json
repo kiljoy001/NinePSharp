@@ -9,10 +9,21 @@
       "MountTable.cs",
       "NamespaceDataPlane.cs",
       "NamespaceNavigation.cs",
+      "NamespaceSession.cs",
+      "NamespaceControlResource.cs",
       "NamespaceSyscalls.cs",
       "ResourceDataOperations.cs",
       "ResourceHandle.cs",
-      "VirtualProcesses.cs"
+      "VirtualProcesses.cs",
+      "DescriptorGroup.cs",
+      "Plan9FileSyscalls.cs",
+      "Plan9CreateRequest.cs",
+      "DirectoryCursor.cs",
+      "DirectoryStreams.cs",
+      "DirectoryMounts.cs",
+      "DirectoryStatOperations.cs",
+      "FileStatOperations.cs",
+      "WStatRecovery.cs"
     ],
     "mutation-level": "Standard",
     "ignore-mutations": [
@@ -24,9 +35,9 @@
       "json"
     ],
     "thresholds": {
-      "high": 95,
-      "low": 90,
-      "break": 90
+      "high": 100,
+      "low": 100,
+      "break": 100
     },
     "concurrency": 4
   }

@@ -17,7 +17,8 @@ public class MetadataTests : TestBase
         RoundTripTest<Tstat>(size, tag,
             buffer => new Tstat(buffer),
             msg => { Assert.Equal(fid, msg.Fid); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.AsSpan().WriteHeaders(size, tag, MessageTypes.Tstat);
                 int offset = NinePConstants.HeaderSize;
@@ -36,7 +37,8 @@ public class MetadataTests : TestBase
         RoundTripTest<Rstat>(size, tag,
             buffer => new Rstat(buffer),
             msg => { Assert.Equal(stat.Name, msg.Stat.Name); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.AsSpan().WriteHeaders(size, tag, MessageTypes.Rstat);
                 int offset = NinePConstants.HeaderSize;
@@ -58,7 +60,8 @@ public class MetadataTests : TestBase
         RoundTripTest<Twstat>(size, tag,
             buffer => new Twstat(buffer),
             msg => { Assert.Equal(fid, msg.Fid); Assert.Equal(stat.Name, msg.Stat.Name); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.AsSpan().WriteHeaders(size, tag, MessageTypes.Twstat);
                 int offset = NinePConstants.HeaderSize;
@@ -78,7 +81,8 @@ public class MetadataTests : TestBase
         RoundTripTest<Rwstat>(size, tag,
             buffer => new Rwstat(buffer),
             msg => { Assert.Equal(tag, msg.Tag); },
-            () => {
+            () =>
+            {
                 var buf = new byte[size];
                 buf.AsSpan().WriteHeaders(size, tag, MessageTypes.Rwstat);
                 return new Rwstat(buf);

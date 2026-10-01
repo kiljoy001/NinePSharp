@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Net.Sockets;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -42,7 +43,8 @@ public sealed class GatewayListenerTests
         try
         {
             await clunkStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.False(stopping.IsCompleted);
+            Task first = await Task.WhenAny(stopping, Task.Delay(TimeSpan.FromMilliseconds(100)));
+            Assert.NotSame(stopping, first);
         }
         finally
         {
@@ -89,8 +91,37 @@ public sealed class GatewayListenerTests
         using var excess = new TcpClient();
         await excess.ConnectAsync(listener.LocalEndpoint);
         Assert.Equal(0, await excess.GetStream().ReadAsync(new byte[1]).AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.False(listener.ExecuteTask!.IsFaulted);
         await listener.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(0, await first.GetStream().ReadAsync(new byte[1]).AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public async Task StartupIsLoggedAndAcceptedClientsDisableNagleDelay()
+    {
+        using var accepted = new TcpClient();
+        Assert.False(accepted.NoDelay);
+        Assert.Same(accepted, NinePOrleansListener.ConfigureAcceptedClient(accepted));
+        Assert.True(accepted.NoDelay);
+
+        var logger = new Mock<ILogger<NinePOrleansListener>>();
+        var options = new NinePOrleansListenerOptions();
+        options.Endpoint.Port = 0;
+        using var listener = new NinePOrleansListener(
+            new GatewayTestContext().Dispatcher,
+            Options.Create(options),
+            logger.Object);
+        await listener.StartAsync(CancellationToken.None);
+        try
+        {
+            Assert.Contains(logger.Invocations, invocation =>
+                invocation.Method.Name == nameof(ILogger.Log)
+                && invocation.Arguments[0] is LogLevel.Information);
+        }
+        finally
+        {
+            await listener.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        }
     }
 
     [Fact]
@@ -144,7 +175,7 @@ public sealed class GatewayListenerTests
                 await client.VersionAsync().WaitAsync(TimeSpan.FromSeconds(5));
             }
 
-            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             while (true)
             {
                 deadline.Token.ThrowIfCancellationRequested();

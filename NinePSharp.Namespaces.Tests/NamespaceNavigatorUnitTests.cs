@@ -81,7 +81,7 @@ public sealed class NamespaceNavigatorUnitTests
         await Assert.ThrowsAsync<ArgumentNullException>(
             async () => await navigator.ReadDirectoryAsync(null!));
         await Assert.ThrowsAsync<ArgumentNullException>(
-            async () => await navigator.CreateAsync(null!, "name", false));
+            async () => await navigator.CreateAsync(null!, " ", false));
         await Assert.ThrowsAsync<ArgumentException>(
             async () => await navigator.CreateAsync(channel, " ", false));
 

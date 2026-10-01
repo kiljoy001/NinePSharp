@@ -1,11 +1,24 @@
 {
   "stryker-config": {
     "project": "NinePSharp.Namespaces.Orleans.Server.csproj",
-    "test-projects": ["NinePSharp.Namespaces.Orleans.Tests.csproj"],
-    "mutate": ["DistributedNamespaceDispatcher.cs", "NinePOrleansListener.cs", "NinePOrleansServiceCollectionExtensions.cs"],
+    "test-projects": [
+      "NinePSharp.Namespaces.Orleans.Tests.csproj"
+    ],
+    "mutate": [
+      "DistributedNamespaceDispatcher.cs",
+      "NinePOrleansListener.cs",
+      "NinePOrleansServiceCollectionExtensions.cs"
+    ],
     "mutation-level": "Standard",
-    "ignore-mutations": ["String"],
-    "thresholds": { "high": 95, "low": 90, "break": 90 },
+    "ignore-mutations": [
+      "String"
+    ],
+    "thresholds": {
+      "high": 100,
+      "low": 100,
+      "break": 100
+    },
+    "additional-timeout": 30000,
     "concurrency": 4
   }
 }

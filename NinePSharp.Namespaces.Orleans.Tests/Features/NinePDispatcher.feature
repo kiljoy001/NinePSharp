@@ -56,9 +56,14 @@ Feature: A Plan 9 client uses the distributed namespace dispatcher
     Then 9P2000.L returns tag 20 with operation not supported
 
     Examples:
-      | operation |
-      | fsync     |
-      | unlinkat  |
+      | operation  |
+      | symlink    |
+      | rename     |
+      | readlink   |
+      | xattrwalk  |
+      | fsync      |
+      | link       |
+      | unlinkat   |
 
   Scenario: 9P2000.L version negotiation retains the dialect
     Given a distributed 9P2000.L dispatcher and attached fid 1

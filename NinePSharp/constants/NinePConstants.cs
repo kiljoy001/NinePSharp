@@ -22,8 +22,12 @@ public static class NinePConstants
     public const byte OEXEC = 0x03;
     /// <summary>Truncate the file on open</summary>
     public const byte OTRUNC = 0x10;
+    /// <summary>Close the file descriptor on a successful exec boundary</summary>
+    public const byte OCEXEC = 0x20;
     /// <summary>Remove the file when its fid is clunked</summary>
     public const byte ORCLOSE = 0x40;
+    /// <summary>Fail create when the named resource already exists</summary>
+    public const ushort OEXCL = 0x1000;
 
     /// <summary>Empty directory length</summary>
     public const uint DirLength = 0; // Empty directory length
