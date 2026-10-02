@@ -1,19 +1,13 @@
-namespace NinePSharp.Messages;
-
 using System;
 using System.Buffers.Binary;
 using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
+namespace NinePSharp.Messages;
+
 public readonly struct Rlcreate : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Rlcreate;
-    public ushort Tag { get; }
-    public Qid Qid { get; }
-    public uint Iounit { get; }
-
     public Rlcreate(uint size, ushort tag, Qid qid, uint iounit)
     {
         Size = size;
@@ -30,6 +24,16 @@ public readonly struct Rlcreate : ISerializable
         Qid = data.ReadQid(ref offset);
         Iounit = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Rlcreate;
+
+    public ushort Tag { get; }
+
+    public Qid Qid { get; }
+
+    public uint Iounit { get; }
 
     public void WriteTo(Span<byte> span)
     {

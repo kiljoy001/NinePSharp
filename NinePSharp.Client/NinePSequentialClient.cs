@@ -19,7 +19,11 @@ public sealed class NinePSequentialClient : IAsyncDisposable
     public NinePSequentialClient(Stream stream, uint maximumMessageSize = 8192)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        if (maximumMessageSize < 256 || maximumMessageSize > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(maximumMessageSize));
+        if (maximumMessageSize < 256 || maximumMessageSize > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumMessageSize));
+        }
+
         this.stream = stream;
         this.maximumMessageSize = maximumMessageSize;
         messageSize = maximumMessageSize;
@@ -35,18 +39,24 @@ public sealed class NinePSequentialClient : IAsyncDisposable
             await DisposeAsync().ConfigureAwait(false);
             throw new IOException("Invalid 9P negotiation.");
         }
+
         messageSize = version.MSize;
         negotiated = true;
     }
 
-    public async Task<T> ExchangeAsync<T>(Func<ushort, ISerializable> createRequest, CancellationToken cancellationToken) where T : struct, ISerializable
+    public async Task<T> ExchangeAsync<T>(Func<ushort, ISerializable> createRequest, CancellationToken cancellationToken)
+        where T : struct, ISerializable
     {
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref terminated) != 0, this);
             ushort tag = typeof(T) == typeof(Rversion) ? (ushort)65535 : nextTag++;
-            if (nextTag == 65535) nextTag = 0;
+            if (nextTag == 65535)
+            {
+                nextTag = 0;
+            }
+
             byte[] frame = SerializeRequest(createRequest(tag), tag);
             object parsed;
             try
@@ -59,37 +69,30 @@ public sealed class NinePSequentialClient : IAsyncDisposable
                 await DisposeAsync().ConfigureAwait(false);
                 throw;
             }
-            if (parsed is Rerror error) throw new NinePException(error.Ename);
+
+            if (parsed is Rerror error)
+            {
+                throw new NinePException(error.Ename);
+            }
+
             return (T)parsed;
         }
-        finally { gate.Release(); }
+        finally
+        {
+            gate.Release();
+        }
     }
 
-    private byte[] SerializeRequest(ISerializable request, ushort tag)
+    public async ValueTask DisposeAsync()
     {
-        if (!negotiated && request.Type != MessageTypes.Tversion) throw new InvalidOperationException("Negotiate before exchanging requests.");
-        if (request.Tag != tag || request.Size < 7 || request.Size > messageSize) throw new ArgumentException("Invalid request frame.");
-        byte[] frame = new byte[request.Size];
-        request.WriteTo(frame);
-        return frame;
+        if (Interlocked.Exchange(ref terminated, 1) == 0)
+        {
+            await stream.DisposeAsync().ConfigureAwait(false);
+        }
     }
 
-    private async Task<byte[]> RoundTripAsync(byte[] frame, ushort tag, CancellationToken cancellationToken)
-    {
-        await stream.WriteAsync(frame, cancellationToken).ConfigureAwait(false);
-        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-        byte[] header = new byte[7];
-        await stream.ReadExactlyAsync(header, cancellationToken).ConfigureAwait(false);
-        uint size = BinaryPrimitives.ReadUInt32LittleEndian(header);
-        if (size < 7 || size > messageSize || BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(5)) != tag)
-            throw new IOException("Invalid response frame.");
-        byte[] response = new byte[size];
-        header.CopyTo(response, 0);
-        await stream.ReadExactlyAsync(response.AsMemory(7), cancellationToken).ConfigureAwait(false);
-        return response;
-    }
-
-    private static object ParseResponse<T>(byte[] response) where T : struct, ISerializable
+    private static object ParseResponse<T>(byte[] response)
+        where T : struct, ISerializable
     {
         object parsed = (MessageTypes)response[4] switch
         {
@@ -103,13 +106,46 @@ public sealed class NinePSequentialClient : IAsyncDisposable
         ISerializable serializable = (ISerializable)parsed;
         byte[] canonical = new byte[serializable.Size];
         serializable.WriteTo(canonical);
-        if (!response.AsSpan().SequenceEqual(canonical) || parsed is not T && parsed is not Rerror)
+        if (!response.AsSpan().SequenceEqual(canonical) || (parsed is not T && parsed is not Rerror))
+        {
             throw new IOException("Noncanonical or mismatched 9P response.");
+        }
+
         return parsed;
     }
 
-    public async ValueTask DisposeAsync()
+    private byte[] SerializeRequest(ISerializable request, ushort tag)
     {
-        if (Interlocked.Exchange(ref terminated, 1) == 0) await stream.DisposeAsync().ConfigureAwait(false);
+        if (!negotiated && request.Type != MessageTypes.Tversion)
+        {
+            throw new InvalidOperationException("Negotiate before exchanging requests.");
+        }
+
+        if (request.Tag != tag || request.Size < 7 || request.Size > messageSize)
+        {
+            throw new ArgumentException("Invalid request frame.");
+        }
+
+        byte[] frame = new byte[request.Size];
+        request.WriteTo(frame);
+        return frame;
+    }
+
+    private async Task<byte[]> RoundTripAsync(byte[] frame, ushort tag, CancellationToken cancellationToken)
+    {
+        await stream.WriteAsync(frame, cancellationToken).ConfigureAwait(false);
+        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+        byte[] header = new byte[7];
+        await stream.ReadExactlyAsync(header, cancellationToken).ConfigureAwait(false);
+        uint size = BinaryPrimitives.ReadUInt32LittleEndian(header);
+        if (size < 7 || size > messageSize || BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(5)) != tag)
+        {
+            throw new IOException("Invalid response frame.");
+        }
+
+        byte[] response = new byte[size];
+        header.CopyTo(response, 0);
+        await stream.ReadExactlyAsync(response.AsMemory(7), cancellationToken).ConfigureAwait(false);
+        return response;
     }
 }

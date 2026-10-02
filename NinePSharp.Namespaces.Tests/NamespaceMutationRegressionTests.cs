@@ -16,7 +16,7 @@ public sealed class NamespaceMutationRegressionTests
         var mounts = new MountTable();
         var channel = NamespaceChannel.Restore(new[]
         {
-            new ChannelFrame("/", root, null, new[] { new MountBinding(1, MountFlags.Create, saved, "") }),
+            new ChannelFrame("/", root, null, new[] { new MountBinding(1, MountFlags.Create, saved, string.Empty) }),
         });
         mounts.Mount(live, root, MountFlags.Create);
         Assert.Equal(live, new NamespaceNavigator(mounts, resources).SelectCreateTarget(channel));
@@ -34,7 +34,7 @@ public sealed class NamespaceMutationRegressionTests
         var root = resources.Directory("root");
         var other = resources.Directory("other");
         Assert.Throws<ArgumentNullException>(() => table.Mount(null!, other, MountFlags.Replace, null, null));
-        Assert.Throws<ArgumentException>(() => table.Mount(root, other, MountFlags.Replace, null, new[] { new MountBinding(1, MountFlags.Replace, other, "") }));
+        Assert.Throws<ArgumentException>(() => table.Mount(root, other, MountFlags.Replace, null, new[] { new MountBinding(1, MountFlags.Replace, other, string.Empty) }));
     }
 
     [Fact]

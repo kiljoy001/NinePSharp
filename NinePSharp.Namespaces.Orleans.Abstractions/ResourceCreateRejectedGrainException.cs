@@ -4,6 +4,8 @@ namespace NinePSharp.Namespaces.Orleans;
 [GenerateSerializer]
 public sealed class ResourceCreateRejectedGrainException : Exception
 {
-    /// <summary>Initializes the provider's definite rejection.</summary>
-    public ResourceCreateRejectedGrainException(string message) : base(message) { }
+    public ResourceCreateRejectedGrainException(string message)
+        : base(message)
+    {
+    }
 }

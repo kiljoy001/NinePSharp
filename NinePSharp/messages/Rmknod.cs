@@ -1,18 +1,13 @@
-namespace NinePSharp.Messages;
-
 using System;
 using System.Buffers.Binary;
 using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
+namespace NinePSharp.Messages;
+
 public readonly struct Rmknod : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Rmknod;
-    public ushort Tag { get; }
-    public Qid Qid { get; }
-
     public Rmknod(uint size, ushort tag, Qid qid)
     {
         Size = size;
@@ -27,6 +22,14 @@ public readonly struct Rmknod : ISerializable
         int offset = NinePConstants.HeaderSize;
         Qid = data.ReadQid(ref offset);
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Rmknod;
+
+    public ushort Tag { get; }
+
+    public Qid Qid { get; }
 
     public void WriteTo(Span<byte> span)
     {

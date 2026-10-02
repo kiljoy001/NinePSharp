@@ -1,8 +1,8 @@
 using Moq;
 using NinePSharp.Constants;
 using NinePSharp.Messages;
-using NinePSharp.Parser;
 using NinePSharp.Namespaces.Orleans.Tests.Support;
+using NinePSharp.Parser;
 using Orleans;
 using Xunit;
 
@@ -101,9 +101,14 @@ public sealed class OrleansAdapterContractTests
 
         var uncertain = new IOException("reply lost");
         if (retained)
+        {
             grain.Setup(g => g.WStatOpenAsync(handle.ToModel(), update.ToModel(), context.ToModel())).ThrowsAsync(uncertain);
+        }
         else
+        {
             grain.Setup(g => g.WStatAsync(resource.ToModel(), update.ToModel(), context.ToModel())).ThrowsAsync(uncertain);
+        }
+
         Assert.Same(uncertain, await Assert.ThrowsAsync<IOException>(invoke));
     }
 

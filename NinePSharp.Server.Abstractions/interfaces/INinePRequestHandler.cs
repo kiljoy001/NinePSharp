@@ -5,22 +5,6 @@ using NinePSharp.Messages;
 namespace NinePSharp.Server.Interfaces;
 
 /// <summary>
-/// Handles authentication handshakes for 9P sessions.
-/// </summary>
-public interface IAuthHandler
-{
-    /// <summary>
-    /// Read from the auth channel.
-    /// </summary>
-    Task<byte[]> ReadAsync(ulong offset, uint count, CancellationToken ct);
-
-    /// <summary>
-    /// Write to the auth channel.
-    /// </summary>
-    Task<uint> WriteAsync(ulong offset, byte[] data, CancellationToken ct);
-}
-
-/// <summary>
 /// The universal host interface for 9P request handling.
 /// Implementation is focused on mirroring the simplicity of go9p.
 /// </summary>
@@ -88,15 +72,19 @@ public interface INinePRequestHandler
     Task<Rreaddir>? ReaddirAsync(string[] relativePath, Treaddir msg, CancellationToken ct);
 
     Task<Rsymlink> SymlinkAsync(string[] relativePath, Tsymlink msg, CancellationToken ct);
+
     Task<Rreadlink> ReadlinkAsync(string[] relativePath, Treadlink msg, CancellationToken ct);
+
     Task<Rlink> LinkAsync(string[] relativePath, Tlink msg, CancellationToken ct);
 
     // 9P2000.L Locking
     Task<Rlerror> LockAsync(string[] relativePath, Tlock msg, CancellationToken ct);
+
     Task<Rgetlock> GetlockAsync(string[] relativePath, Tgetlock msg, CancellationToken ct);
 
     // 9P2000.L Xattr
     Task<Rxattrwalk> XattrwalkAsync(string[] relativePath, Txattrwalk msg, CancellationToken ct);
+
     Task<Rxattrcreate> XattrcreateAsync(string[] relativePath, Txattrcreate msg, CancellationToken ct);
 
     Task<Rflush> FlushAsync(Tflush msg, CancellationToken ct);

@@ -10,24 +10,6 @@ namespace NinePSharp.Namespaces.Tests;
 
 public sealed class DirectoryCursorTests
 {
-    internal static Stat[] Decode(ReadOnlyMemory<byte> bytes)
-    {
-        var result = new List<Stat>();
-        int offset = 0;
-        while (offset < bytes.Length)
-        {
-            int size = BinaryPrimitives.ReadUInt16LittleEndian(bytes.Span[offset..]) + 2;
-            int end = offset + size;
-            Assert.InRange(end, offset + 49, bytes.Length);
-            int consumed = 0;
-            var stat = new Stat(bytes.Span.Slice(offset, size), ref consumed);
-            Assert.Equal(size, consumed);
-            result.Add(stat);
-            offset = end;
-        }
-        return result.ToArray();
-    }
-
     [Fact]
     public async Task BoundedDirectoryReadsShareCursorThroughDupAndCopyButNotIndependentOpens()
     {
@@ -65,7 +47,11 @@ public sealed class DirectoryCursorTests
     {
         await using var f = new FileSyscallFixture();
         int loads = 0;
-        f.Plane.DirectoryOverride = async (channel, token) => { loads++; return await f.Local.ReadDirectoryAsync(channel, token); };
+        f.Plane.DirectoryOverride = async (channel, token) =>
+        {
+            loads++;
+            return await f.Local.ReadDirectoryAsync(channel, token);
+        };
         int fd = await f.Calls.OpenAsync("/", new(0));
         Assert.Empty((await f.Calls.ReadAsync(fd, 0)).ToArray());
         Assert.Equal(0, loads);
@@ -247,7 +233,11 @@ public sealed class DirectoryCursorTests
         var pending = new TaskCompletionSource<IReadOnlyList<ResourceStat>>(TaskCreationOptions.RunContinuationsAsynchronously);
         var listing = await f.Local.ReadDirectoryAsync(f.Process.Root, default);
         int loads = 0;
-        f.Plane.DirectoryOverride = (_, _) => { loads++; return new(pending.Task); };
+        f.Plane.DirectoryOverride = (_, _) =>
+        {
+            loads++;
+            return new(pending.Task);
+        };
         int fd = await f.Calls.OpenAsync("/", new(0));
         var first = f.Calls.ReadAsync(fd, 68).AsTask();
         using var cancellation = new CancellationTokenSource();
@@ -287,11 +277,17 @@ public sealed class DirectoryCursorTests
     public async Task OversizedStatIsRejectedWithoutWrappedLength(int nameSize, bool accepted)
     {
         await using var f = new FileSyscallFixture();
-        var entry = new ResourceStat(f.Process.Root.Current, new string('x', nameSize), 0, 0, 0, 0, "", "", "");
+        var entry = new ResourceStat(f.Process.Root.Current, new string('x', nameSize), 0, 0, 0, 0, string.Empty, string.Empty, string.Empty);
         f.Plane.DirectoryOverride = (_, _) => ValueTask.FromResult<IReadOnlyList<ResourceStat>>(new[] { entry });
         int fd = await f.Calls.OpenAsync("/", new(0));
-        if (accepted) Assert.Equal(ushort.MaxValue, (await f.Calls.ReadAsync(fd, ushort.MaxValue)).Length);
-        else await Assert.ThrowsAsync<IOException>(() => f.Calls.ReadAsync(fd, uint.MaxValue).AsTask());
+        if (accepted)
+        {
+            Assert.Equal(ushort.MaxValue, (await f.Calls.ReadAsync(fd, ushort.MaxValue)).Length);
+        }
+        else
+        {
+            await Assert.ThrowsAsync<IOException>(() => f.Calls.ReadAsync(fd, uint.MaxValue).AsTask());
+        }
     }
 
     [Property(MaxTest = 100)]
@@ -310,7 +306,27 @@ public sealed class DirectoryCursorTests
             Assert.True(bytes.Length <= budget);
             actual.AddRange(Decode(bytes).Select(x => x.Name));
         }
+
         actual.AddRange(Decode(await f.Calls.ReadAsync(fd, 65535)).Select(x => x.Name));
         Assert.Equal(names, actual);
+    }
+
+    internal static Stat[] Decode(ReadOnlyMemory<byte> bytes)
+    {
+        var result = new List<Stat>();
+        int offset = 0;
+        while (offset < bytes.Length)
+        {
+            int size = BinaryPrimitives.ReadUInt16LittleEndian(bytes.Span[offset..]) + 2;
+            int end = offset + size;
+            Assert.InRange(end, offset + 49, bytes.Length);
+            int consumed = 0;
+            var stat = new Stat(bytes.Span.Slice(offset, size), ref consumed);
+            Assert.Equal(size, consumed);
+            result.Add(stat);
+            offset = end;
+        }
+
+        return result.ToArray();
     }
 }

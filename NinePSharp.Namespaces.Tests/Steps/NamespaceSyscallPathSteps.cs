@@ -56,9 +56,13 @@ public sealed class NamespaceSyscallPathSteps
     {
         MountHead? head = process.ProcessGroup.MountTable.Find(target.Identity);
         if (result == "unmounted")
+        {
             Assert.Null(head);
+        }
         else
+        {
             Assert.Equal(source.Identity, Assert.Single(Assert.IsType<MountHead>(head).Mounts).Target.Identity);
+        }
     }
 
     [Then("the parent union remains intact")]

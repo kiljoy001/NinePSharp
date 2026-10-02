@@ -5,7 +5,7 @@ namespace NinePSharp.Namespaces;
 /// <summary>Native create arguments; Mode retains the full OEXCL bit beyond the 9P byte mode.</summary>
 public readonly record struct Plan9CreateRequest(uint Permissions, int Mode)
 {
-    /// <summary>Gets whether an existing name must cause failure.</summary>
+    /// <summary>Gets a value indicating whether an existing name must cause failure.</summary>
     public bool Exclusive => (Mode & NinePConstants.OEXCL) != 0;
 
     internal Plan9OpenRequest OpenRequest
@@ -13,7 +13,11 @@ public readonly record struct Plan9CreateRequest(uint Permissions, int Mode)
         get
         {
             const int allowed = 3 | NinePConstants.OTRUNC | NinePConstants.OCEXEC | NinePConstants.ORCLOSE | NinePConstants.OEXCL;
-            if ((Mode & ~allowed) != 0) throw new NamespaceFidException("invalid create mode");
+            if ((Mode & ~allowed) != 0)
+            {
+                throw new NamespaceFidException("invalid create mode");
+            }
+
             return new((byte)(Mode & ~NinePConstants.OEXCL));
         }
     }
@@ -28,6 +32,8 @@ public readonly record struct Plan9CreateRequest(uint Permissions, int Mode)
 /// </summary>
 public sealed class ResourceCreateRejectedException : IOException
 {
-    /// <summary>Initializes a definite provider rejection.</summary>
-    public ResourceCreateRejectedException(string message) : base(message) { }
+    public ResourceCreateRejectedException(string message)
+        : base(message)
+    {
+    }
 }

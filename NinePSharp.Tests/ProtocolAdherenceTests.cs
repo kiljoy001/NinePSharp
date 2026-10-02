@@ -143,7 +143,7 @@ public sealed class ProtocolAdherenceTests
         var sourceRead = DispatcherIntegrationTestKit.ReadAsync(dispatcher, 6, 1, 0, 256).Sync();
 
         return walk.Wqid?.Length == segments.Count
-            && useNewFid is Rerror  // newfid must not be bound
+            && useNewFid is Rerror // newfid must not be bound
             && DispatcherIntegrationTestKit.ReadPayload(sourceRead) == "/";
     }
 

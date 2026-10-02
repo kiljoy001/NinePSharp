@@ -8,12 +8,6 @@ namespace NinePSharp.Messages;
 // size[4] Tremove tag[2] fid[4]
 public readonly struct Tremove : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Tremove;
-    public ushort Tag { get; }
-
-    public uint Fid { get; }
-
     public Tremove(ushort tag, uint fid)
     {
         Tag = tag;
@@ -29,6 +23,14 @@ public readonly struct Tremove : ISerializable
         int offset = NinePConstants.HeaderSize;
         Fid = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Tremove;
+
+    public ushort Tag { get; }
+
+    public uint Fid { get; }
 
     public void WriteTo(Span<byte> data)
     {

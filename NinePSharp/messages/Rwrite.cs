@@ -8,12 +8,6 @@ namespace NinePSharp.Messages;
 // size[4] Rwrite tag[2] count[4]
 public readonly struct Rwrite : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Rwrite;
-    public ushort Tag { get; }
-
-    public uint Count { get; }
-
     public Rwrite(ushort tag, uint count)
     {
         Tag = tag;
@@ -29,6 +23,14 @@ public readonly struct Rwrite : ISerializable
         int offset = NinePConstants.HeaderSize;
         Count = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Rwrite;
+
+    public ushort Tag { get; }
+
+    public uint Count { get; }
 
     public void WriteTo(Span<byte> data)
     {

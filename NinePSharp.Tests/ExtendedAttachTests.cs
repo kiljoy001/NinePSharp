@@ -40,6 +40,7 @@ public sealed class ExtendedAttachTests
         Assert.Equal(string.Empty, result.Aname);
         Assert.Null(result.NUname);
     }
+
     [Fact]
     public void NumericExtensionIsReadAndWrittenOnlyWhenRequestedAndPresent()
     {
@@ -55,5 +56,4 @@ public sealed class ExtendedAttachTests
         var classic = new Tattach(1, 2, 3, "user", "/");
         classic.WriteTo(new byte[classic.Size], true);
     }
-
 }

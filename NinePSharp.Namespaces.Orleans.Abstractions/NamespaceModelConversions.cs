@@ -116,12 +116,18 @@ public static class NamespaceModelConversions
     public static WStatRecoveryRequest ToDomain(this WStatRecoveryRequestModel value)
     {
         if (value.OpenHandle is not null && value.OpenHandle.Resource != value.Resource)
+        {
             throw new InvalidDataException("The durable wstat open handle identifies a different resource.");
+        }
+
         WStatRecoveryRequest request = value.OpenHandle is null
             ? WStatRecoveryRequest.ForResource(value.Resource.ToDomain(), value.Stat, value.Context.ToDomain())
             : WStatRecoveryRequest.ForOpenHandle(value.OpenHandle.ToDomain(), value.Stat, value.Context.ToDomain());
         if (!string.Equals(request.Fingerprint, value.Fingerprint, StringComparison.Ordinal))
+        {
             throw new InvalidDataException("The durable wstat request fingerprint is invalid.");
+        }
+
         return request;
     }
 
@@ -133,7 +139,10 @@ public static class NamespaceModelConversions
     public static WStatRecoveryRecord ToDomain(this WStatRecoveryRecordModel value)
     {
         if (!Enum.IsDefined(value.State))
+        {
             throw new InvalidDataException("The durable wstat recovery state is invalid.");
+        }
+
         return new WStatRecoveryRecord(
             value.Request.ToDomain(),
             (WStatRecoveryState)value.State,

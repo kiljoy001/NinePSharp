@@ -8,13 +8,6 @@ namespace NinePSharp.Messages;
 // size[4] Ropen tag[2] qid[13] iounit[4]
 public readonly struct Ropen : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Ropen;
-    public ushort Tag { get; }
-
-    public Qid Qid { get; }
-    public uint Iounit { get; }
-
     public Ropen(ushort tag, Qid qid, uint iounit)
     {
         Tag = tag;
@@ -33,6 +26,16 @@ public readonly struct Ropen : ISerializable
         Qid = data.ReadQid(ref offset);
         Iounit = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Ropen;
+
+    public ushort Tag { get; }
+
+    public Qid Qid { get; }
+
+    public uint Iounit { get; }
 
     public void WriteTo(Span<byte> data)
     {

@@ -26,8 +26,14 @@ public sealed class FileWStatSyscallSteps
     [When("wstat is attempted on that path")]
     public async Task AttemptPath()
     {
-        try { await f.Calls.WStatAsync(path, update); }
-        catch (Exception caught) { error = caught; }
+        try
+        {
+            await f.Calls.WStatAsync(path, update);
+        }
+        catch (Exception caught)
+        {
+            error = caught;
+        }
     }
 
     [Then("bad stat wins and no metadata update reaches a provider")]
@@ -70,8 +76,14 @@ public sealed class FileWStatSyscallSteps
     [When("that mount is removed and fwstat requests a nonempty name")]
     public async Task RenameMountPoint()
     {
-        try { await f.Calls.FWStatAsync(descriptor, Encode(value => value with { Name = "renamed" })); }
-        catch (Exception caught) { error = caught; }
+        try
+        {
+            await f.Calls.FWStatAsync(descriptor, Encode(value => value with { Name = "renamed" }));
+        }
+        catch (Exception caught)
+        {
+            error = caught;
+        }
     }
 
     [Then("fwstat rejects the mount-point rename before provider dispatch")]
@@ -90,7 +102,8 @@ public sealed class FileWStatSyscallSteps
 
     [When("fwstat renames it to final and changes mode to 0600 and length to 3")]
     public async Task CombinedUpdate()
-        => result = await f.Calls.FWStatAsync(descriptor,
+        => result = await f.Calls.FWStatAsync(
+            descriptor,
             Encode(value => value with { Name = "final", Mode = NinePConstants.Mode0600, Length = 3 }));
 
     [Then("the provider exposes all three changes together")]
@@ -104,12 +117,12 @@ public sealed class FileWStatSyscallSteps
         Assert.Equal((uint)update.Length, result);
     }
 
+    [AfterScenario]
+    public async Task Cleanup() => await f.DisposeAsync();
+
     private byte[] Encode(Func<ResourceWStat, ResourceWStat> change)
     {
         update = FileStatOperations.EncodeUpdate(change(ResourceWStat.Unchanged()));
         return update;
     }
-
-    [AfterScenario]
-    public async Task Cleanup() => await f.DisposeAsync();
 }

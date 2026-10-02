@@ -5,6 +5,14 @@ namespace NinePSharp.Fuzzer;
 
 internal static class WStatRecoveryFuzz
 {
+    private enum RecoveryOutcome
+    {
+        Success,
+        LostReply,
+        Rejected,
+        Unknown,
+    }
+
     internal static void Run(byte[] data) => RunAsync(data).GetAwaiter().GetResult();
 
     private static async Task RunAsync(byte[] data)
@@ -24,12 +32,20 @@ internal static class WStatRecoveryFuzz
             try
             {
                 if ((data[index] & 4) == 0)
+                {
                     await operations.WStatAsync(resource, payload, context, default);
+                }
                 else
+                {
                     await operations.WStatAsync(open, payload, context, default);
+                }
             }
-            catch (ResourceWStatRejectedException) { }
-            catch (WStatRecoveryPendingException) { }
+            catch (ResourceWStatRejectedException)
+            {
+            }
+            catch (WStatRecoveryPendingException)
+            {
+            }
 
             WStatRecoveryRecord admitted = (await store.GetAsync(context.OperationId, default))
                 ?? throw new InvalidOperationException("wstat was dispatched without durable admission");
@@ -60,64 +76,90 @@ internal static class WStatRecoveryFuzz
 
             WStatRecoveryRecord final = (await store.GetAsync(context.OperationId, default))!;
             if (provider.Applied.GetValueOrDefault(sequence) > 1)
+            {
                 throw new InvalidOperationException("wstat recovery applied one operation more than once");
+            }
+
             if (final.State == WStatRecoveryState.Committed
                 && provider.Applied.GetValueOrDefault(sequence) != 1)
+            {
                 throw new InvalidOperationException("committed wstat has no provider effect");
+            }
+
             if (final.State == WStatRecoveryState.Rejected
                 && provider.Applied.GetValueOrDefault(sequence) != 0)
+            {
                 throw new InvalidOperationException("rejected wstat changed provider state");
+            }
         }
-    }
-
-    private enum RecoveryOutcome
-    {
-        Success,
-        LostReply,
-        Rejected,
-        Unknown,
     }
 
     private sealed class RecoveryProvider : IFileStatOperations
     {
         private readonly Dictionary<ResourceOperationId, uint> results = new();
+
         internal Dictionary<ulong, RecoveryOutcome> Outcomes { get; } = new();
+
         internal Dictionary<ulong, int> Applied { get; } = new();
 
-        public ValueTask<ReadOnlyMemory<byte>> StatAsync(ResourceHandle resource, uint count,
+        public ValueTask<ReadOnlyMemory<byte>> StatAsync(
+            ResourceHandle resource,
+            uint count,
             CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask<ReadOnlyMemory<byte>> StatAsync(ResourceOpenHandle handle, uint count,
+        public ValueTask<ReadOnlyMemory<byte>> StatAsync(
+            ResourceOpenHandle handle,
+            uint count,
             CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask<uint> WStatAsync(ResourceHandle resource, ReadOnlyMemory<byte> stat,
-            ResourceOperationContext context, CancellationToken cancellationToken)
+        public ValueTask<uint> WStatAsync(
+            ResourceHandle resource,
+            ReadOnlyMemory<byte> stat,
+            ResourceOperationContext context,
+            CancellationToken cancellationToken)
             => Mutate(stat, context);
 
-        public ValueTask<uint> WStatAsync(ResourceOpenHandle handle, ReadOnlyMemory<byte> stat,
-            ResourceOperationContext context, CancellationToken cancellationToken)
+        public ValueTask<uint> WStatAsync(
+            ResourceOpenHandle handle,
+            ReadOnlyMemory<byte> stat,
+            ResourceOperationContext context,
+            CancellationToken cancellationToken)
             => Mutate(stat, context);
 
         internal void AllowRecovery(ulong sequence)
         {
             if (Outcomes[sequence] == RecoveryOutcome.Unknown)
+            {
                 Outcomes[sequence] = RecoveryOutcome.Success;
+            }
         }
 
         private ValueTask<uint> Mutate(ReadOnlyMemory<byte> stat, ResourceOperationContext context)
         {
             if (results.TryGetValue(context.OperationId, out uint prior))
+            {
                 return ValueTask.FromResult(prior);
+            }
+
             RecoveryOutcome outcome = Outcomes[context.OperationId.Sequence];
             if (outcome == RecoveryOutcome.Rejected)
+            {
                 throw new ResourceWStatRejectedException("rejected");
+            }
+
             if (outcome == RecoveryOutcome.Unknown)
+            {
                 throw new IOException("unknown outcome");
+            }
+
             uint result = checked((uint)stat.Length);
             results.Add(context.OperationId, result);
             Applied[context.OperationId.Sequence] = Applied.GetValueOrDefault(context.OperationId.Sequence) + 1;
             if (outcome == RecoveryOutcome.LostReply)
+            {
                 throw new IOException("lost reply");
+            }
+
             return ValueTask.FromResult(result);
         }
     }

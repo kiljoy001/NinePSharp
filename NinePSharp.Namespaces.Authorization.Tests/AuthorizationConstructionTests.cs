@@ -22,32 +22,45 @@ public sealed class AuthorizationConstructionTests
         Assert.Throws<ArgumentException>(() => new AuthorizationPolicy(1, [new AuthorizationPrincipal(" ")], [], []));
         Assert.Throws<ArgumentException>(() => new AuthorizationPolicy(1, Principals, [new GroupMembership(" ", "alice")], []));
         Assert.Throws<ArgumentException>(() => new AuthorizationPolicy(1, Principals, [], [Grant with { Subject = " " }]));
-        Assert.Throws<ArgumentException>(() => new AuthorizationPolicy(1, Principals, [],
+        Assert.Throws<ArgumentException>(() => new AuthorizationPolicy(
+            1,
+            Principals,
+            [],
             [Grant with { SubjectKind = GrantSubjectKind.Group, Subject = " " }]));
     }
 
     [Fact]
     public void PolicyValidationMessagesNameTheDefect()
     {
-        Assert.StartsWith("Policy generations start at one.",
+        Assert.StartsWith(
+            "Policy generations start at one.",
             Assert.Throws<ArgumentOutOfRangeException>(() => new AuthorizationPolicy(0, Principals, [], [])).Message);
-        Assert.StartsWith("Principal 'alice' is listed twice.",
+        Assert.StartsWith(
+            "Principal 'alice' is listed twice.",
             Assert.Throws<ArgumentException>(() => new AuthorizationPolicy(1, [.. Principals, new("alice")], [], [])).Message);
-        Assert.StartsWith("Group member 'carol' is not a principal.",
+        Assert.StartsWith(
+            "Group member 'carol' is not a principal.",
             Assert.Throws<ArgumentException>(() => new AuthorizationPolicy(1, Principals, [new("staff", "carol")], [])).Message);
-        Assert.StartsWith("Membership of 'alice' in 'staff' is listed twice.",
+        Assert.StartsWith(
+            "Membership of 'alice' in 'staff' is listed twice.",
             Assert.Throws<ArgumentException>(() => new AuthorizationPolicy(1, Principals, [new("staff", "alice"), new("staff", "alice")], [])).Message);
-        Assert.StartsWith("A grant has an undefined subject kind or scope.",
+        Assert.StartsWith(
+            "A grant has an undefined subject kind or scope.",
             Assert.Throws<ArgumentException>(() => new AuthorizationPolicy(1, Principals, [], [Grant with { SubjectKind = (GrantSubjectKind)9 }])).Message);
-        Assert.StartsWith("A grant has an undefined subject kind or scope.",
+        Assert.StartsWith(
+            "A grant has an undefined subject kind or scope.",
             Assert.Throws<ArgumentException>(() => new AuthorizationPolicy(1, Principals, [], [Grant with { Scope = (GrantScope)9 }])).Message);
-        Assert.StartsWith("A grant must confer at least one defined right.",
+        Assert.StartsWith(
+            "A grant must confer at least one defined right.",
             Assert.Throws<ArgumentException>(() => new AuthorizationPolicy(1, Principals, [], [Grant with { Rights = ResourceRights.None }])).Message);
-        Assert.StartsWith("A grant must confer at least one defined right.",
+        Assert.StartsWith(
+            "A grant must confer at least one defined right.",
             Assert.Throws<ArgumentException>(() => new AuthorizationPolicy(1, Principals, [], [Grant with { Rights = (ResourceRights)64 }])).Message);
-        Assert.StartsWith("Grant subject 'carol' is not a principal.",
+        Assert.StartsWith(
+            "Grant subject 'carol' is not a principal.",
             Assert.Throws<ArgumentException>(() => new AuthorizationPolicy(1, Principals, [], [Grant with { Subject = "carol" }])).Message);
-        Assert.StartsWith("A grant is listed twice.",
+        Assert.StartsWith(
+            "A grant is listed twice.",
             Assert.Throws<ArgumentException>(() => new AuthorizationPolicy(1, Principals, [], [Grant, Grant])).Message);
     }
 
@@ -77,10 +90,12 @@ public sealed class AuthorizationConstructionTests
         Assert.Equal("policy", Assert.Throws<ArgumentNullException>(() => new AuthorizedResourceOperations(tree, tree, null!, "alice", generation)).ParamName);
         Assert.Equal("currentGeneration", Assert.Throws<ArgumentNullException>(() => new AuthorizedResourceOperations(tree, tree, policy, "alice", null!)).ParamName);
         Assert.Throws<ArgumentException>(() => new AuthorizedResourceOperations(tree, tree, policy, " ", generation));
-        Assert.StartsWith("'carol' is not a principal of this policy.",
+        Assert.StartsWith(
+            "'carol' is not a principal of this policy.",
             Assert.Throws<ArgumentException>(() => new AuthorizedResourceOperations(tree, tree, policy, "carol", generation)).Message);
         _ = new AuthorizedResourceOperations(tree, null, policy, "alice", generation);
-        Assert.StartsWith("Tree grants and read-only roots need the provider's parent relation.",
+        Assert.StartsWith(
+            "Tree grants and read-only roots need the provider's parent relation.",
             Assert.Throws<ArgumentException>(() => new AuthorizedResourceOperations(tree, null, policy, "alice", generation, [Resource])).Message);
     }
 

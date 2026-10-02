@@ -163,12 +163,6 @@ public sealed class DistributedResourceOperationSteps
     public void CollisionRejected()
         => Assert.Contains("different request", Assert.IsType<InvalidOperationException>(error).Message);
 
-    private IMountableResourceGrain Resource()
-        => OrleansTestEnvironment.Cluster.GrainFactory.GetGrain<IMountableResourceGrain>(RequiredDevice());
-
-    private ITestMountableResourceGrain Control()
-        => OrleansTestEnvironment.Cluster.GrainFactory.GetGrain<ITestMountableResourceGrain>(RequiredDevice());
-
     private static ResourceOperationContextModel Context(ulong sequence)
         => new(new ResourceOperationIdModel("retry-session", sequence), 1, "glenda");
 
@@ -177,6 +171,12 @@ public sealed class DistributedResourceOperationSteps
             new ResourceIdentityModel("bdd-resource", resourceDevice, path),
             directory ? QidType.QTDIR : QidType.QTFILE,
             0);
+
+    private IMountableResourceGrain Resource()
+        => OrleansTestEnvironment.Cluster.GrainFactory.GetGrain<IMountableResourceGrain>(RequiredDevice());
+
+    private ITestMountableResourceGrain Control()
+        => OrleansTestEnvironment.Cluster.GrainFactory.GetGrain<ITestMountableResourceGrain>(RequiredDevice());
 
     private string RequiredDevice() => device ?? throw new InvalidOperationException("Device is missing.");
 

@@ -1,17 +1,12 @@
 using System.Buffers.Binary;
-using NinePSharp.Interfaces;
 using NinePSharp.Constants;
+using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
 namespace NinePSharp.Messages;
 
-public readonly struct Rauth: ISerializable
+public readonly struct Rauth : ISerializable
 {
-    public uint Size {get;}
-    public MessageTypes Type => MessageTypes.Rauth;
-    public ushort Tag { get; }
-    public Qid Aqid { get; }
-
     public Rauth(ushort tag, Qid aqid)
     {
         Tag = tag;
@@ -27,10 +22,18 @@ public readonly struct Rauth: ISerializable
         Aqid = data.ReadQid(ref offset);
     }
 
+    public uint Size { get;  }
+
+    public MessageTypes Type => MessageTypes.Rauth;
+
+    public ushort Tag { get; }
+
+    public Qid Aqid { get; }
+
     public void WriteTo(Span<byte> data)
     {
         const uint dataSize = 20;
-        data.WriteHeaders(dataSize,Tag,Type);
+        data.WriteHeaders(dataSize, Tag, Type);
         int offset = NinePConstants.HeaderSize;
         data.WriteQid(this.Aqid, ref offset);
     }

@@ -18,6 +18,7 @@ public sealed class DirectoryMountLifetimeTests
         table.Close();
         Assert.Equal(2, head.Members.Count);
         head.Gate.Release();
+
         // RetireAsync was queued before this gate acquisition.
         await head.Gate.WaitAsync().WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Empty(head.Members);

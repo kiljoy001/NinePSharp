@@ -2,51 +2,11 @@ using NinePSharp.Constants;
 
 namespace NinePSharp.Namespaces;
 
-/// <summary>A service connection which can be mounted into a process namespace.</summary>
-public sealed class NamespaceMountSource
-{
-    /// <summary>Initializes a mount source.</summary>
-    public NamespaceMountSource(
-        NamespaceChannel root,
-        byte mode,
-        string? attachName = null,
-        bool authenticated = true,
-        bool requiresAuthentication = false,
-        Func<ValueTask>? closeAsync = null)
-    {
-        Root = root?.Clone() ?? throw new ArgumentNullException(nameof(root));
-        Mode = mode;
-        AttachName = attachName ?? string.Empty;
-        Authenticated = authenticated;
-        RequiresAuthentication = requiresAuthentication;
-        CloseAsync = closeAsync;
-    }
-
-    /// <summary>Gets the service root channel.</summary>
-    public NamespaceChannel Root { get; }
-
-    /// <summary>Gets the descriptor open mode.</summary>
-    public byte Mode { get; }
-
-    /// <summary>Gets the server tree selection string.</summary>
-    public string AttachName { get; }
-
-    /// <summary>Gets whether the service connection is authenticated.</summary>
-    public bool Authenticated { get; }
-
-    /// <summary>Gets whether the service requires authentication.</summary>
-    public bool RequiresAuthentication { get; }
-
-    /// <summary>Gets the callback which closes the caller's descriptor.</summary>
-    public Func<ValueTask>? CloseAsync { get; }
-}
-
 /// <summary>Implements path-based Plan 9 namespace syscalls for a virtual process.</summary>
 public sealed class NamespaceSyscalls
 {
     private readonly IResourceOperations resources;
 
-    /// <summary>Initializes namespace syscalls over a resource provider.</summary>
     public NamespaceSyscalls(IResourceOperations resources)
         => this.resources = resources ?? throw new ArgumentNullException(nameof(resources));
 
@@ -93,7 +53,8 @@ public sealed class NamespaceSyscalls
             source.Root.Current,
             target.Current,
             flags,
-            source.AttachName, cancellationToken);
+            source.AttachName,
+            cancellationToken);
         if (source.CloseAsync is not null)
         {
             await source.CloseAsync();
@@ -127,6 +88,7 @@ public sealed class NamespaceSyscalls
         NamespaceChannel channel = path.StartsWith("/", StringComparison.Ordinal)
             ? process.Root.Clone()
             : process.CurrentDirectory.Clone();
+
         // Like parsename, discard dot elements without collapsing dot-dot across
         // mount boundaries. A trailing dot must not turn Amount into Abind.
         string[] names = path.Split('/', StringSplitOptions.RemoveEmptyEntries)

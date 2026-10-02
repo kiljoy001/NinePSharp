@@ -11,7 +11,7 @@ public sealed class NamespaceControlResource : IResourceDataOperations
     private readonly VProcessTable processes;
     private readonly NamespaceSyscalls syscalls;
 
-    /// <summary>Initializes a control resource rooted at <c>/</c>.</summary>
+    /// <summary>Initializes a new instance of the <see cref="NamespaceControlResource"/> class.Initializes a control resource rooted at <c>/</c>.</summary>
     public NamespaceControlResource(VProcessTable processes, IResourceOperations resources)
     {
         this.processes = processes ?? throw new ArgumentNullException(nameof(processes));
@@ -84,6 +84,7 @@ public sealed class NamespaceControlResource : IResourceDataOperations
     {
         cancellationToken.ThrowIfCancellationRequested();
         byte[] content = Encoding.UTF8.GetBytes(ReadFile(PathOf(openHandle.Resource)));
+
         // Clamp before narrowing: 9P offsets and counts exceed CLR array ranges.
         int start = (int)Math.Min(offset, (ulong)content.Length);
         int length = (int)Math.Min(count, (ulong)(content.Length - start));
@@ -151,53 +152,10 @@ public sealed class NamespaceControlResource : IResourceDataOperations
         CancellationToken cancellationToken)
         => throw new NotSupportedException("Namespace control files cannot be removed.");
 
-    private async ValueTask ExecuteAsync(string path, string command, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(command))
-        {
-            throw new NamespaceException(NamespaceError.InvalidOperation, "The ctl command is empty.");
-        }
-
-        long processId = ParseProcessId(path);
-        VProcess process = processes.Get(processId);
-        string[] parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        switch (parts[0])
-        {
-            case "kill":
-                if (parts.Length != 1)
-                    throw new NamespaceException(NamespaceError.InvalidOperation, "The kill command takes no arguments.");
-                processes.Terminate(processId);
-                return;
-            case "bind":
-                await ExecuteBindAsync(process, parts, cancellationToken);
-                return;
-            case "mounts-disabled":
-                ExecuteMountPolicy(process, parts);
-                return;
-            case "unmount":
-                await ExecuteUnmountAsync(process, parts, cancellationToken);
-                return;
-            case "rfork":
-                ExecuteRfork(processId, parts);
-                return;
-            default:
-                throw new NamespaceException(NamespaceError.InvalidOperation, "The ctl command is not recognized.");
-        }
-    }
-
-    private string ReadFile(string path)
-    {
-        long processId = ParseProcessId(path);
-        VProcess process = processes.Get(processId);
-        return path.EndsWith("/status", StringComparison.Ordinal)
-            ? ReadStatus(process)
-            : path.EndsWith("/ns", StringComparison.Ordinal) ? ReadNamespace(process) : string.Empty;
-    }
-
     private static string ReadStatus(VProcess process)
     {
         MountTable table = process.ProcessGroup.MountTable;
-        return $"pid={process.Id}\nparent={(process.ParentId?.ToString(CultureInfo.InvariantCulture) ?? "none")}\n" +
+        return $"pid={process.Id}\nparent={process.ParentId?.ToString(CultureInfo.InvariantCulture) ?? "none"}\n" +
             $"group={process.ProcessGroup.Id}\nmounts={table.Snapshot().MountHeads.Count}\n" +
             $"mounts-disabled={table.MountsDisabled.ToString().ToLowerInvariant()}\n";
     }
@@ -222,58 +180,15 @@ public sealed class NamespaceControlResource : IResourceDataOperations
         return builder.ToString();
     }
 
-    private async ValueTask ExecuteBindAsync(VProcess process, string[] parts, CancellationToken cancellationToken)
-    {
-        if (parts.Length is not (3 or 4))
-            throw new NamespaceException(NamespaceError.InvalidOperation, "The bind command requires source and target.");
-        await syscalls.BindAsync(process, parts[1], parts[2], ParseFlags(parts, 3), cancellationToken);
-    }
-
     private static void ExecuteMountPolicy(VProcess process, string[] parts)
     {
         if (parts.Length != 2)
+        {
             throw new NamespaceException(NamespaceError.InvalidOperation, "The mounts-disabled command requires a value.");
+        }
+
         process.ProcessGroup.MountTable.SetMountsDisabled(ParseBoolean(parts[1]));
     }
-
-    private async ValueTask ExecuteUnmountAsync(VProcess process, string[] parts, CancellationToken cancellationToken)
-    {
-        if (parts.Length is not (2 or 3))
-            throw new NamespaceException(NamespaceError.InvalidOperation, "The unmount command requires a target.");
-        await syscalls.UnmountAsync(process, parts[1], parts.Length == 3 ? parts[2] : null, cancellationToken);
-    }
-
-    private void ExecuteRfork(long processId, string[] parts)
-    {
-        if (parts.Length is not (2 or 3))
-            throw new NamespaceException(NamespaceError.InvalidOperation, "The rfork command requires a mode.");
-        processes.RforkNamespace(processId, ParseForkMode(parts[1]), parts.Length == 3 && parts[2] == "nomounts");
-    }
-
-    private string[] Children(string path)
-    {
-        if (path == "/") return new[] { "proc" };
-        if (path == "/proc") return processes.Snapshot().Select(process => process.Id.ToString(CultureInfo.InvariantCulture)).ToArray();
-        if (path.StartsWith("/proc/", StringComparison.Ordinal) && path.Count(character => character == '/') == 2)
-            return new[] { "ns", "status", "ctl" };
-        return Array.Empty<string>();
-    }
-
-    private bool IsKnown(string path)
-        => path == "/" || path == "/proc" ||
-            (path.StartsWith("/proc/", StringComparison.Ordinal) &&
-             (path.Count(character => character == '/') == 2
-                ? long.TryParse(path[6..], NumberStyles.None, CultureInfo.InvariantCulture, out long id) && processes.Snapshot().Any(process => process.Id == id)
-                : (path.EndsWith("/ns", StringComparison.Ordinal) || path.EndsWith("/status", StringComparison.Ordinal) || path.EndsWith("/ctl", StringComparison.Ordinal)) && ProcessPathExists(path)));
-
-    private bool ProcessPathExists(string path)
-    {
-        string value = path[6..path.IndexOf('/', 6)];
-        return long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out long id) && processes.Snapshot().Any(process => process.Id == id);
-    }
-
-    private bool IsDirectory(ResourceHandle handle)
-        => PathOf(handle) is "/" or "/proc" || (PathOf(handle).StartsWith("/proc/", StringComparison.Ordinal) && PathOf(handle).Count(character => character == '/') == 2);
 
     private static string PathOf(ResourceHandle handle) => handle.Identity.Device;
 
@@ -284,7 +199,7 @@ public sealed class NamespaceControlResource : IResourceDataOperations
         => new(new ResourceIdentity(Provider, path, StablePath(path)), IsDirectoryPath(path) ? QidType.QTDIR : QidType.QTFILE);
 
     private static bool IsDirectoryPath(string path)
-        => path is "/" or "/proc" || path.StartsWith("/proc/", StringComparison.Ordinal) && path.Count(character => character == '/') == 2;
+        => path is "/" or "/proc" || (path.StartsWith("/proc/", StringComparison.Ordinal) && path.Count(character => character == '/') == 2);
 
     private static ulong StablePath(string path)
     {
@@ -329,4 +244,116 @@ public sealed class NamespaceControlResource : IResourceDataOperations
             "off" or "false" => false,
             _ => throw new NamespaceException(NamespaceError.InvalidOperation, "The boolean value is invalid."),
         };
+
+    private async ValueTask ExecuteAsync(string path, string command, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            throw new NamespaceException(NamespaceError.InvalidOperation, "The ctl command is empty.");
+        }
+
+        long processId = ParseProcessId(path);
+        VProcess process = processes.Get(processId);
+        string[] parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        switch (parts[0])
+        {
+            case "kill":
+                if (parts.Length != 1)
+                {
+                    throw new NamespaceException(NamespaceError.InvalidOperation, "The kill command takes no arguments.");
+                }
+
+                processes.Terminate(processId);
+                return;
+            case "bind":
+                await ExecuteBindAsync(process, parts, cancellationToken);
+                return;
+            case "mounts-disabled":
+                ExecuteMountPolicy(process, parts);
+                return;
+            case "unmount":
+                await ExecuteUnmountAsync(process, parts, cancellationToken);
+                return;
+            case "rfork":
+                ExecuteRfork(processId, parts);
+                return;
+            default:
+                throw new NamespaceException(NamespaceError.InvalidOperation, "The ctl command is not recognized.");
+        }
+    }
+
+    private string ReadFile(string path)
+    {
+        long processId = ParseProcessId(path);
+        VProcess process = processes.Get(processId);
+        return path.EndsWith("/status", StringComparison.Ordinal)
+            ? ReadStatus(process)
+            : path.EndsWith("/ns", StringComparison.Ordinal) ? ReadNamespace(process) : string.Empty;
+    }
+
+    private async ValueTask ExecuteBindAsync(VProcess process, string[] parts, CancellationToken cancellationToken)
+    {
+        if (parts.Length is not (3 or 4))
+        {
+            throw new NamespaceException(NamespaceError.InvalidOperation, "The bind command requires source and target.");
+        }
+
+        await syscalls.BindAsync(process, parts[1], parts[2], ParseFlags(parts, 3), cancellationToken);
+    }
+
+    private async ValueTask ExecuteUnmountAsync(VProcess process, string[] parts, CancellationToken cancellationToken)
+    {
+        if (parts.Length is not (2 or 3))
+        {
+            throw new NamespaceException(NamespaceError.InvalidOperation, "The unmount command requires a target.");
+        }
+
+        await syscalls.UnmountAsync(process, parts[1], parts.Length == 3 ? parts[2] : null, cancellationToken);
+    }
+
+    private void ExecuteRfork(long processId, string[] parts)
+    {
+        if (parts.Length is not (2 or 3))
+        {
+            throw new NamespaceException(NamespaceError.InvalidOperation, "The rfork command requires a mode.");
+        }
+
+        processes.RforkNamespace(processId, ParseForkMode(parts[1]), parts.Length == 3 && parts[2] == "nomounts");
+    }
+
+    private string[] Children(string path)
+    {
+        if (path == "/")
+        {
+            return new[] { "proc" };
+        }
+
+        if (path == "/proc")
+        {
+            return processes.Snapshot().Select(process => process.Id.ToString(CultureInfo.InvariantCulture)).ToArray();
+        }
+
+        if (path.StartsWith("/proc/", StringComparison.Ordinal) && path.Count(character => character == '/') == 2)
+        {
+            return new[] { "ns", "status", "ctl" };
+        }
+
+        return Array.Empty<string>();
+    }
+
+    private bool IsKnown(string path)
+        => path == "/" || path == "/proc" ||
+            (path.StartsWith("/proc/", StringComparison.Ordinal) &&
+             (path.Count(character => character == '/') == 2
+                ? long.TryParse(path[6..], NumberStyles.None, CultureInfo.InvariantCulture, out long id) && processes.Snapshot().Any(process => process.Id == id)
+                : (path.EndsWith("/ns", StringComparison.Ordinal) || path.EndsWith("/status", StringComparison.Ordinal) || path.EndsWith("/ctl", StringComparison.Ordinal)) && ProcessPathExists(path)));
+
+    private bool ProcessPathExists(string path)
+    {
+        string value = path[6..path.IndexOf('/', 6)];
+        return long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out long id) && processes.Snapshot().Any(process => process.Id == id);
+    }
+
+    private bool IsDirectory(ResourceHandle handle)
+        => PathOf(handle) is "/" or "/proc" || (PathOf(handle).StartsWith("/proc/", StringComparison.Ordinal) && PathOf(handle).Count(character => character == '/') == 2);
 }

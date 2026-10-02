@@ -25,6 +25,7 @@ public sealed class FileStatSyscallTests
             Assert.Equal("file", Name(await target.Item1.FStatAsync(target.Item2, 4096)));
             Assert.Equal(73, await target.Item1.SeekAsync(target.Item2, 0, Plan9SeekWhence.Current));
         }
+
         Assert.All(f.Requests, request => Assert.Equal(mode, request.Open!.Mode));
         Assert.Equal(0, f.Files.Resources.ClunkCount);
     }
@@ -49,12 +50,17 @@ public sealed class FileStatSyscallTests
         await using var f = new FileStatFixture();
         ResourceHandle mounted = f.Files.Resources.Directory("mounted", "entry");
         if (relative)
-            f.Files.Process.ChangeDirectory(NamespaceChannel.Restore(new[] {
-                new ChannelFrame("/", f.Files.Process.Root.Current), new ChannelFrame("here", mounted) }));
+        {
+            f.Files.Process.ChangeDirectory(NamespaceChannel.Restore(new[]
+            {
+                new ChannelFrame("/", f.Files.Process.Root.Current), new ChannelFrame("here", mounted),
+            }));
+        }
+
         ResourceHandle target = relative ? mounted : f.Files.Process.Root.Current;
         ResourceHandle replacement = relative ? f.Files.Process.Root.Current : mounted;
         f.Files.Process.ProcessGroup.MountTable.Mount(replacement, target);
-        Assert.Equal(relative ? "here" : "", Name(await f.Calls.StatAsync(relative ? "." : "/", 4096)));
+        Assert.Equal(relative ? "here" : string.Empty, Name(await f.Calls.StatAsync(relative ? "." : "/", 4096)));
         Assert.Equal(replacement, Assert.Single(f.Requests).Resource);
         Assert.Empty(f.Files.Process.Descriptors.Snapshot());
     }
@@ -111,7 +117,7 @@ public sealed class FileStatSyscallTests
         int fd = await f.Calls.CreateAsync("/made", new(0x180, 2));
         Assert.Equal("made", Name(await f.Calls.FStatAsync(fd, 4096)));
         int root = await f.Calls.OpenAsync("/", new(0));
-        Assert.Equal("", Name(await f.Calls.FStatAsync(root, 4096)));
+        Assert.Equal(string.Empty, Name(await f.Calls.FStatAsync(root, 4096)));
     }
 
     [Theory]
@@ -208,8 +214,10 @@ public sealed class FileStatSyscallTests
         // A retained traversal frame remembers the mounted-upon identity. A new
         // final crossing must consult that identity rather than the old target.
         f.Files.Process.ProcessGroup.MountTable.Mount(root, current);
-        f.Files.Process.ChangeDirectory(NamespaceChannel.Restore(new[] {
-            new ChannelFrame("/", root), new ChannelFrame("cwd", root, current) }));
+        f.Files.Process.ChangeDirectory(NamespaceChannel.Restore(new[]
+        {
+            new ChannelFrame("/", root), new ChannelFrame("cwd", root, current),
+        }));
         f.Files.Process.ProcessGroup.MountTable.Mount(current, current);
         Assert.Equal("cwd", Name(await f.Calls.StatAsync(".", 4096)));
         Assert.Equal(current, f.Requests[^1].Resource);
@@ -220,7 +228,11 @@ public sealed class FileStatSyscallTests
     {
         await using var f = new FileStatFixture();
         using var cancellation = new CancellationTokenSource();
-        f.Files.Resources.BeforeWalk = () => { cancellation.Cancel(); return Task.CompletedTask; };
+        f.Files.Resources.BeforeWalk = () =>
+        {
+            cancellation.Cancel();
+            return Task.CompletedTask;
+        };
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => f.Calls.StatAsync("/file", 4096, cancellation.Token).AsTask());
         Assert.Empty(f.Requests);
     }
@@ -233,7 +245,17 @@ public sealed class FileStatSyscallTests
         await using var f = new FileStatFixture();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        f.Reply = async (resource, _) => { entered.SetResult(); await resume.Task; if (reject) throw new IOException("rejected"); return f.Record(resource, "provider"); };
+        f.Reply = async (resource, _) =>
+        {
+            entered.SetResult();
+            await resume.Task;
+            if (reject)
+            {
+                throw new IOException("rejected");
+            }
+
+            return f.Record(resource, "provider");
+        };
         int fd = await f.Calls.OpenAsync("/file", new(0));
         using var cancellation = new CancellationTokenSource();
         Task<ReadOnlyMemory<byte>> pending = f.Calls.FStatAsync(fd, 4096, cancellation.Token).AsTask();
@@ -247,9 +269,20 @@ public sealed class FileStatSyscallTests
             await f.Files.Table.TerminateAsync(f.Files.Process.Id);
             Assert.Equal(1, f.Files.Resources.ClunkCount);
         }
-        finally { resume.TrySetResult(); }
-        if (reject) await Assert.ThrowsAsync<IOException>(() => pending.WaitAsync(TimeSpan.FromSeconds(2)));
-        else Assert.Equal("file", Name(await pending.WaitAsync(TimeSpan.FromSeconds(2))));
+        finally
+        {
+            resume.TrySetResult();
+        }
+
+        if (reject)
+        {
+            await Assert.ThrowsAsync<IOException>(() => pending.WaitAsync(TimeSpan.FromSeconds(2)));
+        }
+        else
+        {
+            Assert.Equal("file", Name(await pending.WaitAsync(TimeSpan.FromSeconds(2))));
+        }
+
         Assert.Equal(2, f.Files.Resources.ClunkCount);
         Assert.Equal(Assert.Single(f.Requests).Resource, f.Requests[0].Open!.Resource);
     }
@@ -260,7 +293,12 @@ public sealed class FileStatSyscallTests
         await using var f = new FileStatFixture();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        f.Reply = async (resource, _) => { entered.SetResult(); await resume.Task; return f.Record(resource, "provider"); };
+        f.Reply = async (resource, _) =>
+        {
+            entered.SetResult();
+            await resume.Task;
+            return f.Record(resource, "provider");
+        };
         var root = f.Files.Process.Root.Current;
         Task<ReadOnlyMemory<byte>> pending = f.Calls.StatAsync("/", 4096).AsTask();
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
@@ -269,8 +307,12 @@ public sealed class FileStatSyscallTests
             f.Files.Process.ProcessGroup.MountTable.Mount(f.Files.Resources.Directory("mounted"), root);
             await f.Files.Table.TerminateAsync(f.Files.Process.Id);
         }
-        finally { resume.TrySetResult(); }
-        Assert.Equal("", Name(await pending.WaitAsync(TimeSpan.FromSeconds(2))));
+        finally
+        {
+            resume.TrySetResult();
+        }
+
+        Assert.Equal(string.Empty, Name(await pending.WaitAsync(TimeSpan.FromSeconds(2))));
         Assert.Equal(root, Assert.Single(f.Requests).Resource);
     }
 
@@ -281,7 +323,7 @@ public sealed class FileStatSyscallTests
         int fd = await f.Calls.OpenAsync("/", new(0));
         byte[] first = (await f.Calls.ReadAsync(fd, 4096)).ToArray();
         Assert.NotEmpty(first);
-        Assert.Equal("", Name(await f.Calls.FStatAsync(fd, 4096)));
+        Assert.Equal(string.Empty, Name(await f.Calls.FStatAsync(fd, 4096)));
         Assert.Empty((await f.Calls.ReadAsync(fd, 4096)).ToArray());
         await f.Calls.SeekAsync(fd, 0, Plan9SeekWhence.Set);
         Assert.Equal(first, (await f.Calls.ReadAsync(fd, 4096)).ToArray());
@@ -294,7 +336,7 @@ public sealed class FileStatSyscallTests
         string sourceName = new('x', value.Get % 40);
         string visible = string.Concat(Enumerable.Repeat("é", value.Get % 23));
         byte[] original = f.Value.Record(f.Value.Files.Process.Root.Current, sourceName, 100);
-        uint count = (uint)(2 + value.Get % 130);
+        uint count = (uint)(2 + (value.Get % 130));
         ReadOnlyMemory<byte> bounded = original.Length > count ? original.AsMemory(0, 2) : original;
         var actual = FileStatRecords.Rewrite(bounded, count, visible);
         int expectedSize = 100 - sourceName.Length + System.Text.Encoding.UTF8.GetByteCount(visible);
@@ -306,16 +348,19 @@ public sealed class FileStatSyscallTests
             Assert.Equal(original.AsSpan(2, 39).ToArray(), actual.Span.Slice(2, 39).ToArray());
             Assert.Equal(37UL, Length(actual));
         }
+
         return true;
     }
 
     internal static string Name(ReadOnlyMemory<byte> record)
         => System.Text.Encoding.UTF8.GetString(record.Span.Slice(43, BinaryPrimitives.ReadUInt16LittleEndian(record.Span[41..])));
+
     private static ulong Length(ReadOnlyMemory<byte> record) => BinaryPrimitives.ReadUInt64LittleEndian(record.Span[33..]);
 
     private sealed class SyncFixture : IDisposable
     {
         internal FileStatFixture Value { get; } = new();
+
         public void Dispose() => Value.DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 }

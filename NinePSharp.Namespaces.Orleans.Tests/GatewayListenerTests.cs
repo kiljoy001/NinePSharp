@@ -30,8 +30,10 @@ public sealed class GatewayListenerTests
             });
         var options = new NinePOrleansListenerOptions();
         options.Endpoint.Port = 0;
-        using var listener = new NinePOrleansListener(test.Dispatcher,
-            Options.Create(options), NullLogger<NinePOrleansListener>.Instance);
+        using var listener = new NinePOrleansListener(
+            test.Dispatcher,
+            Options.Create(options),
+            NullLogger<NinePOrleansListener>.Instance);
         await listener.StartAsync(CancellationToken.None);
         var endpoint = listener.LocalEndpoint;
         using var client = new NinePClient("127.0.0.1", endpoint.Port);
@@ -61,8 +63,10 @@ public sealed class GatewayListenerTests
     {
         var options = new NinePOrleansListenerOptions();
         options.Endpoint.Port = 0;
-        using var listener = new NinePOrleansListener(new GatewayTestContext().Dispatcher,
-            Options.Create(options), NullLogger<NinePOrleansListener>.Instance);
+        using var listener = new NinePOrleansListener(
+            new GatewayTestContext().Dispatcher,
+            Options.Create(options),
+            NullLogger<NinePOrleansListener>.Instance);
         await listener.StartAsync(CancellationToken.None);
         var endpoint = listener.LocalEndpoint;
         using var client = new TcpClient();
@@ -81,8 +85,10 @@ public sealed class GatewayListenerTests
     {
         var options = new NinePOrleansListenerOptions { MaxConnections = 1 };
         options.Endpoint.Port = 0;
-        using var listener = new NinePOrleansListener(new GatewayTestContext().Dispatcher,
-            Options.Create(options), NullLogger<NinePOrleansListener>.Instance);
+        using var listener = new NinePOrleansListener(
+            new GatewayTestContext().Dispatcher,
+            Options.Create(options),
+            NullLogger<NinePOrleansListener>.Instance);
         await listener.StartAsync(CancellationToken.None);
         using var first = new TcpClient();
         await first.ConnectAsync(listener.LocalEndpoint);
@@ -129,8 +135,10 @@ public sealed class GatewayListenerTests
     {
         var options = new NinePOrleansListenerOptions();
         options.Endpoint.Port = 0;
-        using var listener = new NinePOrleansListener(new GatewayTestContext().Dispatcher,
-            Options.Create(options), NullLogger<NinePOrleansListener>.Instance);
+        using var listener = new NinePOrleansListener(
+            new GatewayTestContext().Dispatcher,
+            Options.Create(options),
+            NullLogger<NinePOrleansListener>.Instance);
         await listener.StartAsync(CancellationToken.None);
         try
         {
@@ -141,7 +149,8 @@ public sealed class GatewayListenerTests
             Assert.Equal("9P2000.L", new Rversion(await ReceiveAsync(stream)).Version);
             await SendAsync(stream, new Tattach(1, 1, NinePConstants.NoFid, "user", "/", uint.MaxValue));
             byte[] attached = await ReceiveAsync(stream);
-            Assert.True((MessageTypes)attached[4] == MessageTypes.Rattach,
+            Assert.True(
+                (MessageTypes)attached[4] == MessageTypes.Rattach,
                 (MessageTypes)attached[4] == MessageTypes.Rerror ? new Rerror(attached).Ename : "unexpected attach reply");
             await SendAsync(stream, new Twalk(2, 1, 2, new[] { "file" }));
             Assert.Single(new Rwalk(await ReceiveAsync(stream)).Wqid);
@@ -165,8 +174,10 @@ public sealed class GatewayListenerTests
     {
         var options = new NinePOrleansListenerOptions { MaxConnections = 1 };
         options.Endpoint.Port = 0;
-        using var listener = new NinePOrleansListener(new GatewayTestContext().Dispatcher,
-            Options.Create(options), NullLogger<NinePOrleansListener>.Instance);
+        using var listener = new NinePOrleansListener(
+            new GatewayTestContext().Dispatcher,
+            Options.Create(options),
+            NullLogger<NinePOrleansListener>.Instance);
         await listener.StartAsync(CancellationToken.None);
         try
         {

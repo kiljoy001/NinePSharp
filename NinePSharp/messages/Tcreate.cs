@@ -9,15 +9,6 @@ namespace NinePSharp.Messages;
 // size[4] Tcreate tag[2] fid[4] name[s] perm[4] mode[1]
 public readonly struct Tcreate : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Tcreate;
-    public ushort Tag { get; }
-
-    public uint Fid { get; }
-    public string Name { get; }
-    public uint Perm { get; }
-    public byte Mode { get; }
-
     public Tcreate(ushort tag, uint fid, string name, uint perm, byte mode)
     {
         Tag = tag;
@@ -45,6 +36,20 @@ public readonly struct Tcreate : ISerializable
 
         Mode = data[offset];
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Tcreate;
+
+    public ushort Tag { get; }
+
+    public uint Fid { get; }
+
+    public string Name { get; }
+
+    public uint Perm { get; }
+
+    public byte Mode { get; }
 
     public void WriteTo(Span<byte> data)
     {

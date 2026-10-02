@@ -29,6 +29,7 @@ public sealed class FidUnmountSteps
         mountPoint = await resources.CreateAsync(root, "mnt", true, CancellationToken.None);
         underlyingFile = await resources.CreateAsync(mountPoint, "file", false, CancellationToken.None);
         mounted = resources.Directory("mounted", "file");
+
         // A union makes selected removal distinguishable from complete removal.
         mounts.Mount(mounted, mountPoint, MountFlags.Before);
         session = new NamespaceSession("unmount", 1, "glenda", new LocalNamespaceDataPlane(mounts, resources));
@@ -45,7 +46,10 @@ public sealed class FidUnmountSteps
         await session.ClunkAsync(4);
         opened = state == "open";
         Assert.Contains(state, new[] { "open", "unopened" });
-        if (opened) await session.OpenAsync(3, NinePConstants.ORDWR);
+        if (opened)
+        {
+            await session.OpenAsync(3, NinePConstants.ORDWR);
+        }
     }
 
     [When("the mount is (.*)")]
@@ -75,7 +79,11 @@ public sealed class FidUnmountSteps
     public async Task RetainedFileIsUsable()
     {
         Assert.Equal(originalFile.Identity, session.GetFidResource(3).Identity);
-        if (!opened) await session.OpenAsync(3, NinePConstants.ORDWR);
+        if (!opened)
+        {
+            await session.OpenAsync(3, NinePConstants.ORDWR);
+        }
+
         Assert.Equal("original", Encoding.UTF8.GetString((await session.ReadAsync(3, 0, 100)).Span));
         Assert.Equal(8U, await session.WriteAsync(3, 0, Encoding.UTF8.GetBytes("retained")));
         Assert.Equal("retained", Encoding.UTF8.GetString((await session.ReadAsync(3, 0, 100)).Span));
@@ -101,8 +109,14 @@ public sealed class FidUnmountSteps
     {
         Assert.Contains(cleanup, new[] { "clunk", "disconnect" });
         disconnected = cleanup == "disconnect";
-        if (disconnected) await session.DisposeAsync();
-        else await session.ClunkAsync(3);
+        if (disconnected)
+        {
+            await session.DisposeAsync();
+        }
+        else
+        {
+            await session.ClunkAsync(3);
+        }
     }
 
     [Then("its provider handle is clunked once and the fid is invalid")]
@@ -129,6 +143,9 @@ public sealed class FidUnmountSteps
     [AfterScenario]
     public async Task Cleanup()
     {
-        if (session is not null) await session.DisposeAsync();
+        if (session is not null)
+        {
+            await session.DisposeAsync();
+        }
     }
 }

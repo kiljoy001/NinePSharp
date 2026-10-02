@@ -35,8 +35,14 @@ internal static class FileSyscallFuzz
                 return ValueTask.FromResult(transfer);
             });
         resources.Setup(x => x.ClunkAsync(It.IsAny<ResourceOpenHandle>(), It.IsAny<ResourceOperationContext>(), default))
-            .Returns(() => { closed++; return ValueTask.CompletedTask; });
-        var calls = new Plan9FileSyscalls(process, new LocalNamespaceDataPlane(process.ProcessGroup.MountTable, resources.Object),
+            .Returns(() =>
+            {
+                closed++;
+                return ValueTask.CompletedTask;
+            });
+        var calls = new Plan9FileSyscalls(
+            process,
+            new LocalNamespaceDataPlane(process.ProcessGroup.MountTable, resources.Object),
             () => new(new ResourceOperationId("fuzz", (ulong)Interlocked.Increment(ref sequence)), process.Id, "fuzzer"));
         int fd = await calls.OpenAsync("/file", new(NinePConstants.ORDWR));
         int duplicate = await process.Descriptors.DuplicateAsync(fd);
@@ -51,10 +57,19 @@ internal static class FileSyscallFuzz
                 long position = positioned ? instruction : -1;
                 expectedProviderOffset = (ulong)(positioned ? position : modelOffset);
                 if ((instruction & 32) != 0)
+                {
                     Check(await calls.PWriteAsync(duplicate, position, new byte[requested]) == transfer, "write count");
+                }
                 else
+                {
                     Check((await calls.PReadAsync(fd, position, requested)).Length == transfer, "read count");
-                if (!positioned) modelOffset += transfer;
+                }
+
+                if (!positioned)
+                {
+                    modelOffset += transfer;
+                }
+
                 Check(await calls.SeekAsync(fd, 0, Plan9SeekWhence.Current) == modelOffset, "shared position");
                 Check(closed == 0, "premature provider close");
             }
@@ -63,11 +78,15 @@ internal static class FileSyscallFuzz
         {
             await table.TerminateAsync(process.Id);
         }
+
         Check(closed == 1, "final provider close count");
     }
 
     private static void Check(bool condition, string message)
     {
-        if (!condition) throw new InvalidOperationException(message);
+        if (!condition)
+        {
+            throw new InvalidOperationException(message);
+        }
     }
 }

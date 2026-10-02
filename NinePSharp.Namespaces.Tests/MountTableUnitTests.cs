@@ -243,6 +243,18 @@ public sealed class MountTableUnitTests
         Assert.NotNull(table.Find(mountedOn.Identity));
     }
 
+    private static NamespaceChannel Channel(ResourceHandle handle, params MountBinding[] mounts)
+        => NamespaceChannel.Restore(new[] { new ChannelFrame("/", handle, null, mounts) });
+
+    private static ResourceHandle Directory(string device, ulong path, uint version = 0)
+        => new(new ResourceIdentity("test", device, path), QidType.QTDIR, version);
+
+    private static ResourceHandle File(string device, ulong path)
+        => new(new ResourceIdentity("test", device, path), QidType.QTFILE);
+
+    private static void AssertError(NamespaceError error, Action action)
+        => Assert.Equal(error, Assert.Throws<NamespaceException>(action).Error);
+
     private sealed class UnusedResources : IResourceOperations
     {
         public ValueTask<ResourceHandle?> WalkAsync(
@@ -263,16 +275,4 @@ public sealed class MountTableUnitTests
             CancellationToken cancellationToken)
             => throw new NotSupportedException();
     }
-
-    private static NamespaceChannel Channel(ResourceHandle handle, params MountBinding[] mounts)
-        => NamespaceChannel.Restore(new[] { new ChannelFrame("/", handle, null, mounts) });
-
-    private static ResourceHandle Directory(string device, ulong path, uint version = 0)
-        => new(new ResourceIdentity("test", device, path), QidType.QTDIR, version);
-
-    private static ResourceHandle File(string device, ulong path)
-        => new(new ResourceIdentity("test", device, path), QidType.QTFILE);
-
-    private static void AssertError(NamespaceError error, Action action)
-        => Assert.Equal(error, Assert.Throws<NamespaceException>(action).Error);
 }

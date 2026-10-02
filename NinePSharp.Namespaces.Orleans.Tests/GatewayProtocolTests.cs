@@ -2,8 +2,8 @@ using FsCheck.Xunit;
 using Moq;
 using NinePSharp.Constants;
 using NinePSharp.Messages;
-using NinePSharp.Namespaces.Orleans.Tests.Support;
 using NinePSharp.Namespaces.Orleans.Server;
+using NinePSharp.Namespaces.Orleans.Tests.Support;
 using NinePSharp.Parser;
 using Xunit;
 
@@ -210,14 +210,26 @@ public sealed class GatewayProtocolTests
     {
         var test = new GatewayTestContext();
         await test.OpenFileAsync();
-        test.Resources.Setup(value => value.CreateAndOpenAsync(It.IsAny<ResourceHandle>(), "new", 0x1A4, NinePConstants.ORDWR,
-                It.IsAny<ResourceOperationContext>(), It.IsAny<CancellationToken>()))
+        test.Resources.Setup(value => value.CreateAndOpenAsync(
+            It.IsAny<ResourceHandle>(),
+            "new",
+            0x1A4,
+            NinePConstants.ORDWR,
+            It.IsAny<ResourceOperationContext>(),
+            It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ResourceOpenHandle(GatewayTestContext.File, "new", NinePConstants.ORDWR, 99));
         var result = Assert.IsType<Rlcreate>(await test.SendAsync(
             NinePMessage.NewMsgTlcreate(new Tlcreate(28, 7, 1, "new", 2, 0x81A4, 0))));
         Assert.Equal(99U, result.Iounit);
-        test.Resources.Verify(value => value.CreateAndOpenAsync(It.IsAny<ResourceHandle>(), "new", 0x1A4, NinePConstants.ORDWR,
-            It.IsAny<ResourceOperationContext>(), It.IsAny<CancellationToken>()), Times.Once);
+        test.Resources.Verify(
+            value => value.CreateAndOpenAsync(
+                It.IsAny<ResourceHandle>(),
+                "new",
+                0x1A4,
+                NinePConstants.ORDWR,
+                It.IsAny<ResourceOperationContext>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
         await test.Dispatcher.CloseSessionAsync("unit");
     }
 

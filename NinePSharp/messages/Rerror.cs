@@ -6,14 +6,8 @@ using NinePSharp.Protocol;
 
 namespace NinePSharp.Messages;
 
-public readonly struct Rerror: ISerializable
+public readonly struct Rerror : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Rerror;
-    public ushort Tag { get; }
-    public string Ename { get; }
-    public uint? Ecode { get; } // 9P2000.u extension
-
     public Rerror(ushort tag, string ename, uint? ecode = null)
     {
         Tag = tag;
@@ -22,7 +16,11 @@ public readonly struct Rerror: ISerializable
 
         uint size = NinePConstants.HeaderSize;
         size += (uint)(2 + System.Text.Encoding.UTF8.GetByteCount(ename));
-        if (ecode.HasValue) size += 4;
+        if (ecode.HasValue)
+        {
+            size += 4;
+        }
+
         Size = size;
     }
 
@@ -50,6 +48,16 @@ public readonly struct Rerror: ISerializable
             Ecode = null;
         }
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Rerror;
+
+    public ushort Tag { get; }
+
+    public string Ename { get; }
+
+    public uint? Ecode { get; } // 9P2000.u extension
 
     public void WriteTo(Span<byte> data, bool is9u = false)
     {

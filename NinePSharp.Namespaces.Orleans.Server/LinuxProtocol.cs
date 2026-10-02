@@ -103,7 +103,7 @@ internal static class LinuxProtocol
             offset += 8;
             data[offset++] = DirectoryEntryType(entry.Resource.Type);
             data.AsSpan().WriteString(entry.Name, ref offset);
-            System.Diagnostics.Debug.Assert(offset == nextOffset);
+            System.Diagnostics.Debug.Assert(offset == nextOffset, "A directory entry was not written at its computed length.");
         }
 
         return data;
@@ -112,7 +112,7 @@ internal static class LinuxProtocol
     internal static Rgetattr ToGetAttr(Tgetattr request, ResourceStat stat)
     {
         ulong valid = request.RequestMask & SupportedAttributes;
-        ulong blocks = stat.Length / 512 + (stat.Length % 512 == 0 ? 0UL : 1UL);
+        ulong blocks = (stat.Length / 512) + (stat.Length % 512 == 0 ? 0UL : 1UL);
         return new Rgetattr(
             request.Tag,
             valid,

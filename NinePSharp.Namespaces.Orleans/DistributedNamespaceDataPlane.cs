@@ -6,7 +6,7 @@ public sealed class DistributedNamespaceDataPlane : INamespaceDataPlane
     private readonly string processGroupId;
     private readonly DistributedNamespaceOperations operations;
 
-    /// <summary>Initializes a data plane for one process group.</summary>
+    /// <summary>Initializes a new instance of the <see cref="DistributedNamespaceDataPlane"/> class. The data plane serves one process group.</summary>
     public DistributedNamespaceDataPlane(string processGroupId, DistributedNamespaceOperations operations)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(processGroupId);

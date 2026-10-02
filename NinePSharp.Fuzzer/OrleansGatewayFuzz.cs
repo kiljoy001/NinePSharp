@@ -32,7 +32,8 @@ internal static class OrleansGatewayFuzz
         group.Setup(value => value.GetSnapshotAsync()).ReturnsAsync(new NamespaceSnapshot(0, Array.Empty<MountHead>()).ToModel());
         factory.Setup(value => value.GetGrain<IVProcessGroupGrain>("group", null)).Returns(group.Object);
         factory.Setup(value => value.GetGrain<IMountableResourceGrain>("device", null)).Returns(CreateResource().Object);
-        var resolver = new RegisteredMountableResourceResolver(factory.Object,
+        var resolver = new RegisteredMountableResourceResolver(
+            factory.Object,
             new[] { ResourceProviderRegistration.For<IMountableResourceGrain>("fuzz") });
         var dispatcher = new DistributedNamespaceDispatcher(
             new DistributedNamespaceOperations(factory.Object, new OrleansResourceOperations(resolver)), new AttachResolver());

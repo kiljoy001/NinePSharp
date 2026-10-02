@@ -5,13 +5,8 @@ using NinePSharp.Protocol;
 
 namespace NinePSharp.Messages;
 
-public readonly struct Rlerror: ISerializable
+public readonly struct Rlerror : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Rlerror;
-    public ushort Tag { get; }
-    public uint Ecode { get; }
-
     public Rlerror(ushort tag, uint ecode)
     {
         Size = NinePConstants.HeaderSize + 4;
@@ -26,6 +21,14 @@ public readonly struct Rlerror: ISerializable
         int offset = NinePConstants.HeaderSize;
         Ecode = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Rlerror;
+
+    public ushort Tag { get; }
+
+    public uint Ecode { get; }
 
     public void WriteTo(Span<byte> span)
     {

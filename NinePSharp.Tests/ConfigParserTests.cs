@@ -1,11 +1,11 @@
-using NinePSharp.Constants;
+using System.Collections.Generic;
+using FsCheck;
+using FsCheck.Xunit;
 using Microsoft.Extensions.Configuration;
+using NinePSharp.Constants;
 using NinePSharp.Server.Configuration.Models;
 using NinePSharp.Server.Configuration.Parser;
 using Xunit;
-using FsCheck;
-using FsCheck.Xunit;
-using System.Collections.Generic;
 
 namespace NinePSharp.Tests.Configuration;
 
@@ -15,12 +15,13 @@ public class ConfigParserTests
     public void Bind_Should_Populate_EndpointConfig_Correcty()
     {
         // Arrange
-        var inMemorySettings = new Dictionary<string, string?> {
-            {"Server:Endpoints:0:Address", "127.0.0.1"},
-            {"Server:Endpoints:0:Port", "5640"},
-            {"Server:Endpoints:0:Protocol", "tls"},
-            {"Server:Endpoints:0:ServerCertificatePath", "/tmp/server.pfx"},
-            {"Server:Endpoints:0:ServerCertificatePassword", "changeit"}
+        var inMemorySettings = new Dictionary<string, string?>
+        {
+            { "Server:Endpoints:0:Address", "127.0.0.1" },
+            { "Server:Endpoints:0:Port", "5640" },
+            { "Server:Endpoints:0:Protocol", "tls" },
+            { "Server:Endpoints:0:ServerCertificatePath", "/tmp/server.pfx" },
+            { "Server:Endpoints:0:ServerCertificatePassword", "changeit" },
         };
 
         IConfiguration configuration = new ConfigurationBuilder()
@@ -62,13 +63,17 @@ public class ConfigParserTests
     [Property]
     public bool Bind_Should_Roundtrip_Arbitrary_ServerConfig(string address, int port, string protocol)
     {
-        if (address == null || protocol == null) return true;
+        if (address == null || protocol == null)
+        {
+            return true;
+        }
 
         // Arrange
-        var inMemorySettings = new Dictionary<string, string?> {
-            {"Server:Endpoints:0:Address", address},
-            {"Server:Endpoints:0:Port", port.ToString()},
-            {"Server:Endpoints:0:Protocol", protocol}
+        var inMemorySettings = new Dictionary<string, string?>
+        {
+            { "Server:Endpoints:0:Address", address },
+            { "Server:Endpoints:0:Port", port.ToString() },
+            { "Server:Endpoints:0:Protocol", protocol },
         };
 
         IConfiguration configuration = new ConfigurationBuilder()

@@ -8,8 +8,6 @@ namespace NinePSharp.Namespaces.Tests;
 
 public sealed class DirectoryStreamingTests
 {
-    internal static string[] Names(ReadOnlyMemory<byte> bytes) => DirectoryCursorTests.Decode(bytes).Select(s => s.Name!).ToArray();
-
     [Fact]
     public async Task ProviderOffsetsShortReadsDupCopyAndIndependentOpens()
     {
@@ -37,14 +35,20 @@ public sealed class DirectoryStreamingTests
         await Assert.ThrowsAsync<ResourceDirectoryRejectedException>(() => f.Calls.ReadAsync(fd, 63).AsTask());
         Assert.Equal(64, (await f.Calls.PReadAsync(fd, -1, 64)).Length);
         foreach (long invalid in new long[] { -2, 1 })
+        {
             await Assert.ThrowsAsync<NamespaceFidException>(() => f.Calls.PReadAsync(fd, invalid, 100).AsTask());
+        }
+
         Assert.Equal(2, f.Reads.Count);
         Assert.Equal(72, (await f.Calls.ReadAsync(fd, 72)).Length);
         Assert.Empty((await f.Calls.PReadAsync(fd, 0, 0)).ToArray());
         Assert.Equal((0UL, 0U), (f.Reads[^1].Offset, f.Reads[^1].Count));
         Assert.Equal(64, (await f.Calls.ReadAsync(fd, 64)).Length);
         foreach (var seek in new[] { (1L, Plan9SeekWhence.Set), (-1L, Plan9SeekWhence.Set), (0L, Plan9SeekWhence.Current), (0L, Plan9SeekWhence.End) })
+        {
             await Assert.ThrowsAsync<NamespaceFidException>(() => f.Calls.SeekAsync(fd, seek.Item1, seek.Item2).AsTask());
+        }
+
         await f.Calls.SeekAsync(fd, 0, Plan9SeekWhence.Set);
         Assert.Equal(64, (await f.Calls.ReadAsync(fd, 64)).Length);
         Assert.Equal(0UL, f.Reads[^1].Offset);
@@ -84,10 +88,17 @@ public sealed class DirectoryStreamingTests
         var b = f.Directory("B", f.Record("b", 60));
         f.Union(a, b);
         int fd = await f.Calls.OpenAsync("/", new(0));
-        if (failOpen) f.BeforeOpen = resource => resource == a
+        if (failOpen)
+        {
+            f.BeforeOpen = resource => resource == a
             ? throw new ResourceDirectoryRejectedException("open rejected") : ValueTask.CompletedTask;
-        else f.ReadOverride = (handle, offset, count) => handle.Resource == a
+        }
+        else
+        {
+            f.ReadOverride = (handle, offset, count) => handle.Resource == a
             ? throw new ResourceDirectoryRejectedException("read rejected") : ValueTask.FromResult(f.ReadRecords(handle.Resource, offset, count));
+        }
+
         Assert.Equal(new[] { "b" }, Names(await f.Calls.ReadAsync(fd, 100)));
         Assert.Equal(failOpen ? 0 : 1, f.Closes.Count);
         Assert.Empty((await f.Calls.ReadAsync(fd, 100)).ToArray());
@@ -193,7 +204,11 @@ public sealed class DirectoryStreamingTests
         Assert.Equal(new[] { "A" }, Names(first));
         Assert.Equal(new[] { "B" }, Names(await f.Calls.PReadAsync(fd, 999, 120)));
         Assert.Single(f.Reads);
-        f.ReadOverride = (_, offset, _) => { Assert.Equal(180UL, offset); return ValueTask.FromResult(ReadOnlyMemory<byte>.Empty); };
+        f.ReadOverride = (_, offset, _) =>
+        {
+            Assert.Equal(180UL, offset);
+            return ValueTask.FromResult(ReadOnlyMemory<byte>.Empty);
+        };
         await f.Calls.PReadAsync(fd, 160, 120);
     }
 
@@ -271,7 +286,8 @@ public sealed class DirectoryStreamingTests
         int fd = await f.Calls.OpenAsync("/", new(0));
         var child = f.Files.Table.Fork(f.Files.Process.Id, NamespaceForkMode.Copy, descriptorMode: DescriptorForkMode.Share);
         var target = f.Directory("replacement");
-        child.ProcessGroup.MountTable.Mount(NamespaceChannel.Restore(new[] { new ChannelFrame("/", target) }),
+        child.ProcessGroup.MountTable.Mount(
+            NamespaceChannel.Restore(new[] { new ChannelFrame("/", target) }),
             new ResourceHandle(new("memory-data", "root", 100), target.Type));
         f.StatOverride = (_, _) => ValueTask.FromResult<ReadOnlyMemory<byte>>(f.Record("first", 80));
         Assert.Equal(80, (await f.ForProcess(child).ReadAsync(fd, 100)).Length);
@@ -288,7 +304,12 @@ public sealed class DirectoryStreamingTests
         int fd = await f.Calls.OpenAsync("/", new(0));
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        f.ReadOverride = async (handle, offset, count) => { entered.TrySetResult(); await release.Task; return f.ReadRecords(handle.Resource, offset, count); };
+        f.ReadOverride = async (handle, offset, count) =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+            return f.ReadRecords(handle.Resource, offset, count);
+        };
         Task<ReadOnlyMemory<byte>> reading = f.Calls.ReadAsync(fd, 60).AsTask();
         await entered.Task;
         Task mutation = f.Mounts.UnmountAsync(f.Root, b).AsTask();
@@ -347,6 +368,7 @@ public sealed class DirectoryStreamingTests
             case 3: data = new byte[1]; break;
             case 4: data[^1] = 1; break;
         }
+
         f.ReadOverride = (_, _, _) => ValueTask.FromResult<ReadOnlyMemory<byte>>(data);
         int fd = await f.Calls.OpenAsync("/", new(0));
         await Assert.ThrowsAsync<IOException>(() => f.Calls.ReadAsync(fd, defect == 3 ? 0U : 64U).AsTask());
@@ -419,7 +441,7 @@ public sealed class DirectoryStreamingTests
         var records = DirectoryCursorTests.Decode(await f.Calls.ReadAsync(fd, 512));
         Assert.Equal(new[] { "é星", "é星" }, records.Select(r => r.Name));
         Assert.Equal(stat.Resource.Qid, records[0].Qid);
-        Assert.Equal((uint)5, records[0].Dev);
+        Assert.Equal(5U, records[0].Dev);
         Assert.Equal((ushort)7, records[0].Type);
         Assert.Equal(stat.Mode, records[0].Mode);
         Assert.Equal(stat.Length, records[0].Length);
@@ -441,7 +463,11 @@ public sealed class DirectoryStreamingTests
         f.Union(a, b);
         int fd = await f.Calls.OpenAsync("/", new(0));
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        f.ReadOverride = async (handle, offset, count) => { await release.Task; return f.ReadRecords(handle.Resource, offset, count); };
+        f.ReadOverride = async (handle, offset, count) =>
+        {
+            await release.Task;
+            return f.ReadRecords(handle.Resource, offset, count);
+        };
         var reading = f.Calls.ReadAsync(fd, 60).AsTask();
         using var cancellation = new CancellationTokenSource();
         var mutation = f.Mounts.MountAsync(b, f.Root, cancellationToken: cancellation.Token).AsTask();
@@ -462,12 +488,15 @@ public sealed class DirectoryStreamingTests
     public async Task GeneratedProviderBatchesPreserveWholeRecordsAndOffsets(NonEmptyArray<byte> input)
     {
         await using var f = new StreamingDirectoryFixture();
-        var records = input.Get.Take(20).Select((b, i) => f.Record("n" + i, 64 + b % 32, (ulong)(100 + i))).ToArray();
+        var records = input.Get.Take(20).Select((b, i) => f.Record("n" + i, 64 + (b % 32), (ulong)(100 + i))).ToArray();
         f.Records[f.Root.Identity] = records;
         int fd = await f.Calls.OpenAsync("/", new(0));
         var names = new List<string>();
         for (int i = 0; i <= records.Length; i++)
+        {
             names.AddRange(Names(await f.Calls.ReadAsync(fd, (uint)(96 + input.Get[i % input.Get.Length]))));
+        }
+
         Assert.Equal(records.Select(r => Names(r).Single()), names);
         ulong expected = 0;
         foreach (var read in f.Reads)
@@ -476,4 +505,6 @@ public sealed class DirectoryStreamingTests
             expected += (uint)f.ReadRecords(read.Handle.Resource, read.Offset, read.Count).Length;
         }
     }
+
+    internal static string[] Names(ReadOnlyMemory<byte> bytes) => DirectoryCursorTests.Decode(bytes).Select(s => s.Name!).ToArray();
 }

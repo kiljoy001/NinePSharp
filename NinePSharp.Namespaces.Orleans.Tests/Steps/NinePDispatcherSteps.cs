@@ -38,26 +38,6 @@ public sealed class NinePDispatcherSteps
     public Task GivenLinuxDispatcherAndAttach()
         => CreateAndAttachAsync(NinePDialect.NineP2000L);
 
-    private async Task CreateAndAttachAsync(NinePDialect requestedDialect)
-    {
-        dialect = requestedDialect;
-        IVProcessGroupGrain group = OrleansTestEnvironment.Cluster.GrainFactory
-            .GetGrain<IVProcessGroupGrain>(groupId);
-        await group.InitializeEmptyAsync();
-        var resources = new OrleansResourceOperations(
-            new TestMountableResourceResolver(OrleansTestEnvironment.Cluster.GrainFactory));
-        var operations = new DistributedNamespaceOperations(
-            OrleansTestEnvironment.Cluster.GrainFactory,
-            resources);
-        dispatcher = new DistributedNamespaceDispatcher(
-            operations,
-            new FixedAttachResolver(groupId, device));
-
-        object response = await DispatchAsync(
-            NinePMessage.NewMsgTattach(new Tattach(1, 1, NinePConstants.NoFid, User, string.Empty)));
-        Assert.IsType<Rattach>(response);
-    }
-
     [Given("9P walks job to fid 2 and opens it read-write")]
     [When("9P walks job to fid 2 and opens it read-write")]
     public async Task WalkAndOpen()
@@ -156,7 +136,7 @@ public sealed class NinePDispatcherSteps
     public async Task NegotiateLinuxVersion()
         => versionResponse = await DispatchAsync(
             NinePMessage.NewMsgTversion(
-                new Tversion(NinePConstants.NoTag, NinePConstants.DefaultMSize, NinePConstants.VersionString_9pl)));
+                new Tversion(NinePConstants.NoTag, NinePConstants.DefaultMSize, NinePConstants.VersionString9pl)));
 
     [Then("9P reads wire payload from fid 2")]
     public async Task ReadPayload()
@@ -277,8 +257,28 @@ public sealed class NinePDispatcherSteps
     [Then("the negotiated version is 9P2000.L")]
     public void NegotiatedVersionIsLinux()
         => Assert.Equal(
-            NinePConstants.VersionString_9pl,
+            NinePConstants.VersionString9pl,
             Assert.IsType<Rversion>(versionResponse).Version);
+
+    private async Task CreateAndAttachAsync(NinePDialect requestedDialect)
+    {
+        dialect = requestedDialect;
+        IVProcessGroupGrain group = OrleansTestEnvironment.Cluster.GrainFactory
+            .GetGrain<IVProcessGroupGrain>(groupId);
+        await group.InitializeEmptyAsync();
+        var resources = new OrleansResourceOperations(
+            new TestMountableResourceResolver(OrleansTestEnvironment.Cluster.GrainFactory));
+        var operations = new DistributedNamespaceOperations(
+            OrleansTestEnvironment.Cluster.GrainFactory,
+            resources);
+        dispatcher = new DistributedNamespaceDispatcher(
+            operations,
+            new FixedAttachResolver(groupId, device));
+
+        object response = await DispatchAsync(
+            NinePMessage.NewMsgTattach(new Tattach(1, 1, NinePConstants.NoFid, User, string.Empty)));
+        Assert.IsType<Rattach>(response);
+    }
 
     private Task<object> DispatchAsync(NinePMessage message)
         => RequiredDispatcher().DispatchAsync(sessionId, message, dialect);

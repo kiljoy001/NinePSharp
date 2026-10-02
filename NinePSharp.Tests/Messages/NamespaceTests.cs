@@ -16,7 +16,9 @@ public class NamespaceTests : TestBase
         uint newFid = 3;
         string[] wnames = new[] { "a", "b" };
         uint size = NinePConstants.HeaderSize + 4 + 4 + 2 + (uint)(2 + 1) + (uint)(2 + 1);
-        RoundTripTest<Twalk>(size, tag,
+        RoundTripTest<Twalk>(
+            size,
+            tag,
             buffer => new Twalk(buffer),
             msg =>
             {
@@ -31,9 +33,12 @@ public class NamespaceTests : TestBase
                 var buf = new byte[size];
                 buf.AsSpan().WriteHeaders(size, tag, MessageTypes.Twalk);
                 int offset = NinePConstants.HeaderSize;
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan().Slice(offset, 4), fid); offset += 4;
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan().Slice(offset, 4), newFid); offset += 4;
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(buf.AsSpan().Slice(offset, 2), (ushort)wnames.Length); offset += 2;
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan().Slice(offset, 4), fid);
+                offset += 4;
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan().Slice(offset, 4), newFid);
+                offset += 4;
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(buf.AsSpan().Slice(offset, 2), (ushort)wnames.Length);
+                offset += 2;
                 buf.AsSpan().WriteString(wnames[0], ref offset);
                 buf.AsSpan().WriteString(wnames[1], ref offset);
                 return new Twalk(buf);
@@ -47,7 +52,9 @@ public class NamespaceTests : TestBase
         ushort tag = 1;
         var qids = new Qid[] { new Qid((QidType)1, 0, 100), new Qid((QidType)1, 0, 101) };
         uint size = NinePConstants.HeaderSize + 2 + (uint)(qids.Length * 13);
-        RoundTripTest<Rwalk>(size, tag,
+        RoundTripTest<Rwalk>(
+            size,
+            tag,
             buffer => new Rwalk(buffer),
             msg =>
             {
@@ -60,7 +67,8 @@ public class NamespaceTests : TestBase
                 var buf = new byte[size];
                 buf.AsSpan().WriteHeaders(size, tag, MessageTypes.Rwalk);
                 int offset = NinePConstants.HeaderSize;
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(buf.AsSpan().Slice(offset, 2), (ushort)qids.Length); offset += 2;
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(buf.AsSpan().Slice(offset, 2), (ushort)qids.Length);
+                offset += 2;
                 buf.AsSpan().WriteQid(qids[0], ref offset);
                 buf.AsSpan().WriteQid(qids[1], ref offset);
                 return new Rwalk(buf);
@@ -74,7 +82,9 @@ public class NamespaceTests : TestBase
         ushort tag = 1;
         uint fid = 2;
         uint size = NinePConstants.HeaderSize + 4;
-        RoundTripTest<Tclunk>(size, tag,
+        RoundTripTest<Tclunk>(
+            size,
+            tag,
             buffer => new Tclunk(buffer),
             msg => { Assert.Equal(fid, msg.Fid); },
             () =>
@@ -93,7 +103,9 @@ public class NamespaceTests : TestBase
     {
         ushort tag = 1;
         uint size = NinePConstants.HeaderSize;
-        RoundTripTest<Rclunk>(size, tag,
+        RoundTripTest<Rclunk>(
+            size,
+            tag,
             buffer => new Rclunk(buffer),
             msg => { Assert.Equal(tag, msg.Tag); },
             () =>
@@ -111,7 +123,9 @@ public class NamespaceTests : TestBase
         ushort tag = 1;
         uint fid = 2;
         uint size = NinePConstants.HeaderSize + 4;
-        RoundTripTest<Tremove>(size, tag,
+        RoundTripTest<Tremove>(
+            size,
+            tag,
             buffer => new Tremove(buffer),
             msg => { Assert.Equal(fid, msg.Fid); },
             () =>
@@ -130,7 +144,9 @@ public class NamespaceTests : TestBase
     {
         ushort tag = 1;
         uint size = NinePConstants.HeaderSize;
-        RoundTripTest<Rremove>(size, tag,
+        RoundTripTest<Rremove>(
+            size,
+            tag,
             buffer => new Rremove(buffer),
             msg => { Assert.Equal(tag, msg.Tag); },
             () =>

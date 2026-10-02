@@ -1,8 +1,8 @@
 using System.Buffers.Binary;
+using System.Text;
 using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
-using System.Text;
 
 namespace NinePSharp.Messages;
 
@@ -12,63 +12,17 @@ namespace NinePSharp.Messages;
 /// size[2] type[2] dev[4] qid[13] mode[4] atime[4] mtime[4] length[8] name[s] uid[s] gid[s] muid[s]
 ///
 /// Layout (9P2000.u additions):
-/// extension[s] n_uid[4] n_gid[4] n_muid[4]
+/// extension[s] n_uid[4] n_gid[4] n_muid[4].
 /// </summary>
 public readonly struct Stat
 {
-    public NinePDialect Dialect { get; }
-    private bool Is9u => Dialect == NinePDialect.NineP2000U || Dialect == NinePDialect.NineP2000L;
-
-    public ushort Size { get; } // Total size including the 2-byte header
-    public ushort Type { get; }
-    public uint Dev { get; }
-    public Qid Qid { get; }
-    public uint Mode { get; }
-    public uint Atime { get; }
-    public uint Mtime { get; }
-    public ulong Length { get; }
-    public string Name { get; }
-    public string Uid { get; }
-    public string Gid { get; }
-    public string Muid { get; }
-
-    // 9P2000.u
-    public string? Extension { get; }
-    public uint? NUid { get; }
-    public uint? NGid { get; }
-    public uint? NMuid { get; }
-
-    public static ushort CalculateSize(string? name, string? uid, string? gid, string? muid, NinePDialect dialect, string? extension = null)
-    {
-        bool is9u = dialect == NinePDialect.NineP2000U || dialect == NinePDialect.NineP2000L;
-        // 1. Fixed fields (excluding size[2] itself):
-        // type[2] + dev[4] + qid[13] + mode[4] + atime[4] + mtime[4] + length[8] = 39 bytes
-        int payloadSize = 39;
-
-        // 2. Variable string fields: 2 bytes length + UTF8 bytes
-        payloadSize += 2 + Encoding.UTF8.GetByteCount(name ?? "");
-        payloadSize += 2 + Encoding.UTF8.GetByteCount(uid ?? "");
-        payloadSize += 2 + Encoding.UTF8.GetByteCount(gid ?? "");
-        payloadSize += 2 + Encoding.UTF8.GetByteCount(muid ?? "");
-
-        // 3. 9P2000.u extensions
-        if (is9u)
-        {
-            payloadSize += 2 + Encoding.UTF8.GetByteCount(extension ?? "");
-            payloadSize += 4 + 4 + 4; // n_uid[4] n_gid[4] n_muid[4]
-        }
-
-        // Total size is payload + the 2 bytes for the size field itself
-        return (ushort)(payloadSize + 2);
-    }
-
     public Stat(ushort size, ushort type, uint dev, Qid qid, uint mode, uint atime, uint mtime, ulong length, string? name, string? uid, string? gid, string? muid, NinePDialect dialect = NinePDialect.NineP2000, string? extension = null, uint? nUid = null, uint? nGid = null, uint? nMuid = null)
     {
         Dialect = dialect;
-        Name = name ?? "";
-        Uid = uid ?? "";
-        Gid = gid ?? "";
-        Muid = muid ?? "";
+        Name = name ?? string.Empty;
+        Uid = uid ?? string.Empty;
+        Gid = gid ?? string.Empty;
+        Muid = muid ?? string.Empty;
         Extension = extension;
 
         Type = type;
@@ -140,6 +94,68 @@ public readonly struct Stat
         }
     }
 
+    public NinePDialect Dialect { get; }
+
+    public ushort Size { get; } // Total size including the 2-byte header
+
+    public ushort Type { get; }
+
+    public uint Dev { get; }
+
+    public Qid Qid { get; }
+
+    public uint Mode { get; }
+
+    public uint Atime { get; }
+
+    public uint Mtime { get; }
+
+    public ulong Length { get; }
+
+    public string Name { get; }
+
+    public string Uid { get; }
+
+    public string Gid { get; }
+
+    public string Muid { get; }
+
+    // 9P2000.u
+    public string? Extension { get; }
+
+    public uint? NUid { get; }
+
+    public uint? NGid { get; }
+
+    public uint? NMuid { get; }
+
+    private bool Is9u => Dialect == NinePDialect.NineP2000U || Dialect == NinePDialect.NineP2000L;
+
+    public static ushort CalculateSize(string? name, string? uid, string? gid, string? muid, NinePDialect dialect, string? extension = null)
+    {
+        bool is9u = dialect == NinePDialect.NineP2000U || dialect == NinePDialect.NineP2000L;
+
+        // 1. Fixed fields (excluding size[2] itself):
+        // type[2] + dev[4] + qid[13] + mode[4] + atime[4] + mtime[4] + length[8] = 39 bytes
+        int payloadSize = 39;
+
+        // 2. Variable string fields: 2 bytes length + UTF8 bytes
+        payloadSize += 2 + Encoding.UTF8.GetByteCount(name ?? string.Empty);
+        payloadSize += 2 + Encoding.UTF8.GetByteCount(uid ?? string.Empty);
+        payloadSize += 2 + Encoding.UTF8.GetByteCount(gid ?? string.Empty);
+        payloadSize += 2 + Encoding.UTF8.GetByteCount(muid ?? string.Empty);
+
+        // 3. 9P2000.u extensions
+        if (is9u)
+        {
+            payloadSize += 2 + Encoding.UTF8.GetByteCount(extension ?? string.Empty);
+            payloadSize += 4 + 4 + 4; // n_uid[4] n_gid[4] n_muid[4]
+        }
+
+        // Total size is payload + the 2 bytes for the size field itself
+        return (ushort)(payloadSize + 2);
+    }
+
     public void WriteTo(Span<byte> data, ref int offset)
     {
         int startOffset = offset;
@@ -178,7 +194,7 @@ public readonly struct Stat
         // 4. Unix Extensions
         if (Is9u)
         {
-            data.WriteString(Extension ?? "", ref offset);
+            data.WriteString(Extension ?? string.Empty, ref offset);
             BinaryPrimitives.WriteUInt32LittleEndian(data.Slice(offset, 4), NUid ?? uint.MaxValue);
             offset += 4;
             BinaryPrimitives.WriteUInt32LittleEndian(data.Slice(offset, 4), NGid ?? uint.MaxValue);

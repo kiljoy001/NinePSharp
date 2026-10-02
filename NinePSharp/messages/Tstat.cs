@@ -8,12 +8,6 @@ namespace NinePSharp.Messages;
 // size[4] Tstat tag[2] fid[4]
 public readonly struct Tstat : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Tstat;
-    public ushort Tag { get; }
-
-    public uint Fid { get; }
-
     public Tstat(ushort tag, uint fid)
     {
         Tag = tag;
@@ -29,6 +23,14 @@ public readonly struct Tstat : ISerializable
         int offset = NinePConstants.HeaderSize;
         Fid = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Tstat;
+
+    public ushort Tag { get; }
+
+    public uint Fid { get; }
 
     public void WriteTo(Span<byte> data)
     {

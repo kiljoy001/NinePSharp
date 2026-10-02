@@ -1,6 +1,6 @@
-namespace NinePSharp.Interfaces;
-
 using NinePSharp.Constants;
+
+namespace NinePSharp.Interfaces;
 
 /// <summary>
 /// Defines the base interface for all 9P protocol messages.

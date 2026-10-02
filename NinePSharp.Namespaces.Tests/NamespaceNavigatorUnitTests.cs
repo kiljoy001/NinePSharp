@@ -16,6 +16,7 @@ public sealed class NamespaceNavigatorUnitTests
         await Assert.ThrowsAsync<ArgumentNullException>(() => navigator.CreateAsync(null!, "file", false).AsTask());
         await Assert.ThrowsAsync<ArgumentNullException>(() => Task.FromResult(navigator.EnterCreated(channel, "file", null!)));
     }
+
     [Fact]
     public void ConstructionAndAttachRejectNull()
     {

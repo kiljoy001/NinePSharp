@@ -88,8 +88,14 @@ public sealed class FileWStatRecordTests
     public void NameChecksPreserveFirstByteBoundaries(string name)
     {
         byte[] bytes = FileStatOperations.EncodeUpdate(ResourceWStat.Unchanged() with { Name = name });
-        if (name[0] == '\0') Assert.NotEmpty(FileStatRecords.ValidateAndCopyUpdate(bytes));
-        else Assert.Throws<NamespaceFidException>(() => FileStatRecords.ValidateAndCopyUpdate(bytes));
+        if (name[0] == '\0')
+        {
+            Assert.NotEmpty(FileStatRecords.ValidateAndCopyUpdate(bytes));
+        }
+        else
+        {
+            Assert.Throws<NamespaceFidException>(() => FileStatRecords.ValidateAndCopyUpdate(bytes));
+        }
     }
 
     [Fact]
@@ -116,14 +122,34 @@ public sealed class FileWStatRecordTests
     }
 
     [Property(MaxTest = 100)]
-    public bool NumericFieldsAndUtf8StringsRoundTrip(ushort type, uint device, byte qidType,
-        uint version, ulong path, uint mode, uint atime, uint mtime, ulong length,
-        NonNull<string> name, NonNull<string> group)
+    public bool NumericFieldsAndUtf8StringsRoundTrip(
+        ushort type,
+        uint device,
+        byte qidType,
+        uint version,
+        ulong path,
+        uint mode,
+        uint atime,
+        uint mtime,
+        ulong length,
+        NonNull<string> name,
+        NonNull<string> group)
     {
         string safeName = Clean(name.Get, 30);
         string safeGroup = Clean(group.Get, 30);
-        var value = new ResourceWStat(type, device, new Qid((QidType)qidType, version, path),
-            mode, atime, mtime, length, safeName, string.Empty, safeGroup, string.Empty, 0);
+        var value = new ResourceWStat(
+            type,
+            device,
+            new Qid((QidType)qidType, version, path),
+            mode,
+            atime,
+            mtime,
+            length,
+            safeName,
+            string.Empty,
+            safeGroup,
+            string.Empty,
+            0);
         byte[] bytes = FileStatOperations.EncodeUpdate(value);
         ResourceWStat decoded = FileStatRecords.DecodeUpdate(FileStatRecords.ValidateAndCopyUpdate(bytes));
         Assert.Equal(value with { EncodedLength = (uint)bytes.Length }, decoded);

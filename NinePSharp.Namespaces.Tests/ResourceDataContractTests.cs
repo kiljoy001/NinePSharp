@@ -9,7 +9,7 @@ public sealed class ResourceDataContractTests
     [Fact]
     public void OperationIdValidatesAndRetainsValues()
     {
-        Assert.Throws<ArgumentException>(() => new ResourceOperationId("", 1));
+        Assert.Throws<ArgumentException>(() => new ResourceOperationId(string.Empty, 1));
         Assert.Throws<ArgumentOutOfRangeException>(() => new ResourceOperationId("session", 0));
 
         var id = new ResourceOperationId("session", 42);
@@ -22,7 +22,7 @@ public sealed class ResourceDataContractTests
     {
         var id = new ResourceOperationId("session", 1);
         Assert.Throws<ArgumentNullException>(() => new ResourceOperationContext(null!, 7, "glenda"));
-        Assert.Throws<ArgumentException>(() => new ResourceOperationContext(id, 7, ""));
+        Assert.Throws<ArgumentException>(() => new ResourceOperationContext(id, 7, string.Empty));
 
         var context = new ResourceOperationContext(id, 7, "glenda");
         Assert.Same(id, context.OperationId);
@@ -37,7 +37,7 @@ public sealed class ResourceDataContractTests
         Assert.Throws<ArgumentNullException>(
             () => new ResourceOpenHandle(null!, "handle", NinePConstants.OREAD, 0));
         Assert.Throws<ArgumentException>(
-            () => new ResourceOpenHandle(resource, "", NinePConstants.OREAD, 0));
+            () => new ResourceOpenHandle(resource, string.Empty, NinePConstants.OREAD, 0));
 
         var handle = new ResourceOpenHandle(resource, "handle", NinePConstants.ORDWR, 4096);
         Assert.Same(resource, handle.Resource);
@@ -79,10 +79,10 @@ public sealed class ResourceDataContractTests
         await Assert.ThrowsAsync<ArgumentNullException>(
             () => navigator.CreateAsync(null!, "child", false).AsTask());
         await Assert.ThrowsAsync<ArgumentException>(
-            () => navigator.CreateAsync(channel, "", false).AsTask());
+            () => navigator.CreateAsync(channel, string.Empty, false).AsTask());
         Assert.Throws<ArgumentNullException>(() => navigator.SelectCreateTarget(null!));
         Assert.Throws<ArgumentNullException>(() => navigator.EnterCreated(null!, "child", root));
-        Assert.Throws<ArgumentException>(() => navigator.EnterCreated(channel, "", root));
+        Assert.Throws<ArgumentException>(() => navigator.EnterCreated(channel, string.Empty, root));
         Assert.Throws<ArgumentNullException>(() => navigator.EnterCreated(channel, "child", null!));
     }
 }

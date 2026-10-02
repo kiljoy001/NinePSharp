@@ -76,19 +76,28 @@ public sealed class DescriptorCleanupSteps
     public void RejectInstallation()
     {
         Assert.Throws<ObjectDisposedException>(() => original.Install(DescriptorGroupTests.Handle("late"), () => CloseProvider(2)));
-        lock (attempts) Assert.Equal(new[] { 0 }, attempts);
+        lock (attempts)
+        {
+            Assert.Equal(new[] { 0 }, attempts);
+        }
     }
 
     [Then("both provider close callbacks have been attempted once in descriptor order")]
     public void BothClosesAttempted()
     {
-        lock (attempts) Assert.Equal(new[] { 0, 1 }, attempts);
+        lock (attempts)
+        {
+            Assert.Equal(new[] { 0, 1 }, attempts);
+        }
     }
 
     [Then("only the marked descriptor provider close has been attempted")]
     public void OnlyMarkedCloseAttempted()
     {
-        lock (attempts) Assert.Equal(new[] { 0 }, attempts);
+        lock (attempts)
+        {
+            Assert.Equal(new[] { 0 }, attempts);
+        }
     }
 
     [Then("process cleanup has completed")]
@@ -130,19 +139,39 @@ public sealed class DescriptorCleanupSteps
     public async Task Cleanup()
     {
         resume.TrySetResult();
-        if (exiting is not null) await exiting;
+        if (exiting is not null)
+        {
+            await exiting;
+        }
+
         if (table is not null)
-            foreach (var remaining in table.Snapshot()) await table.TerminateAsync(remaining.Id);
+        {
+            foreach (var remaining in table.Snapshot())
+            {
+                await table.TerminateAsync(remaining.Id);
+            }
+        }
     }
 
     private async ValueTask CloseProvider(int descriptor)
     {
-        lock (attempts) attempts.Add(descriptor);
+        lock (attempts)
+        {
+            attempts.Add(descriptor);
+        }
+
         if (descriptor == 0)
         {
             entered.TrySetResult();
-            if (holdFirst) await resume.Task;
-            if (failFirst) throw new IOException("Provider close failed.");
+            if (holdFirst)
+            {
+                await resume.Task;
+            }
+
+            if (failFirst)
+            {
+                throw new IOException("Provider close failed.");
+            }
         }
     }
 }

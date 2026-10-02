@@ -1,7 +1,7 @@
-using NinePSharp.Constants;
 using System;
 using FsCheck;
 using FsCheck.Xunit;
+using NinePSharp.Constants;
 using NinePSharp.Parser;
 using Xunit;
 
@@ -12,7 +12,10 @@ public class ParserPropertyTests
     [Property]
     public bool Parser_Never_Crashes_On_Random_Bytes(byte[] data)
     {
-        if (data == null) return true;
+        if (data == null)
+        {
+            return true;
+        }
 
         try
         {
@@ -36,7 +39,10 @@ public class ParserPropertyTests
     [Property]
     public bool Parser_9u_Never_Crashes_On_Random_Bytes(byte[] data)
     {
-        if (data == null) return true;
+        if (data == null)
+        {
+            return true;
+        }
 
         try
         {

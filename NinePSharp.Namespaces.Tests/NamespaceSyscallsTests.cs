@@ -226,12 +226,12 @@ public sealed class NamespaceSyscallsTests
         var process = new VProcessTable().CreateInitial(new NamespaceNavigator(new MountTable(), resources).Attach(root));
         var syscalls = new NamespaceSyscalls(resources);
 
-        await Assert.ThrowsAsync<ArgumentException>(() => syscalls.BindAsync(process, "", "/target").AsTask());
+        await Assert.ThrowsAsync<ArgumentException>(() => syscalls.BindAsync(process, string.Empty, "/target").AsTask());
         await Assert.ThrowsAsync<ArgumentException>(() => syscalls.MountAsync(
             process,
             new NamespaceMountSource(new NamespaceNavigator(new MountTable(), resources).Attach(root), NinePConstants.ORDWR),
             " ").AsTask());
-        await Assert.ThrowsAsync<ArgumentException>(() => syscalls.UnmountAsync(process, "").AsTask());
+        await Assert.ThrowsAsync<ArgumentException>(() => syscalls.UnmountAsync(process, string.Empty).AsTask());
         await Assert.ThrowsAsync<NamespaceException>(() => syscalls.BindAsync(process, "/missing/child", "/target").AsTask());
         NamespaceMountSource source = new(
             new NamespaceNavigator(new MountTable(), resources).Attach(root),

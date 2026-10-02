@@ -1,18 +1,13 @@
-namespace NinePSharp.Messages;
-
 using System;
 using System.Buffers.Binary;
 using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
+namespace NinePSharp.Messages;
+
 public readonly struct Rxattrwalk : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Rxattrwalk;
-    public ushort Tag { get; }
-    public ulong XattrSize { get; }
-
     public Rxattrwalk(uint size, ushort tag, ulong xattrSize)
     {
         Size = size;
@@ -27,6 +22,14 @@ public readonly struct Rxattrwalk : ISerializable
         int offset = NinePConstants.HeaderSize;
         XattrSize = BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(offset, 8));
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Rxattrwalk;
+
+    public ushort Tag { get; }
+
+    public ulong XattrSize { get; }
 
     public void WriteTo(Span<byte> span)
     {

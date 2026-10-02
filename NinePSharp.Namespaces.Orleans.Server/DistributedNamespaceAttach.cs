@@ -12,20 +12,8 @@ public sealed record DistributedNamespaceAttach(
     ResourceHandle Root)
 {
     /// <summary>
-    /// Resource operations for this attach's session only, such as an authorization view for its
+    /// Gets resource operations for this attach's session only, such as an authorization view for its
     /// principal; null uses the dispatcher's shared operations.
     /// </summary>
     public IResourceOperations? Resources { get; init; }
-}
-
-/// <summary>Authenticates and resolves an attach name to an Orleans process namespace.</summary>
-public interface IDistributedNamespaceAttachResolver
-{
-    /// <summary>Resolves a requested attach or throws when access is denied.</summary>
-    ValueTask<DistributedNamespaceAttach> ResolveAsync(
-        string sessionId,
-        Tattach request,
-        NinePDialect dialect,
-        X509Certificate2? certificate,
-        CancellationToken cancellationToken);
 }

@@ -1,18 +1,12 @@
 using System.Buffers.Binary;
-using NinePSharp.Interfaces;
 using NinePSharp.Constants;
+using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
 namespace NinePSharp.Messages;
 
 public readonly struct Tversion : ISerializable
 {
-    public uint Size {get;}
-    public MessageTypes Type => MessageTypes.Tversion;
-    public ushort Tag {get;}
-    public uint MSize {get;}
-    public string Version {get;}
-
     public Tversion(ushort tag, uint msize, string version)
     {
         Tag = tag;
@@ -30,6 +24,16 @@ public readonly struct Tversion : ISerializable
         offset += 4;
         Version = data.ReadString(ref offset);
     }
+
+    public uint Size { get;  }
+
+    public MessageTypes Type => MessageTypes.Tversion;
+
+    public ushort Tag { get;  }
+
+    public uint MSize { get;  }
+
+    public string Version { get;  }
 
     public void WriteTo(Span<byte> data)
     {

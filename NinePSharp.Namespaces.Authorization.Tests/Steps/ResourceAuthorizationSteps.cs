@@ -48,7 +48,10 @@ public sealed class ResourceAuthorizationSteps
     public void GivenPrincipals(DataTable table)
     {
         foreach (DataTableRow row in table.Rows)
+        {
             principals.Add(new AuthorizationPrincipal(row["user"], bool.Parse(row["enabled"])));
+        }
+
         views.Clear();
     }
 
@@ -56,7 +59,10 @@ public sealed class ResourceAuthorizationSteps
     public void GivenGroup(string group, string members)
     {
         foreach (string member in members.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
             memberships.Add(new GroupMembership(group, member));
+        }
+
         views.Clear();
     }
 
@@ -226,8 +232,14 @@ public sealed class ResourceAuthorizationSteps
     public void ViewBuilt(string user)
     {
         error = null;
-        try { result = View(user); }
-        catch (Exception caught) { error = caught; }
+        try
+        {
+            result = View(user);
+        }
+        catch (Exception caught)
+        {
+            error = caught;
+        }
     }
 
     [When(@"^(\w+) lists ""(.*)"" after revocation$")]
@@ -275,7 +287,11 @@ public sealed class ResourceAuthorizationSteps
     [Given(@"^(\w+) holds a read tree grant on ""(.*)""$")]
     public void GivenReadTree(string user, string path)
     {
-        grants.Add(new ResourceGrant(GrantSubjectKind.User, user, tree.Handle(path).Identity, GrantScope.Tree,
+        grants.Add(new ResourceGrant(
+            GrantSubjectKind.User,
+            user,
+            tree.Handle(path).Identity,
+            GrantScope.Tree,
             ResourceRights.Stat | ResourceRights.Read));
         views.Clear();
     }
@@ -340,9 +356,18 @@ public sealed class ResourceAuthorizationSteps
     [Then(@"^the open (succeeds|is denied before provider dispatch|reports not found)$")]
     public void OpenOutcome(string outcome)
     {
-        if (outcome == "succeeds") Succeeds();
-        else if (outcome == "reports not found") ReportsNotFound();
-        else DeniedBeforeDispatch();
+        if (outcome == "succeeds")
+        {
+            Succeeds();
+        }
+        else if (outcome == "reports not found")
+        {
+            ReportsNotFound();
+        }
+        else
+        {
+            DeniedBeforeDispatch();
+        }
     }
 
     [Then(@"^the remove (reaches the provider|is denied before provider dispatch)$")]
@@ -420,6 +445,7 @@ public sealed class ResourceAuthorizationSteps
     public async Task CanRead(string user)
     {
         Assert.Equal(retainedUser, user);
+
         // Counted across paths: a moved file is logged under its new name.
         int before = tree.CallsMatching("read ");
         ReadOnlyMemory<byte> bytes = await View(user).ReadAsync(retained!, 0, 64, CancellationToken.None);
@@ -490,10 +516,16 @@ public sealed class ResourceAuthorizationSteps
             "generation 0" => () => new AuthorizationPolicy(0, principals, memberships, new[] { grant }),
             "a grant with no rights" => () => new AuthorizationPolicy(1, principals, memberships, new[] { grant with { Rights = ResourceRights.None } }),
             "the same grant twice" => () => new AuthorizationPolicy(1, principals, memberships, new[] { grant, grant }),
-            "a group member who is not a principal" => () => new AuthorizationPolicy(1, principals,
-                memberships.Append(new GroupMembership("writers", "nobody")), new[] { grant }),
-            "two principals with the same user" => () => new AuthorizationPolicy(1,
-                principals.Append(new AuthorizationPrincipal("alice", false)), memberships, new[] { grant }),
+            "a group member who is not a principal" => () => new AuthorizationPolicy(
+                1,
+                principals,
+                memberships.Append(new GroupMembership("writers", "nobody")),
+                new[] { grant }),
+            "two principals with the same user" => () => new AuthorizationPolicy(
+                1,
+                principals.Append(new AuthorizationPrincipal("alice", false)),
+                memberships,
+                new[] { grant }),
             _ => throw new ArgumentOutOfRangeException(nameof(defect), defect),
         };
     }
@@ -502,38 +534,18 @@ public sealed class ResourceAuthorizationSteps
     public void PolicyConstructed()
     {
         error = null;
-        try { result = pendingPolicy!(); }
-        catch (Exception caught) { error = caught; }
+        try
+        {
+            result = pendingPolicy!();
+        }
+        catch (Exception caught)
+        {
+            error = caught;
+        }
     }
 
     [Then("construction fails")]
     public void ConstructionFails() => Assert.IsAssignableFrom<ArgumentException>(error);
-
-    private async Task OpenAs(string user, string path, string mode, string contextUser)
-        => await Attempt("open", path, async () =>
-            await View(user).OpenAsync(tree.Handle(path), OpenMode(mode), Context(contextUser), CancellationToken.None));
-
-    private async Task Attempt(string kind, string path, Func<Task<object>> operation)
-    {
-        requestKind = kind;
-        requestPath = path;
-        callsBefore = tree.CallsMatching($"{kind} {path}");
-        error = null;
-        result = null;
-        try { result = await operation(); }
-        catch (Exception caught) { error = caught; }
-    }
-
-    private AuthorizedResourceOperations View(string user)
-    {
-        if (views.TryGetValue(user, out AuthorizedResourceOperations? view)) return view;
-        var policy = new AuthorizationPolicy(policyGeneration, principals, memberships, grants);
-        view = new AuthorizedResourceOperations(tree, reportParents ? tree : null, policy, user, () => currentGeneration, readOnlyRoots);
-        views.Add(user, view);
-        return view;
-    }
-
-    private ResourceOperationContext Context(string user) => new(new ResourceOperationId("authz", ++sequence), 1, user);
 
     private static uint Octal(string value) => Convert.ToUInt32(value, 8);
 
@@ -559,4 +571,40 @@ public sealed class ResourceAuthorizationSteps
 
         return mode;
     }
+
+    private async Task OpenAs(string user, string path, string mode, string contextUser)
+        => await Attempt("open", path, async () =>
+            await View(user).OpenAsync(tree.Handle(path), OpenMode(mode), Context(contextUser), CancellationToken.None));
+
+    private async Task Attempt(string kind, string path, Func<Task<object>> operation)
+    {
+        requestKind = kind;
+        requestPath = path;
+        callsBefore = tree.CallsMatching($"{kind} {path}");
+        error = null;
+        result = null;
+        try
+        {
+            result = await operation();
+        }
+        catch (Exception caught)
+        {
+            error = caught;
+        }
+    }
+
+    private AuthorizedResourceOperations View(string user)
+    {
+        if (views.TryGetValue(user, out AuthorizedResourceOperations? view))
+        {
+            return view;
+        }
+
+        var policy = new AuthorizationPolicy(policyGeneration, principals, memberships, grants);
+        view = new AuthorizedResourceOperations(tree, reportParents ? tree : null, policy, user, () => currentGeneration, readOnlyRoots);
+        views.Add(user, view);
+        return view;
+    }
+
+    private ResourceOperationContext Context(string user) => new(new ResourceOperationId("authz", ++sequence), 1, user);
 }

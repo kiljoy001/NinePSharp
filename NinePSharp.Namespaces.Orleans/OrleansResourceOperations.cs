@@ -1,12 +1,5 @@
 namespace NinePSharp.Namespaces.Orleans;
 
-/// <summary>Resolves resource handles to the Orleans grains which expose them.</summary>
-public interface IMountableResourceResolver
-{
-    /// <summary>Returns the grain responsible for a resource identity.</summary>
-    IMountableResourceGrain Resolve(ResourceIdentityModel identity);
-}
-
 /// <summary>Routes pure namespace data operations to mountable Orleans resource grains.</summary>
 public sealed class OrleansResourceOperations : IResourceDataOperations, IResourceOpenStatOperations, IResourceWStatOperations
 {
@@ -135,8 +128,11 @@ public sealed class OrleansResourceOperations : IResourceDataOperations, IResour
     }
 
     /// <inheritdoc/>
-    public async ValueTask<uint> WStatAsync(ResourceHandle resource, ResourceWStat stat,
-        ResourceOperationContext context, CancellationToken cancellationToken)
+    public async ValueTask<uint> WStatAsync(
+        ResourceHandle resource,
+        ResourceWStat stat,
+        ResourceOperationContext context,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var grain = resolver.Resolve(resource.Identity.ToModel()) as IWStatResourceGrain
@@ -153,8 +149,11 @@ public sealed class OrleansResourceOperations : IResourceDataOperations, IResour
     }
 
     /// <inheritdoc/>
-    public async ValueTask<uint> WStatOpenAsync(ResourceOpenHandle handle, ResourceWStat stat,
-        ResourceOperationContext context, CancellationToken cancellationToken)
+    public async ValueTask<uint> WStatOpenAsync(
+        ResourceOpenHandle handle,
+        ResourceWStat stat,
+        ResourceOperationContext context,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var grain = resolver.Resolve(handle.Resource.Identity.ToModel()) as IWStatResourceGrain

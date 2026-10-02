@@ -8,13 +8,6 @@ namespace NinePSharp.Messages;
 // size[4] Rread tag[2] count[4] data[count]
 public readonly struct Rread : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Rread;
-    public ushort Tag { get; }
-
-    public uint Count { get; }
-    public ReadOnlyMemory<byte> Data { get; }
-
     public Rread(ushort tag, ReadOnlyMemory<byte> data)
     {
         Tag = tag;
@@ -45,6 +38,16 @@ public readonly struct Rread : ISerializable
         Count = count;
         Data = data;
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Rread;
+
+    public ushort Tag { get; }
+
+    public uint Count { get; }
+
+    public ReadOnlyMemory<byte> Data { get; }
 
     public void WriteTo(Span<byte> data)
     {

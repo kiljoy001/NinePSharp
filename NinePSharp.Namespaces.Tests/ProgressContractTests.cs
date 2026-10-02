@@ -8,13 +8,6 @@ using Xunit.Abstractions;
 
 namespace NinePSharp.Namespaces.Tests;
 
-/// <summary>Check release/progress invariants before tests which wait for subsequent operations.</summary>
-public sealed class ProgressFirstOrderer : ITestCollectionOrderer
-{
-    public IEnumerable<ITestCollection> OrderTestCollections(IEnumerable<ITestCollection> collections)
-        => collections.OrderBy(c => c.DisplayName == "Namespace progress contracts" ? 0 : 1);
-}
-
 [Collection("Namespace progress contracts")]
 public sealed class ProgressContractTests
 {
@@ -40,8 +33,10 @@ public sealed class ProgressContractTests
         // directory state or make its close wait for an unrelated directory cursor.
         var descriptors = new DescriptorGroup();
         var regular = new ResourceHandle(new("progress", "root", 2), 0);
-        int regularFd = descriptors.Install(new ResourceOpenHandle(regular, "regular", 0, 0),
-            () => ValueTask.CompletedTask, readDirectoryAsync:
+        int regularFd = descriptors.Install(
+            new ResourceOpenHandle(regular, "regular", 0, 0),
+            () => ValueTask.CompletedTask,
+            readDirectoryAsync:
             _ => ValueTask.FromResult<IReadOnlyList<ResourceStat>>(Array.Empty<ResourceStat>()));
         var regularLease = descriptors.Acquire(regularFd);
         Assert.Throws<NamespaceFidException>(() => regularLease.Directory);

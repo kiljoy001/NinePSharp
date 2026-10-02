@@ -16,8 +16,10 @@ public sealed class FileStatRecordTests
     public async Task ProviderAndVisibleNamesHaveSeparateSizeHints(uint count, int length, int hint)
     {
         await using var f = new FileStatFixture();
-        int fd = f.Files.Process.Descriptors.Install(new(f.Files.Process.Root.Current, "manual", 0, 0),
-            () => ValueTask.CompletedTask, visibleName: "abcdefghijklmnop");
+        int fd = f.Files.Process.Descriptors.Install(
+            new(f.Files.Process.Root.Current, "manual", 0, 0),
+            () => ValueTask.CompletedTask,
+            visibleName: "abcdefghijklmnop");
         f.Reply = (resource, capacity) =>
         {
             byte[] bytes = f.Record(resource, "name");
@@ -27,7 +29,10 @@ public sealed class FileStatRecordTests
         Assert.Equal(length, result.Length);
         Assert.Equal(hint, BinaryPrimitives.ReadUInt16LittleEndian(result.Span));
         Assert.Equal(count, Assert.Single(f.Requests).Count);
-        if (length > 2) Assert.Equal("abcdefghijklmnop", FileStatSyscallTests.Name(result));
+        if (length > 2)
+        {
+            Assert.Equal("abcdefghijklmnop", FileStatSyscallTests.Name(result));
+        }
     }
 
     [Theory]
@@ -42,7 +47,10 @@ public sealed class FileStatRecordTests
         var opened = new ResourceOpenHandle(root, "manual", 0, 0);
         byte[] complete = f.Codec.Encode(await f.Files.Resources.StatAsync(root, default));
         foreach (var result in new[] { await f.Adapter.StatAsync(root, count, default), await f.Adapter.StatAsync(opened, count, default) })
+        {
             Assert.Equal(complete.Length > count ? complete[..2] : complete, result.ToArray());
+        }
+
         Assert.Equal(complete, (await f.Adapter.StatAsync(root, (uint)complete.Length, default)).ToArray());
         Assert.Equal(complete, (await f.Adapter.StatAsync(opened, (uint)complete.Length, default)).ToArray());
     }
@@ -52,14 +60,15 @@ public sealed class FileStatRecordTests
     {
         await using var f = new FileStatFixture();
         var root = f.Files.Process.Root.Current;
-        byte[] minimum = f.Codec.Encode(new(root, "", 0, 0, 0, 0, "", "", ""));
+        byte[] minimum = f.Codec.Encode(new(root, string.Empty, 0, 0, 0, 0, string.Empty, string.Empty, string.Empty));
         Assert.Equal(49, minimum.Length);
-        Assert.Equal(minimum, FileStatRecords.Rewrite(minimum, 49, "").ToArray());
-        Assert.Equal(minimum[..2], FileStatRecords.Rewrite(minimum.AsMemory(0, 2), 2, "").ToArray());
-        foreach (string replacement in new[] { "", "x", "same", "longer-name", "é中" })
+        Assert.Equal(minimum, FileStatRecords.Rewrite(minimum, 49, string.Empty).ToArray());
+        Assert.Equal(minimum[..2], FileStatRecords.Rewrite(minimum.AsMemory(0, 2), 2, string.Empty).ToArray());
+        foreach (string replacement in new[] { string.Empty, "x", "same", "longer-name", "é中" })
         {
             var source = new ResourceStat(root, "same", 0x180, 17, 29, 37, "owner-é", "group-中", "modifier");
-            Assert.Equal(f.Codec.Encode(source with { Name = replacement }),
+            Assert.Equal(
+                f.Codec.Encode(source with { Name = replacement }),
                 FileStatRecords.Rewrite(f.Codec.Encode(source), 4096, replacement).ToArray());
         }
     }
@@ -81,6 +90,7 @@ public sealed class FileStatRecordTests
             await Assert.ThrowsAsync<IOException>(() => f.Calls.FStatAsync(fd, 4096).AsTask());
             Assert.Single(f.Files.Process.Descriptors.Snapshot());
         }
+
         f.Reply = (_, _) => ValueTask.FromResult<ReadOnlyMemory<byte>>(valid);
         await Assert.ThrowsAsync<IOException>(() => f.Calls.FStatAsync(fd, 79).AsTask());
         await f.Files.Process.Descriptors.CloseAsync(fd);
@@ -142,14 +152,23 @@ public sealed class FileStatRecordTests
     private sealed class LegacyProvider : IResourceDataOperations
     {
         public ValueTask<ResourceStat> StatAsync(ResourceHandle r, CancellationToken t) => throw new InvalidOperationException("resource stat must not be called");
+
         public ValueTask<ResourceHandle?> WalkAsync(ResourceHandle r, string n, CancellationToken t) => throw new NotSupportedException();
+
         public ValueTask<IReadOnlyList<ResourceDirectoryEntry>> ReadDirectoryAsync(ResourceHandle r, CancellationToken t) => throw new NotSupportedException();
+
         public ValueTask<ResourceHandle> CreateAsync(ResourceHandle r, string n, bool d, CancellationToken t) => throw new NotSupportedException();
+
         public ValueTask<ResourceOpenHandle> OpenAsync(ResourceHandle r, byte m, ResourceOperationContext c, CancellationToken t) => throw new NotSupportedException();
+
         public ValueTask<ReadOnlyMemory<byte>> ReadAsync(ResourceOpenHandle h, ulong o, uint c, CancellationToken t) => throw new NotSupportedException();
+
         public ValueTask<uint> WriteAsync(ResourceOpenHandle h, ulong o, ReadOnlyMemory<byte> b, ResourceOperationContext c, CancellationToken t) => throw new NotSupportedException();
+
         public ValueTask<ResourceOpenHandle> CreateAndOpenAsync(ResourceHandle r, string n, uint p, byte m, ResourceOperationContext c, CancellationToken t) => throw new NotSupportedException();
+
         public ValueTask ClunkAsync(ResourceOpenHandle h, ResourceOperationContext c, CancellationToken t) => throw new NotSupportedException();
+
         public ValueTask RemoveAsync(ResourceHandle r, ResourceOpenHandle? h, ResourceOperationContext c, CancellationToken t) => throw new NotSupportedException();
     }
 }

@@ -1,21 +1,13 @@
-namespace NinePSharp.Messages;
-
 using System;
 using System.Buffers.Binary;
 using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
+namespace NinePSharp.Messages;
+
 public readonly struct Trenameat : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Trenameat;
-    public ushort Tag { get; }
-    public uint OldDirFid { get; }
-    public string OldName { get; }
-    public uint NewDirFid { get; }
-    public string NewName { get; }
-
     public Trenameat(uint size, ushort tag, uint oldDirFid, string oldName, uint newDirFid, string newName)
     {
         Size = size;
@@ -31,19 +23,37 @@ public readonly struct Trenameat : ISerializable
         Size = BinaryPrimitives.ReadUInt32LittleEndian(data[..4]);
         Tag = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(5, 2));
         int offset = NinePConstants.HeaderSize;
-        OldDirFid = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4)); offset += 4;
+        OldDirFid = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
+        offset += 4;
         OldName = data.ReadString(ref offset);
-        NewDirFid = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4)); offset += 4;
+        NewDirFid = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
+        offset += 4;
         NewName = data.ReadString(ref offset);
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Trenameat;
+
+    public ushort Tag { get; }
+
+    public uint OldDirFid { get; }
+
+    public string OldName { get; }
+
+    public uint NewDirFid { get; }
+
+    public string NewName { get; }
 
     public void WriteTo(Span<byte> span)
     {
         span.WriteHeaders(Size, Tag, MessageTypes.Trenameat);
         int offset = NinePConstants.HeaderSize;
-        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(offset, 4), OldDirFid); offset += 4;
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(offset, 4), OldDirFid);
+        offset += 4;
         span.WriteString(OldName, ref offset);
-        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(offset, 4), NewDirFid); offset += 4;
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(offset, 4), NewDirFid);
+        offset += 4;
         span.WriteString(NewName, ref offset);
     }
 }

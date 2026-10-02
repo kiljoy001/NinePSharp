@@ -8,7 +8,6 @@ public sealed class DistributedNamespaceOperations
     private readonly IGrainFactory grainFactory;
     private readonly IResourceOperations resources;
 
-    /// <summary>Initializes a distributed namespace data plane.</summary>
     public DistributedNamespaceOperations(IGrainFactory grainFactory, IResourceOperations resources)
     {
         this.grainFactory = grainFactory ?? throw new ArgumentNullException(nameof(grainFactory));

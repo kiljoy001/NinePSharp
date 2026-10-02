@@ -8,8 +8,6 @@ namespace NinePSharp.Namespaces.Tests;
 
 public sealed class Plan9CreateTests
 {
-    private static Plan9CreateRequest Request(int flags = 0) => new(NinePConstants.Mode0600, NinePConstants.ORDWR | flags);
-
     [Fact]
     public async Task CreateValidatesPathAndStartsAbsolutePathsAtRoot()
     {
@@ -117,7 +115,11 @@ public sealed class Plan9CreateTests
         var secondCalls = f.ForProcess(child);
         var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         int attempts = 0;
-        f.Plane.BeforeCreate = () => { attempts++; return resume.Task; };
+        f.Plane.BeforeCreate = () =>
+        {
+            attempts++;
+            return resume.Task;
+        };
         Plan9CreateRequest request = Request(exclusive ? NinePConstants.OEXCL : 0);
         Task<int> first = f.Calls.CreateAsync("/race", request).AsTask();
         Task<int> second = secondCalls.CreateAsync("/race", request).AsTask();
@@ -141,6 +143,7 @@ public sealed class Plan9CreateTests
             Assert.NotEqual(firstHandle.HandleId, secondHandle.HandleId);
             Assert.Equal(new byte[] { 2, 18 }, new[] { firstHandle.Mode, secondHandle.Mode }.Order().ToArray());
         }
+
         Assert.NotNull(await f.Resources.WalkAsync(f.Process.Root.Current, "race", default));
     }
 
@@ -156,7 +159,11 @@ public sealed class Plan9CreateTests
             var handle = await f.Resources.CreateAndOpenAsync(f.Process.Root.Current, "race", 0x180, 2, f.Context(), default);
             raced = handle.Resource;
             await f.Resources.WriteAsync(handle, 0, "winner"u8.ToArray(), f.Context(), default);
-            if (definite) throw new ResourceCreateRejectedException("collision");
+            if (definite)
+            {
+                throw new ResourceCreateRejectedException("collision");
+            }
+
             throw new IOException("lost reply");
         };
         if (definite)
@@ -199,9 +206,14 @@ public sealed class Plan9CreateTests
         }
         else
         {
-            for (int i = 0; i < 5000; i++) f.Process.Descriptors.Install(DescriptorGroupTests.Handle(i.ToString()), () => ValueTask.CompletedTask);
+            for (int i = 0; i < 5000; i++)
+            {
+                f.Process.Descriptors.Install(DescriptorGroupTests.Handle(i.ToString()), () => ValueTask.CompletedTask);
+            }
+
             await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => f.Calls.CreateAsync("new", Request()).AsTask());
         }
+
         Assert.Equal(1, f.Resources.ClunkCount);
         Assert.NotNull(await f.Resources.WalkAsync(root, "new", default));
     }
@@ -282,4 +294,6 @@ public sealed class Plan9CreateTests
         await Assert.ThrowsAsync<NamespaceException>(() => f.Calls.CreateAsync("/new", Request(NinePConstants.OEXCL)).AsTask());
         Assert.Equal(payload.Get, (await f.Calls.PReadAsync(fd, 0, (uint)payload.Get.Length)).ToArray());
     }
+
+    private static Plan9CreateRequest Request(int flags = 0) => new(NinePConstants.Mode0600, NinePConstants.ORDWR | flags);
 }

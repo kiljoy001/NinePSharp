@@ -1,21 +1,13 @@
 using System;
 using System.Buffers.Binary;
-using NinePSharp.Interfaces;
 using NinePSharp.Constants;
+using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
 namespace NinePSharp.Messages;
 
 public readonly struct Tauth : ISerializable
 {
-    public uint Size {get;}
-    public MessageTypes Type => MessageTypes.Tauth;
-    public ushort Tag {get;}
-    public uint Afid {get;}
-    public string Uname {get;}
-    public string Aname {get;}
-    public uint? NUname {get;} // 9P2000.u extension
-
     public Tauth(ReadOnlySpan<byte> data, bool is9u = false)
     {
         Size = BinaryPrimitives.ReadUInt32LittleEndian(data[..4]);
@@ -49,6 +41,20 @@ public readonly struct Tauth : ISerializable
                       2 + System.Text.Encoding.UTF8.GetByteCount(Aname) +
                       (nuname.HasValue ? 4 : 0));
     }
+
+    public uint Size { get;  }
+
+    public MessageTypes Type => MessageTypes.Tauth;
+
+    public ushort Tag { get;  }
+
+    public uint Afid { get;  }
+
+    public string Uname { get;  }
+
+    public string Aname { get;  }
+
+    public uint? NUname { get;  } // 9P2000.u extension
 
     public void WriteTo(Span<byte> data, bool is9u = false)
     {

@@ -1,11 +1,11 @@
-using NinePSharp.Constants;
 using System;
 using System.Linq;
 using System.Text;
 using FsCheck;
 using FsCheck.Xunit;
-using NinePSharp.Messages;
+using NinePSharp.Constants;
 using NinePSharp.Generators;
+using NinePSharp.Messages;
 using NinePSharp.Parser;
 using NinePSharp.Protocol;
 using Xunit;
@@ -111,7 +111,7 @@ public class CoreMessageValidationTests
         byte[] buffer = new byte[2];
         var offset = -1;
 
-        var ex = Assert.Throws<InvalidOperationException>(() => buffer.AsSpan().WriteString("", ref offset));
+        var ex = Assert.Throws<InvalidOperationException>(() => buffer.AsSpan().WriteString(string.Empty, ref offset));
         Assert.Equal("Cannot write the string at a negative offset.", ex.Message);
         Assert.Equal(-1, offset);
     }
@@ -169,7 +169,7 @@ public class CoreMessageValidationTests
     public void Twalk_Fields_Preserved(ushort tag, uint fid, uint newFid, string[] wname)
     {
         var names = wname ?? Array.Empty<string>();
-        names = names.Select(s => s ?? "").ToArray();
+        names = names.Select(s => s ?? string.Empty).ToArray();
 
         var twalk = new Twalk(tag, fid, newFid, names);
 
@@ -242,8 +242,7 @@ public class CoreMessageValidationTests
             uid: "user",
             gid: "group",
             muid: "owner",
-            dialect: dialect
-        );
+            dialect: dialect);
 
         var size = stat.Size;
         var buffer = new byte[size];
@@ -266,7 +265,7 @@ public class CoreMessageValidationTests
         bool is9u = dialect == NinePDialect.NineP2000U || dialect == NinePDialect.NineP2000L;
         if (is9u)
         {
-            Assert.Equal(stat.Extension ?? "", reparsed.Extension ?? "");
+            Assert.Equal(stat.Extension ?? string.Empty, reparsed.Extension ?? string.Empty);
             Assert.Equal(stat.NUid, reparsed.NUid);
         }
     }
@@ -330,7 +329,7 @@ public class CoreMessageValidationTests
     [Property]
     public void Tversion_Fields_Preserved(ushort tag, uint msize, string version)
     {
-        var v = version ?? "";
+        var v = version ?? string.Empty;
         var t = new Tversion(tag, msize, v);
 
         Assert.Equal(tag, t.Tag);
@@ -350,7 +349,7 @@ public class CoreMessageValidationTests
     [Property]
     public void Rversion_Fields_Preserved(ushort tag, uint msize, string version)
     {
-        var v = version ?? "";
+        var v = version ?? string.Empty;
         var r = new Rversion(tag, msize, v);
 
         Assert.Equal(tag, r.Tag);

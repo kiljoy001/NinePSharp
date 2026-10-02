@@ -4,25 +4,6 @@ using Orleans.Runtime;
 
 namespace NinePSharp.Namespaces.Orleans.Tests.Support;
 
-public interface ITestMountableResourceGrain : IGrainWithStringKey
-{
-    Task<TestResourceDiagnostics> GetDiagnosticsAsync();
-
-    Task DeactivateAsync();
-
-    Task DelayNextReadAsync(int milliseconds);
-
-    Task LoseNextWStatReplyAsync();
-}
-
-[GenerateSerializer]
-public sealed record TestResourceDiagnostics(
-    [property: Id(0)] int Mutations,
-    [property: Id(1)] int Clunks,
-    [property: Id(2)] string[] Children,
-    [property: Id(3)] int Activations,
-    [property: Id(4)] string RuntimeIdentity);
-
 public sealed class TestMountableResourceGrain : Grain, IWStatResourceGrain, ITestMountableResourceGrain
 {
     private readonly IPersistentState<TestResourceState> state;
@@ -131,32 +112,58 @@ public sealed class TestMountableResourceGrain : Grain, IWStatResourceGrain, ITe
         {
             ulong position = 0;
             var records = new List<byte>();
-            if (count == 0) return Array.Empty<byte>();
+            if (count == 0)
+            {
+                return Array.Empty<byte>();
+            }
+
             foreach (ulong path in node.Children.Values)
             {
                 ResourceStatModel metadata = await StatAsync(Handle(path));
-                var stat = new NinePSharp.Messages.Stat(0, 7, 0, metadata.Resource.ToDomain().Qid,
-                    metadata.Mode, metadata.AccessTime, metadata.ModificationTime, metadata.Length,
-                    metadata.Name, metadata.User, metadata.Group, metadata.LastModifier);
+                var stat = new NinePSharp.Messages.Stat(
+                    0,
+                    7,
+                    0,
+                    metadata.Resource.ToDomain().Qid,
+                    metadata.Mode,
+                    metadata.AccessTime,
+                    metadata.ModificationTime,
+                    metadata.Length,
+                    metadata.Name,
+                    metadata.User,
+                    metadata.Group,
+                    metadata.LastModifier);
                 if (position < offset)
                 {
                     position += stat.Size;
-                    if (position > offset) throw new ResourceDirectoryRejectedGrainException("invalid directory offset");
+                    if (position > offset)
+                    {
+                        throw new ResourceDirectoryRejectedGrainException("invalid directory offset");
+                    }
+
                     continue;
                 }
+
                 if ((long)records.Count + stat.Size > count)
                 {
-                    if (records.Count == 0) throw new ResourceDirectoryRejectedGrainException("directory buffer too small");
+                    if (records.Count == 0)
+                    {
+                        throw new ResourceDirectoryRejectedGrainException("directory buffer too small");
+                    }
+
                     break;
                 }
+
                 var encoded = new byte[stat.Size];
                 int written = 0;
                 stat.WriteTo(encoded, ref written);
                 records.AddRange(encoded);
                 position += stat.Size;
             }
+
             return records.ToArray();
         }
+
         byte[] data = node.Data;
         if (offset >= (ulong)data.Length)
         {
@@ -228,102 +235,31 @@ public sealed class TestMountableResourceGrain : Grain, IWStatResourceGrain, ITe
     {
         if (!state.State.Completed.Values.Any(operation => operation.HandleId == handle.HandleId
             && operation.ResourcePath == handle.Resource.Identity.Path))
+        {
             throw new IOException("unknown open handle");
+        }
+
         return StatAsync(handle.Resource);
     }
 
-    public Task<uint> WStatAsync(ResourceHandleModel resource, ResourceWStatModel stat,
+    public Task<uint> WStatAsync(
+        ResourceHandleModel resource,
+        ResourceWStatModel stat,
         ResourceOperationContextModel context)
         => WStatCoreAsync(resource, null, stat, context);
 
-    public Task<uint> WStatOpenAsync(ResourceOpenHandleModel handle, ResourceWStatModel stat,
+    public Task<uint> WStatOpenAsync(
+        ResourceOpenHandleModel handle,
+        ResourceWStatModel stat,
         ResourceOperationContextModel context)
     {
         if (!state.State.Completed.Values.Any(operation => operation.HandleId == handle.HandleId
             && operation.ResourcePath == handle.Resource.Identity.Path))
+        {
             throw new ResourceWStatRejectedGrainException("unknown open handle");
+        }
+
         return WStatCoreAsync(handle.Resource, handle.HandleId, stat, context);
-    }
-
-    private async Task<uint> WStatCoreAsync(ResourceHandleModel resource, string? openHandleId, ResourceWStatModel stat,
-        ResourceOperationContextModel context)
-    {
-        string key = OperationKey(context.OperationId);
-        string fingerprint = Fingerprint("wstat", resource.Identity.Path, openHandleId ?? "path", stat.Type, stat.Device,
-            (byte)stat.QidType, stat.QidVersion, stat.QidPath, stat.Mode, stat.AccessTime,
-            stat.ModificationTime, stat.Length, stat.Name, stat.User, stat.Group,
-            stat.LastModifier, stat.EncodedLength);
-        if (TryReplay(key, fingerprint, out TestCompletedOperation? prior))
-        {
-            if (prior!.Rejected)
-                throw new ResourceWStatRejectedGrainException(prior.Error);
-            return prior.Count;
-        }
-
-        if (!state.State.Nodes.TryGetValue(resource.Identity.Path, out TestResourceNode? node))
-            throw await RecordWStatRejectionAsync(key, fingerprint, "file does not exist");
-        if (stat.Type != ushort.MaxValue || stat.Device != uint.MaxValue
-            || (byte)stat.QidType != byte.MaxValue || stat.QidVersion != uint.MaxValue
-            || stat.QidPath != ulong.MaxValue || stat.AccessTime != uint.MaxValue
-            || stat.User.Length != 0 || stat.LastModifier.Length != 0)
-            throw await RecordWStatRejectionAsync(key, fingerprint, "wstat attempts to change protected metadata");
-        if (stat.Mode != uint.MaxValue
-            && ((stat.Mode ^ node.Mode) & (uint)NinePConstants.FileMode9P.DMDIR) != 0)
-            throw await RecordWStatRejectionAsync(key, fingerprint, "wstat cannot change DMDIR");
-        if (node.Directory && stat.Length != ulong.MaxValue && stat.Length != 0)
-            throw await RecordWStatRejectionAsync(key, fingerprint, "directory length must be zero");
-        if (stat.Length != ulong.MaxValue && stat.Length > int.MaxValue)
-            throw await RecordWStatRejectionAsync(key, fingerprint, "file length exceeds the test provider limit");
-
-        TestResourceNode? parent = state.State.Nodes.Values.SingleOrDefault(candidate =>
-            candidate.Children.Values.Contains(resource.Identity.Path));
-        if (stat.Name.Length != 0)
-        {
-            if (parent is null || stat.Name is "/" or "." or ".." || stat.Name.Contains('/'))
-                throw await RecordWStatRejectionAsync(key, fingerprint, "invalid rename");
-            if (parent.Children.TryGetValue(stat.Name, out ulong existing) && existing != resource.Identity.Path)
-                throw await RecordWStatRejectionAsync(key, fingerprint, "rename target exists");
-        }
-
-        if (stat.Name.Length != 0 && parent is not null)
-        {
-            parent.Children.Remove(node.Name);
-            parent.Children.Add(stat.Name, resource.Identity.Path);
-            node.Name = stat.Name;
-        }
-        if (stat.Mode != uint.MaxValue) node.Mode = stat.Mode;
-        if (stat.ModificationTime != uint.MaxValue) node.ModificationTime = stat.ModificationTime;
-        if (stat.Length != ulong.MaxValue && !node.Directory)
-        {
-            byte[] resized = node.Data;
-            Array.Resize(ref resized, checked((int)stat.Length));
-            node.Data = resized;
-        }
-        node.Version++;
-        state.State.Mutations++;
-        state.State.Completed.Add(key, new TestCompletedOperation { Fingerprint = fingerprint, Count = stat.EncodedLength });
-        await state.WriteStateAsync();
-        if (loseNextWStatReply)
-        {
-            loseNextWStatReply = false;
-            throw new IOException("simulated lost wstat reply");
-        }
-        return stat.EncodedLength;
-    }
-
-    private async Task<ResourceWStatRejectedGrainException> RecordWStatRejectionAsync(
-        string key,
-        string fingerprint,
-        string error)
-    {
-        state.State.Completed.Add(key, new TestCompletedOperation
-        {
-            Fingerprint = fingerprint,
-            Rejected = true,
-            Error = error,
-        });
-        await state.WriteStateAsync();
-        return new ResourceWStatRejectedGrainException(error);
     }
 
     public async Task<ResourceOpenHandleModel> CreateAndOpenAsync(
@@ -425,6 +361,143 @@ public sealed class TestMountableResourceGrain : Grain, IWStatResourceGrain, ITe
         return Task.CompletedTask;
     }
 
+    private static string OperationKey(ResourceOperationIdModel operation)
+        => $"{operation.SessionId.Length}:{operation.SessionId}:{operation.Sequence}";
+
+    private static string Fingerprint(params object[] values)
+        => string.Join('\0', values.Select(value => value.ToString()));
+
+    private async Task<uint> WStatCoreAsync(
+        ResourceHandleModel resource,
+        string? openHandleId,
+        ResourceWStatModel stat,
+        ResourceOperationContextModel context)
+    {
+        string key = OperationKey(context.OperationId);
+        string fingerprint = Fingerprint(
+            "wstat",
+            resource.Identity.Path,
+            openHandleId ?? "path",
+            stat.Type,
+            stat.Device,
+            (byte)stat.QidType,
+            stat.QidVersion,
+            stat.QidPath,
+            stat.Mode,
+            stat.AccessTime,
+            stat.ModificationTime,
+            stat.Length,
+            stat.Name,
+            stat.User,
+            stat.Group,
+            stat.LastModifier,
+            stat.EncodedLength);
+        if (TryReplay(key, fingerprint, out TestCompletedOperation? prior))
+        {
+            if (prior!.Rejected)
+            {
+                throw new ResourceWStatRejectedGrainException(prior.Error);
+            }
+
+            return prior.Count;
+        }
+
+        if (!state.State.Nodes.TryGetValue(resource.Identity.Path, out TestResourceNode? node))
+        {
+            throw await RecordWStatRejectionAsync(key, fingerprint, "file does not exist");
+        }
+
+        if (stat.Type != ushort.MaxValue || stat.Device != uint.MaxValue
+            || (byte)stat.QidType != byte.MaxValue || stat.QidVersion != uint.MaxValue
+            || stat.QidPath != ulong.MaxValue || stat.AccessTime != uint.MaxValue
+            || stat.User.Length != 0 || stat.LastModifier.Length != 0)
+        {
+            throw await RecordWStatRejectionAsync(key, fingerprint, "wstat attempts to change protected metadata");
+        }
+
+        if (stat.Mode != uint.MaxValue
+            && ((stat.Mode ^ node.Mode) & (uint)NinePConstants.FileMode9P.DMDIR) != 0)
+        {
+            throw await RecordWStatRejectionAsync(key, fingerprint, "wstat cannot change DMDIR");
+        }
+
+        if (node.Directory && stat.Length != ulong.MaxValue && stat.Length != 0)
+        {
+            throw await RecordWStatRejectionAsync(key, fingerprint, "directory length must be zero");
+        }
+
+        if (stat.Length != ulong.MaxValue && stat.Length > int.MaxValue)
+        {
+            throw await RecordWStatRejectionAsync(key, fingerprint, "file length exceeds the test provider limit");
+        }
+
+        TestResourceNode? parent = state.State.Nodes.Values.SingleOrDefault(candidate =>
+            candidate.Children.Values.Contains(resource.Identity.Path));
+        if (stat.Name.Length != 0)
+        {
+            if (parent is null || stat.Name is "/" or "." or ".." || stat.Name.Contains('/'))
+            {
+                throw await RecordWStatRejectionAsync(key, fingerprint, "invalid rename");
+            }
+
+            if (parent.Children.TryGetValue(stat.Name, out ulong existing) && existing != resource.Identity.Path)
+            {
+                throw await RecordWStatRejectionAsync(key, fingerprint, "rename target exists");
+            }
+        }
+
+        if (stat.Name.Length != 0 && parent is not null)
+        {
+            parent.Children.Remove(node.Name);
+            parent.Children.Add(stat.Name, resource.Identity.Path);
+            node.Name = stat.Name;
+        }
+
+        if (stat.Mode != uint.MaxValue)
+        {
+            node.Mode = stat.Mode;
+        }
+
+        if (stat.ModificationTime != uint.MaxValue)
+        {
+            node.ModificationTime = stat.ModificationTime;
+        }
+
+        if (stat.Length != ulong.MaxValue && !node.Directory)
+        {
+            byte[] resized = node.Data;
+            Array.Resize(ref resized, checked((int)stat.Length));
+            node.Data = resized;
+        }
+
+        node.Version++;
+        state.State.Mutations++;
+        state.State.Completed.Add(key, new TestCompletedOperation { Fingerprint = fingerprint, Count = stat.EncodedLength });
+        await state.WriteStateAsync();
+        if (loseNextWStatReply)
+        {
+            loseNextWStatReply = false;
+            throw new IOException("simulated lost wstat reply");
+        }
+
+        return stat.EncodedLength;
+    }
+
+    private async Task<ResourceWStatRejectedGrainException> RecordWStatRejectionAsync(
+        string key,
+        string fingerprint,
+        string error)
+    {
+        state.State.Completed.Add(key, new TestCompletedOperation
+        {
+            Fingerprint = fingerprint,
+            Rejected = true,
+            Error = error,
+        });
+        await state.WriteStateAsync();
+        return new ResourceWStatRejectedGrainException(error);
+    }
+
     private bool TryReplay(
         string operationKey,
         string fingerprint,
@@ -480,98 +553,4 @@ public sealed class TestMountableResourceGrain : Grain, IWStatResourceGrain, ITe
 
     private ResourceOpenHandleModel OpenResult(TestCompletedOperation operation)
         => new(Handle(operation.ResourcePath), operation.HandleId, operation.Mode, 0);
-
-    private static string OperationKey(ResourceOperationIdModel operation)
-        => $"{operation.SessionId.Length}:{operation.SessionId}:{operation.Sequence}";
-
-    private static string Fingerprint(params object[] values)
-        => string.Join('\0', values.Select(value => value.ToString()));
-}
-
-[GenerateSerializer]
-public sealed class TestResourceState
-{
-    [Id(0)]
-    public bool Initialized { get; set; }
-
-    [Id(1)]
-    public ulong NextPath { get; set; }
-
-    [Id(2)]
-    public Dictionary<ulong, TestResourceNode> Nodes { get; set; } = new();
-
-    [Id(3)]
-    public Dictionary<string, TestCompletedOperation> Completed { get; set; } = new(StringComparer.Ordinal);
-
-    [Id(4)]
-    public int Mutations { get; set; }
-
-    [Id(5)]
-    public int Clunks { get; set; }
-
-    [Id(6)]
-    public int Activations { get; set; }
-}
-
-[GenerateSerializer]
-public sealed class TestResourceNode
-{
-    [Id(0)]
-    public string Name { get; set; } = string.Empty;
-
-    [Id(1)]
-    public bool Directory { get; set; }
-
-    [Id(2)]
-    public uint Version { get; set; }
-
-    [Id(3)]
-    public byte[] Data { get; set; } = Array.Empty<byte>();
-
-    [Id(4)]
-    public Dictionary<string, ulong> Children { get; set; } = new(StringComparer.Ordinal);
-
-    [Id(5)]
-    public uint Mode { get; set; }
-
-    [Id(6)]
-    public uint ModificationTime { get; set; }
-}
-
-[GenerateSerializer]
-public sealed class TestCompletedOperation
-{
-    [Id(0)]
-    public string Fingerprint { get; set; } = string.Empty;
-
-    [Id(1)]
-    public ulong ResourcePath { get; set; }
-
-    [Id(2)]
-    public string HandleId { get; set; } = string.Empty;
-
-    [Id(3)]
-    public byte Mode { get; set; }
-
-    [Id(4)]
-    public uint Count { get; set; }
-
-    [Id(5)]
-    public bool Rejected { get; set; }
-
-    [Id(6)]
-    public string Error { get; set; } = string.Empty;
-}
-
-internal sealed class TestMountableResourceResolver : IMountableResourceResolver
-{
-    private readonly IGrainFactory grainFactory;
-
-    internal TestMountableResourceResolver(IGrainFactory grainFactory)
-    {
-        this.grainFactory = grainFactory;
-    }
-
-    public IMountableResourceGrain Resolve(ResourceIdentityModel identity)
-        => grainFactory.GetGrain<IMountableResourceGrain>(identity.Device);
 }

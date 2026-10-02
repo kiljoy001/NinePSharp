@@ -19,19 +19,6 @@ public sealed class ProcessLifecycleTests
         GC.KeepAlive(process);
     }
 
-    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-    private static (VProcess Process, WeakReference Root, WeakReference Cwd) TerminatedProcess()
-    {
-        var resources = new MemoryResources();
-        var channel = new NamespaceNavigator(new MountTable(), resources).Attach(resources.Directory("root"));
-        var table = new VProcessTable();
-        var process = table.CreateInitial(channel);
-        var root = new WeakReference(process.Root);
-        var cwd = new WeakReference(process.CurrentDirectory);
-        table.Terminate(process.Id);
-        return (process, root, cwd);
-    }
-
     [Fact]
     public async Task LastOwnerClosesNamespaceAndRejectsStaleProcessAndNavigatorReferences()
     {
@@ -127,17 +114,21 @@ public sealed class ProcessLifecycleTests
         var groups = new HashSet<VProcessGroup> { parent.ProcessGroup };
         foreach (byte operation in operations.Get.Take(100))
         {
-            if (live.Count == 0) break;
+            if (live.Count == 0)
+            {
+                break;
+            }
+
             var selected = live[operation % live.Count];
             switch (operation % 3)
             {
                 case 0:
-                    var child = table.Fork(selected.Id, (NamespaceForkMode)(operation / 3 % 3));
+                    var child = table.Fork(selected.Id, (NamespaceForkMode)((operation / 3) % 3));
                     live.Add(child);
                     groups.Add(child.ProcessGroup);
                     break;
                 case 1:
-                    table.RforkNamespace(selected.Id, (NamespaceForkMode)(operation / 3 % 3));
+                    table.RforkNamespace(selected.Id, (NamespaceForkMode)((operation / 3) % 3));
                     groups.Add(selected.ProcessGroup);
                     break;
                 default:
@@ -151,12 +142,32 @@ public sealed class ProcessLifecycleTests
                 int owners = live.Count(process => ReferenceEquals(process.ProcessGroup, group));
                 Assert.Equal(owners, group.OwnerCount);
                 Assert.Equal(owners == 0, group.MountTable.IsClosed);
-                if (owners == 0) Assert.Empty(group.MountTable.Snapshot().MountHeads);
+                if (owners == 0)
+                {
+                    Assert.Empty(group.MountTable.Snapshot().MountHeads);
+                }
             }
         }
 
-        foreach (var process in live) table.Terminate(process.Id);
+        foreach (var process in live)
+        {
+            table.Terminate(process.Id);
+        }
+
         Assert.All(groups, group => Assert.True(group.MountTable.IsClosed));
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static (VProcess Process, WeakReference Root, WeakReference Cwd) TerminatedProcess()
+    {
+        var resources = new MemoryResources();
+        var channel = new NamespaceNavigator(new MountTable(), resources).Attach(resources.Directory("root"));
+        var table = new VProcessTable();
+        var process = table.CreateInitial(channel);
+        var root = new WeakReference(process.Root);
+        var cwd = new WeakReference(process.CurrentDirectory);
+        table.Terminate(process.Id);
+        return (process, root, cwd);
     }
 
     private static void Closed(Action action)

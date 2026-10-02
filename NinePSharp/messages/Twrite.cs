@@ -8,15 +8,6 @@ namespace NinePSharp.Messages;
 // size[4] Twrite tag[2] fid[4] offset[8] count[4] data[count]
 public readonly struct Twrite : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Twrite;
-    public ushort Tag { get; }
-
-    public uint Fid { get; }
-    public ulong Offset { get; }
-    public uint Count { get; }
-    public ReadOnlyMemory<byte> Data { get; }
-
     public Twrite(ReadOnlyMemory<byte> data)
     {
         var span = data.Span;
@@ -57,6 +48,20 @@ public readonly struct Twrite : ISerializable
         Count = (uint)data.Length;
         Size = (uint)(NinePConstants.HeaderSize + 4 + 8 + 4 + data.Length);
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Twrite;
+
+    public ushort Tag { get; }
+
+    public uint Fid { get; }
+
+    public ulong Offset { get; }
+
+    public uint Count { get; }
+
+    public ReadOnlyMemory<byte> Data { get; }
 
     public void WriteTo(Span<byte> data)
     {

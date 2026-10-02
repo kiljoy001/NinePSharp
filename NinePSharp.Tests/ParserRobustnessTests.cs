@@ -1,8 +1,8 @@
-using NinePSharp.Constants;
 using System;
 using System.Linq;
-using NinePSharp.Parser;
+using NinePSharp.Constants;
 using NinePSharp.Generators;
+using NinePSharp.Parser;
 using Xunit;
 
 namespace NinePSharp.Tests;

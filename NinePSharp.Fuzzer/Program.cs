@@ -1,17 +1,17 @@
 using System;
 using System.IO;
 using System.Linq;
-using NinePSharp.Constants;
-using NinePSharp.Parser;
-using NinePSharp.Server.Configuration.Models;
-using NinePSharp.Server.Interfaces;
-using NinePSharp.Messages;
-using NinePSharp.Namespaces;
-using NinePSharp.Protocol;
-using NinePSharp.Examples;
-using NinePSharp.Server.FileSystem;
 using System.Threading;
 using System.Threading.Tasks;
+using NinePSharp.Constants;
+using NinePSharp.Examples;
+using NinePSharp.Messages;
+using NinePSharp.Namespaces;
+using NinePSharp.Parser;
+using NinePSharp.Protocol;
+using NinePSharp.Server.Configuration.Models;
+using NinePSharp.Server.FileSystem;
+using NinePSharp.Server.Interfaces;
 
 namespace NinePSharp.Fuzzer
 {
@@ -97,6 +97,7 @@ namespace NinePSharp.Fuzzer
                     Console.WriteLine($"Failed on {file}: {ex.Message}");
                 }
             }
+
             Console.WriteLine("Corpus smoke completed.");
         }
 
@@ -178,7 +179,10 @@ namespace NinePSharp.Fuzzer
                     {
                         stream.CopyTo(ms);
                         var data = ms.ToArray();
-                        if (data.Length == 0) return;
+                        if (data.Length == 0)
+                        {
+                            return;
+                        }
 
                         var fs = new InMemoryHandler();
                         var text = System.Text.Encoding.UTF8.GetString(data);
@@ -290,14 +294,20 @@ namespace NinePSharp.Fuzzer
                             var child = processes.Fork(process.Id, NamespaceForkMode.Share);
                             processes.Terminate(process.Id);
                             if (group.MountTable.IsClosed || group.OwnerCount != 1)
+                            {
                                 throw new InvalidOperationException("Shared child lost namespace ownership.");
+                            }
+
                             process = child;
                             break;
                         default:
                             var released = process.ProcessGroup;
                             processes.Terminate(process.Id);
                             if (!released.MountTable.IsClosed || released.OwnerCount != 0 || released.MountTable.Snapshot().MountHeads.Count != 0)
+                            {
                                 throw new InvalidOperationException("Last owner did not release its namespace.");
+                            }
+
                             process = processes.CreateInitial(new NamespaceNavigator(mounts, resources).Attach(root));
                             break;
                     }
@@ -316,16 +326,22 @@ namespace NinePSharp.Fuzzer
                 new NamespaceNavigator(new MountTable(), resources).Attach(resources.Root));
             MountTable mounts = process.ProcessGroup.MountTable;
             for (int index = 0; index <= prefixCount; index++)
+            {
                 mounts.Mount(resources.Service, resources.Target, MountFlags.Before);
+            }
 
             var syscalls = new NamespaceSyscalls(resources);
             syscalls.BindAsync(process, "/source", "/target/child/.").AsTask().GetAwaiter().GetResult();
             if (mounts.Find(resources.Child.Identity)?.Mounts[0].Target.Identity != resources.Source.Identity)
+            {
                 throw new InvalidOperationException("Bind did not reach the later union member.");
+            }
 
             syscalls.UnmountAsync(process, "/target/child", "/source").AsTask().GetAwaiter().GetResult();
             if (mounts.Find(resources.Child.Identity) is not null)
+            {
                 throw new InvalidOperationException("Unmount did not release the union child mount.");
+            }
         }
 
         private static void CheckDescriptorLifetime(byte[] data)
@@ -339,30 +355,44 @@ namespace NinePSharp.Fuzzer
                 Interlocked.Increment(ref closes);
                 return ValueTask.CompletedTask;
             });
+
             // This admitted operation is an independent, known-live reference.
             var lease = parent.Descriptors.Acquire(0);
             foreach (byte operation in data.Take(16))
             {
                 DescriptorForkMode mode = (DescriptorForkMode)(operation % 3);
-                var child = processes.Fork(parent.Id, (NamespaceForkMode)(operation / 3 % 3), descriptorMode: mode);
+                var child = processes.Fork(parent.Id, (NamespaceForkMode)((operation / 3) % 3), descriptorMode: mode);
                 if (child.Descriptors.Snapshot().Count != (mode == DescriptorForkMode.Empty ? 0 : 1))
+                {
                     throw new InvalidOperationException("Descriptor inheritance did not match rfork mode.");
+                }
+
                 if (mode != DescriptorForkMode.Empty)
                 {
                     int duplicate = child.Descriptors.DuplicateAsync(0).AsTask().GetAwaiter().GetResult();
                     child.Descriptors.CloseAsync(duplicate).AsTask().GetAwaiter().GetResult();
                 }
+
                 processes.TerminateAsync(child.Id).GetAwaiter().GetResult();
                 if (parent.Descriptors.OwnerCount != 1 || closes != 0)
+                {
                     throw new InvalidOperationException("Child exit released a surviving descriptor owner.");
+                }
             }
+
             var group = parent.Descriptors;
             processes.TerminateAsync(parent.Id).GetAwaiter().GetResult();
             if (!group.IsClosed || group.OwnerCount != 0 || group.Snapshot().Count != 0 || closes != 0)
+            {
                 throw new InvalidOperationException("Process exit lost the admitted I/O reference.");
+            }
+
             lease.DisposeAsync().AsTask().GetAwaiter().GetResult();
             lease.DisposeAsync().AsTask().GetAwaiter().GetResult();
-            if (closes != 1) throw new InvalidOperationException("Final channel reference did not close exactly once.");
+            if (closes != 1)
+            {
+                throw new InvalidOperationException("Final channel reference did not close exactly once.");
+            }
         }
 
         private static void ExecuteNamespaceSteps(byte[] data)

@@ -13,8 +13,6 @@ namespace NinePSharp.Fuzzer;
 /// </summary>
 public static class AuthorizationFuzz
 {
-    private enum Outcome { Allowed, Denied, NotFound, CreateRejected }
-
     private static readonly string[] Paths = ["/", "/data", "/data/report", "/data/private", "/data/tools", "/archive", "/archive/old"];
     private static readonly string[] Files = ["/data/report", "/data/private", "/data/tools", "/archive/old"];
     private static readonly string[] Directories = ["/", "/data", "/archive"];
@@ -25,6 +23,14 @@ public static class AuthorizationFuzz
         NinePConstants.OREAD | NinePConstants.OTRUNC, NinePConstants.OREAD | NinePConstants.ORCLOSE,
         NinePConstants.OWRITE | NinePConstants.OTRUNC,
     ];
+
+    private enum Outcome
+    {
+        Allowed,
+        Denied,
+        NotFound,
+        CreateRejected,
+    }
 
     /// <summary>AFL entry: each case consumes bytes until the input is exhausted.</summary>
     public static void Run(Stream input)
@@ -38,7 +44,10 @@ public static class AuthorizationFuzz
     public static void Run(ReadOnlySpan<byte> bytes)
     {
         var cursor = new Cursor(bytes[..Math.Min(bytes.Length, 4096)].ToArray());
-        for (int count = 0; count < 32 && (count == 0 || !cursor.End); count++) RunCase(cursor.Next);
+        for (int count = 0; count < 32 && (count == 0 || !cursor.End); count++)
+        {
+            RunCase(cursor.Next);
+        }
     }
 
     /// <summary>One generated world and operation; <paramref name="choose"/> returns a value below its bound.</summary>
@@ -64,13 +73,17 @@ public static class AuthorizationFuzz
         int before = world.Tree.CallsMatching($"{kind} {target}");
         Outcome actual = world.Run(user, operation, file, directory, mode);
         Check(expected == actual, $"{kind} {target} as {user}: model {expected}, layer {actual}");
-        Check(world.Tree.CallsMatching($"{kind} {target}") == before + (actual == Outcome.Allowed ? 1 : 0),
+        Check(
+            world.Tree.CallsMatching($"{kind} {target}") == before + (actual == Outcome.Allowed ? 1 : 0),
             "a denied operation reached the provider");
     }
 
     private static void Check(bool condition, string invariant)
     {
-        if (!condition) throw new InvalidOperationException(invariant);
+        if (!condition)
+        {
+            throw new InvalidOperationException(invariant);
+        }
     }
 
     private sealed class Cursor(byte[] bytes)
@@ -108,8 +121,16 @@ public static class AuthorizationFuzz
 
             world.disabled.Add("mallory");
             world.members.Add(("writers", "alice"));
-            if (choose(2) == 0) world.members.Add(("writers", "bob"));
-            if (choose(3) == 0) world.members.Add(("nogroup", Users[choose(Users.Length)]));
+            if (choose(2) == 0)
+            {
+                world.members.Add(("writers", "bob"));
+            }
+
+            if (choose(3) == 0)
+            {
+                world.members.Add(("nogroup", Users[choose(Users.Length)]));
+            }
+
             int count = choose(6);
             for (int index = 0; index < count; index++)
             {
@@ -118,23 +139,41 @@ public static class AuthorizationFuzz
                 string path = Paths[choose(Paths.Length)];
                 bool tree = choose(2) == 0;
                 var rights = (ResourceRights)(1 + choose(63));
-                if (world.grants.Any(grant => grant == (group, subject, path, tree, rights))) continue;
+                if (world.grants.Any(grant => grant == (group, subject, path, tree, rights)))
+                {
+                    continue;
+                }
+
                 world.grants.Add((group, subject, path, tree, rights));
             }
 
-            if (choose(4) == 0) world.readOnly.Add(choose(2) == 0 ? "/data" : "/archive");
+            if (choose(4) == 0)
+            {
+                world.readOnly.Add(choose(2) == 0 ? "/data" : "/archive");
+            }
+
             world.stale = choose(8) == 0;
             return world;
         }
 
         internal Outcome Run(string user, int operation, string file, string directory, byte mode)
         {
-            var policy = new AuthorizationPolicy(1,
+            var policy = new AuthorizationPolicy(
+                1,
                 Users.Select(name => new AuthorizationPrincipal(name, !disabled.Contains(name))),
                 members.Select(pair => new GroupMembership(pair.Group, pair.User)),
-                grants.Select(grant => new ResourceGrant(grant.Group ? GrantSubjectKind.Group : GrantSubjectKind.User, grant.Subject,
-                    Tree.Handle(grant.Path).Identity, grant.Tree ? GrantScope.Tree : GrantScope.Self, grant.Rights)));
-            var view = new AuthorizedResourceOperations(Tree, Tree, policy, user, () => stale ? 2UL : 1UL,
+                grants.Select(grant => new ResourceGrant(
+                    grant.Group ? GrantSubjectKind.Group : GrantSubjectKind.User,
+                    grant.Subject,
+                    Tree.Handle(grant.Path).Identity,
+                    grant.Tree ? GrantScope.Tree : GrantScope.Self,
+                    grant.Rights)));
+            var view = new AuthorizedResourceOperations(
+                Tree,
+                Tree,
+                policy,
+                user,
+                () => stale ? 2UL : 1UL,
                 readOnly.Select(path => Tree.Handle(path).Identity));
             var context = new ResourceOperationContext(new ResourceOperationId("oracle", 1), 1, user);
             try
@@ -158,16 +197,33 @@ public static class AuthorizationFuzz
 
                 return Outcome.Allowed;
             }
-            catch (ResourceAccessDeniedException) { return Outcome.Denied; }
-            catch (ResourceCreateRejectedException) { return Outcome.CreateRejected; }
-            catch (NamespaceException error) when (error.Error == NamespaceError.ResourceNotFound) { return Outcome.NotFound; }
+            catch (ResourceAccessDeniedException)
+            {
+                return Outcome.Denied;
+            }
+            catch (ResourceCreateRejectedException)
+            {
+                return Outcome.CreateRejected;
+            }
+            catch (NamespaceException error) when (error.Error == NamespaceError.ResourceNotFound)
+            {
+                return Outcome.NotFound;
+            }
         }
 
         internal Outcome ExpectOpen(string user, string path, byte mode)
         {
-            if (!Current(user)) return Outcome.Denied;
+            if (!Current(user))
+            {
+                return Outcome.Denied;
+            }
+
             ResourceRights held = Rights(user, path);
-            if (held == ResourceRights.None) return Outcome.NotFound;
+            if (held == ResourceRights.None)
+            {
+                return Outcome.NotFound;
+            }
+
             (ResourceRights needed, uint bits) = (mode & 3) switch
             {
                 0 => (ResourceRights.Read, 4U),
@@ -187,33 +243,64 @@ public static class AuthorizationFuzz
             {
                 needed |= ResourceRights.Remove;
                 mutates = true;
-                if (!Permits(user, Parent(path), 2)) return Outcome.Denied;
+                if (!Permits(user, Parent(path), 2))
+                {
+                    return Outcome.Denied;
+                }
             }
 
-            if ((held & needed) != needed || !Permits(user, path, bits)) return Outcome.Denied;
+            if ((held & needed) != needed || !Permits(user, path, bits))
+            {
+                return Outcome.Denied;
+            }
+
             return mutates && ReadOnly(path) ? Outcome.Denied : Outcome.Allowed;
         }
 
         internal Outcome ExpectStat(string user, string path)
         {
-            if (!Current(user)) return Outcome.Denied;
+            if (!Current(user))
+            {
+                return Outcome.Denied;
+            }
+
             ResourceRights held = Rights(user, path);
-            if (held == ResourceRights.None) return Outcome.NotFound;
+            if (held == ResourceRights.None)
+            {
+                return Outcome.NotFound;
+            }
+
             return (held & ResourceRights.Stat) != 0 ? Outcome.Allowed : Outcome.Denied;
         }
 
         internal Outcome ExpectRemove(string user, string path)
         {
-            if (!Current(user)) return Outcome.Denied;
+            if (!Current(user))
+            {
+                return Outcome.Denied;
+            }
+
             ResourceRights held = Rights(user, path);
-            if (held == ResourceRights.None) return Outcome.NotFound;
-            if ((held & ResourceRights.Remove) == 0 || !Permits(user, Parent(path), 2) || ReadOnly(path)) return Outcome.Denied;
+            if (held == ResourceRights.None)
+            {
+                return Outcome.NotFound;
+            }
+
+            if ((held & ResourceRights.Remove) == 0 || !Permits(user, Parent(path), 2) || ReadOnly(path))
+            {
+                return Outcome.Denied;
+            }
+
             return Outcome.Allowed;
         }
 
         internal Outcome ExpectCreate(string user, string directory, int baseMode)
         {
-            if (!Current(user)) return Outcome.CreateRejected;
+            if (!Current(user))
+            {
+                return Outcome.CreateRejected;
+            }
+
             ResourceRights needed = baseMode switch
             {
                 0 => ResourceRights.Read,
@@ -226,6 +313,11 @@ public static class AuthorizationFuzz
                 (inherited & needed) == needed && !ReadOnly(directory);
             return allowed ? Outcome.Allowed : Outcome.CreateRejected;
         }
+
+        private static bool IsAncestor(string ancestor, string path)
+            => path != ancestor && (ancestor == "/" || path.StartsWith(ancestor + "/", StringComparison.Ordinal));
+
+        private static string Parent(string path) => path.LastIndexOf('/') == 0 ? "/" : path[..path.LastIndexOf('/')];
 
         private bool Current(string user) => !stale && !disabled.Contains(user);
 
@@ -252,18 +344,28 @@ public static class AuthorizationFuzz
             (string owner, string group, uint mode) = nodes[path];
             if (user != "none")
             {
-                if (owner == user && ((mode >> 6) & bits) == bits) return true;
-                if (InGroup(user, group) && ((mode >> 3) & bits) == bits) return true;
+                if (owner == user && ((mode >> 6) & bits) == bits)
+                {
+                    return true;
+                }
+
+                if (InGroup(user, group) && ((mode >> 3) & bits) == bits)
+                {
+                    return true;
+                }
             }
 
-            if ((mode & bits) != bits) return false;
-            if (Directories.Contains(path) && bits == 1) return true;
+            if ((mode & bits) != bits)
+            {
+                return false;
+            }
+
+            if (Directories.Contains(path) && bits == 1)
+            {
+                return true;
+            }
+
             return !InGroup(user, "nogroup");
         }
-
-        private static bool IsAncestor(string ancestor, string path)
-            => path != ancestor && (ancestor == "/" || path.StartsWith(ancestor + "/", StringComparison.Ordinal));
-
-        private static string Parent(string path) => path.LastIndexOf('/') == 0 ? "/" : path[..path.LastIndexOf('/')];
     }
 }

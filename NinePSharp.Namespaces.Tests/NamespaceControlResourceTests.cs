@@ -135,6 +135,7 @@ public sealed class NamespaceControlResourceTests
             Assert.Equal((uint)NinePConstants.FileMode9P.DMDIR | NinePConstants.Mode0755, stat.Mode);
             Assert.Equal(0UL, stat.Length);
         }
+
         Assert.Equal("/", (await control.StatAsync(control.Root, default)).Name);
         var status = await Walk(control, pid, "status");
         Assert.False(status.IsDirectory);
@@ -207,7 +208,7 @@ public sealed class NamespaceControlResourceTests
         var group = process.ProcessGroup;
         var control = new NamespaceControlResource(table, resources);
         var ctl = await control.OpenAsync(await Walk(control, control.Root, $"proc/{process.Id}/ctl"), 1, Context(), default);
-        await control.WriteAsync(ctl, 0, Encoding.UTF8.GetBytes($"rfork {mode}" + (noMounts ? " nomounts" : "")), Context(), default);
+        await control.WriteAsync(ctl, 0, Encoding.UTF8.GetBytes($"rfork {mode}" + (noMounts ? " nomounts" : string.Empty)), Context(), default);
         Assert.Equal(mode == "share", ReferenceEquals(group, process.ProcessGroup));
         Assert.Equal(noMounts, process.ProcessGroup.MountTable.MountsDisabled);
         foreach (var (value, expected) in new[] { ("on", true), ("off", false), ("true", true), ("false", false) })

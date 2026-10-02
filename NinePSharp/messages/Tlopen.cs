@@ -1,19 +1,13 @@
-namespace NinePSharp.Messages;
-
 using System;
 using System.Buffers.Binary;
 using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
+namespace NinePSharp.Messages;
+
 public readonly struct Tlopen : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Tlopen;
-    public ushort Tag { get; }
-    public uint Fid { get; }
-    public uint Flags { get; }
-
     public Tlopen(uint size, ushort tag, uint fid, uint flags)
     {
         Size = size;
@@ -30,11 +24,22 @@ public readonly struct Tlopen : ISerializable
         Flags = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(NinePConstants.HeaderSize + 4, 4));
     }
 
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Tlopen;
+
+    public ushort Tag { get; }
+
+    public uint Fid { get; }
+
+    public uint Flags { get; }
+
     public void WriteTo(Span<byte> span)
     {
         span.WriteHeaders(Size, Tag, MessageTypes.Tlopen);
         int offset = NinePConstants.HeaderSize;
-        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(offset, 4), Fid); offset += 4;
+        BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(offset, 4), Fid);
+        offset += 4;
         BinaryPrimitives.WriteUInt32LittleEndian(span.Slice(offset, 4), Flags);
     }
 }

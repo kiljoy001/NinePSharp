@@ -2,33 +2,22 @@ using System.Text;
 
 namespace NinePSharp.Namespaces;
 
-/// <summary>Maps native directory identities and performs bounded mounted-entry stat.</summary>
-public interface IDirectoryStatOperations
-{
-    /// <summary>Resolves wire type/device/path without treating the Qid version as identity.</summary>
-    ResourceIdentity ResolveIdentity(ushort type, uint device, ulong path);
-
-    /// <summary>Returns a complete stat or its two-byte required-size prefix when count is too small.</summary>
-    ValueTask<ReadOnlyMemory<byte>> StatAsync(ResourceHandle resource, uint count, CancellationToken cancellationToken);
-}
-
-/// <summary>Maps an encoded directory device to its provider and provider-local device name.</summary>
-public sealed record DirectoryDeviceBinding(ushort Type, uint Device, string Provider, string ResourceDevice);
-
 /// <summary>Adapts typed resource metadata to the native directory stat boundary.</summary>
 public sealed class DirectoryStatOperations : IDirectoryStatOperations
 {
     private readonly IResourceDataOperations resources;
     private readonly IReadOnlyList<DirectoryDeviceBinding> devices;
 
-    /// <summary>Initializes an explicit, unambiguous wire device mapping.</summary>
+    /// <summary>Initializes a new instance of the <see cref="DirectoryStatOperations"/> class. The wire device mapping is explicit and unambiguous.</summary>
     public DirectoryStatOperations(IResourceDataOperations resources, IEnumerable<DirectoryDeviceBinding> devices)
     {
         this.resources = resources ?? throw new ArgumentNullException(nameof(resources));
         this.devices = devices.ToArray();
         if (this.devices.Select(d => (d.Type, d.Device)).Distinct().Count() != this.devices.Count
             || this.devices.Select(d => (d.Provider, d.ResourceDevice)).Distinct().Count() != this.devices.Count)
+        {
             throw new ArgumentException("directory device mappings must be unique", nameof(devices));
+        }
     }
 
     /// <inheritdoc/>
@@ -56,7 +45,11 @@ public sealed class DirectoryStatOperations : IDirectoryStatOperations
         byte[][] strings = new[] { stat.Name, stat.User, stat.Group, stat.LastModifier }
             .Select(Encoding.UTF8.GetBytes).ToArray();
         int size = 49 + strings.Sum(s => s.Length);
-        if (size - 2 > ushort.MaxValue) throw new IOException("directory stat exceeds the wire record limit");
+        if (size - 2 > ushort.MaxValue)
+        {
+            throw new IOException("directory stat exceeds the wire record limit");
+        }
+
         using var buffer = new MemoryStream(size);
         using var writer = new BinaryWriter(buffer, Encoding.UTF8);
         writer.Write((ushort)(size - 2));
@@ -74,6 +67,7 @@ public sealed class DirectoryStatOperations : IDirectoryStatOperations
             writer.Write((ushort)value.Length);
             writer.Write(value);
         }
+
         return buffer.ToArray();
     }
 }

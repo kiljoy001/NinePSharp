@@ -19,7 +19,8 @@ public class ClientTests
 
         var serverTask = Task.Run(async () =>
         {
-            try {
+            try
+            {
                 byte[] header = new byte[NinePConstants.HeaderSize];
                 await serverStream.ReadExactlyAsync(header, default);
                 var tag = BitConverter.ToUInt16(header, 5);
@@ -29,7 +30,10 @@ public class ClientTests
                 rversion.WriteTo(response);
                 await serverStream.WriteAsync(response, default);
                 await serverStream.FlushAsync();
-            } catch {}
+            }
+            catch
+            {
+            }
         });
 
         var result = await client.VersionAsync(8192, "9P2000.L");
@@ -41,8 +45,19 @@ public class ClientTests
     {
         var (clientStream, serverStream) = LoopbackStream.CreatePair();
         using var client = new NinePClient(clientStream);
-        var renamed = new Stat(0, ushort.MaxValue, uint.MaxValue, new Qid(QidType.QTDIR, uint.MaxValue, ulong.MaxValue),
-            uint.MaxValue, uint.MaxValue, uint.MaxValue, ulong.MaxValue, "glenda2", "", "", "");
+        var renamed = new Stat(
+            0,
+            ushort.MaxValue,
+            uint.MaxValue,
+            new Qid(QidType.QTDIR, uint.MaxValue, ulong.MaxValue),
+            uint.MaxValue,
+            uint.MaxValue,
+            uint.MaxValue,
+            ulong.MaxValue,
+            "glenda2",
+            string.Empty,
+            string.Empty,
+            string.Empty);
 
         Task<Twstat> serverTask = Task.Run(async () =>
         {
@@ -111,7 +126,8 @@ public class ClientTests
 
         var serverTask = Task.Run(async () =>
         {
-            try {
+            try
+            {
                 var pendingResponses = new List<byte[]>();
                 for (int i = 0; i < 2; i++)
                 {
@@ -121,7 +137,10 @@ public class ClientTests
                     ushort tag = BitConverter.ToUInt16(header, 5);
 
                     byte[] payload = new byte[size - NinePConstants.HeaderSize];
-                    if (payload.Length > 0) await serverStream.ReadExactlyAsync(payload, default);
+                    if (payload.Length > 0)
+                    {
+                        await serverStream.ReadExactlyAsync(payload, default);
+                    }
 
                     var rclunk = new Rclunk(tag);
                     byte[] response = new byte[rclunk.Size];
@@ -133,7 +152,10 @@ public class ClientTests
                 await serverStream.WriteAsync(pendingResponses[1], default);
                 await serverStream.WriteAsync(pendingResponses[0], default);
                 await serverStream.FlushAsync();
-            } catch {}
+            }
+            catch
+            {
+            }
         });
 
         var task1 = client.ClunkAsync(100);

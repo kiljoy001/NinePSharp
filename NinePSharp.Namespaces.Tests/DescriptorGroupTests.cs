@@ -15,7 +15,14 @@ public sealed class DescriptorGroupTests
         var group = process.Descriptors;
         int closed = 0;
         var source = Handle("moved");
-        group.Install(source, () => { closed++; return ValueTask.CompletedTask; }, true);
+        group.Install(
+            source,
+            () =>
+        {
+            closed++;
+            return ValueTask.CompletedTask;
+        },
+            true);
         group.Install(Handle("displaced"), async () =>
         {
             await Task.Run(() => Assert.Equal(new DescriptorSlot(1, source, true), Assert.Single(group.Snapshot())));
@@ -65,6 +72,7 @@ public sealed class DescriptorGroupTests
             Assert.Throws<OverflowException>(() => lease.AdvanceRead(1));
             Assert.Equal(long.MaxValue, lease.Offset);
         }
+
         await table.TerminateAsync(process.Id);
     }
 
@@ -84,13 +92,26 @@ public sealed class DescriptorGroupTests
         int closed = 0;
         var handle = Handle("inherited");
         var original = parent.Descriptors;
-        original.Install(handle, () => { closed++; return ValueTask.CompletedTask; }, closeOnExec: true);
+        original.Install(
+            handle,
+            () =>
+        {
+            closed++;
+            return ValueTask.CompletedTask;
+        },
+            closeOnExec: true);
         var child = table.Fork(parent.Id, ns, descriptorMode: fd);
         Assert.Equal(ns == NamespaceForkMode.Share, ReferenceEquals(parent.ProcessGroup, child.ProcessGroup));
         Assert.Equal(fd == DescriptorForkMode.Share, ReferenceEquals(original, child.Descriptors));
         Assert.Equal(fd == DescriptorForkMode.Share ? 2 : 1, original.OwnerCount);
-        if (fd == DescriptorForkMode.Empty) Assert.Empty(child.Descriptors.Snapshot());
-        else Assert.Equal(new DescriptorSlot(0, handle, true), Assert.Single(child.Descriptors.Snapshot()));
+        if (fd == DescriptorForkMode.Empty)
+        {
+            Assert.Empty(child.Descriptors.Snapshot());
+        }
+        else
+        {
+            Assert.Equal(new DescriptorSlot(0, handle, true), Assert.Single(child.Descriptors.Snapshot()));
+        }
 
         await original.CloseAsync(0);
         Assert.Equal(fd == DescriptorForkMode.Copy ? 0 : 1, closed);
@@ -109,7 +130,14 @@ public sealed class DescriptorGroupTests
         var (table, parent) = CreateProcess();
         int closed = 0;
         var original = parent.Descriptors;
-        original.Install(Handle("source"), () => { closed++; return ValueTask.CompletedTask; }, true);
+        original.Install(
+            Handle("source"),
+            () =>
+        {
+            closed++;
+            return ValueTask.CompletedTask;
+        },
+            true);
         var child = table.Fork(parent.Id, NamespaceForkMode.Share);
         var ns = parent.ProcessGroup;
         await table.RforkDescriptorsAsync(parent.Id, mode);
@@ -131,8 +159,24 @@ public sealed class DescriptorGroupTests
         var (table, parent) = CreateProcess();
         var group = parent.Descriptors;
         var closed = new List<string>();
-        group.Install(Handle("first"), () => { lock (closed) closed.Add("first"); return ValueTask.CompletedTask; });
-        group.Install(Handle("second"), () => { lock (closed) closed.Add("second"); return ValueTask.CompletedTask; });
+        group.Install(Handle("first"), () =>
+        {
+            lock (closed)
+            {
+                closed.Add("first");
+            }
+
+            return ValueTask.CompletedTask;
+        });
+        group.Install(Handle("second"), () =>
+        {
+            lock (closed)
+            {
+                closed.Add("second");
+            }
+
+            return ValueTask.CompletedTask;
+        });
         var child = table.Fork(parent.Id, NamespaceForkMode.Copy);
         Assert.False(parent.TerminationCompletion.IsCompleted);
         Assert.True(table.Terminate(parent.Id));
@@ -140,7 +184,11 @@ public sealed class DescriptorGroupTests
         Assert.False(group.IsClosed);
         Assert.Equal(1, group.OwnerCount);
         Assert.Empty(closed);
-        await using (var lease = child.Descriptors.Acquire(1)) Assert.Equal("second", lease.Handle.HandleId);
+        await using (var lease = child.Descriptors.Acquire(1))
+        {
+            Assert.Equal("second", lease.Handle.HandleId);
+        }
+
         Assert.True(await table.TerminateAsync(child.Id));
         Assert.False(await table.TerminateAsync(child.Id));
         Assert.True(group.IsClosed);
@@ -163,8 +211,22 @@ public sealed class DescriptorGroupTests
         var group = process.Descriptors;
         int sourceCloses = 0, displacedCloses = 0;
         var source = Handle("source");
-        group.Install(source, () => { sourceCloses++; return ValueTask.CompletedTask; }, true);
-        group.Install(Handle("displaced"), () => { displacedCloses++; return ValueTask.CompletedTask; }, true);
+        group.Install(
+            source,
+            () =>
+        {
+            sourceCloses++;
+            return ValueTask.CompletedTask;
+        },
+            true);
+        group.Install(
+            Handle("displaced"),
+            () =>
+        {
+            displacedCloses++;
+            return ValueTask.CompletedTask;
+        },
+            true);
         Assert.Equal(1, await group.DuplicateAsync(0, 1));
         Assert.Equal(1, displacedCloses);
         Assert.Equal(new DescriptorSlot(1, source, false), group.Snapshot()[1]);
@@ -195,6 +257,7 @@ public sealed class DescriptorGroupTests
             Assert.Throws<ArgumentOutOfRangeException>(() => table.Fork(process.Id, NamespaceForkMode.Copy, descriptorMode: (DescriptorForkMode)invalid));
             await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => table.RforkDescriptorsAsync(process.Id, (DescriptorForkMode)invalid));
         }
+
         Assert.Single(table.Snapshot());
         Assert.Equal(1, group.OwnerCount);
         Assert.Equal(new DescriptorSlot(0, handle, true), Assert.Single(group.Snapshot()));
@@ -214,13 +277,18 @@ public sealed class DescriptorGroupTests
         Assert.Equal(39, await group.DuplicateAsync(0, 39));
         await group.CloseAsync(39);
         var child = table.Fork(process.Id, NamespaceForkMode.Share, descriptorMode: DescriptorForkMode.Copy);
+
         // dupfgrp shrinks the copy to 20; closing a slot does not shrink the original.
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => child.Descriptors.DuplicateAsync(0, 40).AsTask());
         Assert.Equal(39, await child.Descriptors.DuplicateAsync(0, 39));
         var grandchild = table.Fork(child.Id, NamespaceForkMode.Share, descriptorMode: DescriptorForkMode.Copy);
         Assert.Equal(59, await grandchild.Descriptors.DuplicateAsync(0, 59));
         Assert.Equal(59, await group.DuplicateAsync(0, 59));
-        for (int fd = 79; fd < 5000; fd += 20) await group.DuplicateAsync(0, fd);
+        for (int fd = 79; fd < 5000; fd += 20)
+        {
+            await group.DuplicateAsync(0, fd);
+        }
+
         Assert.Equal(4999, await group.DuplicateAsync(0, 4999));
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => group.DuplicateAsync(0, 5000).AsTask());
         await table.TerminateAsync(child.Id);
@@ -235,11 +303,22 @@ public sealed class DescriptorGroupTests
         var group = process.Descriptors;
         int closed = 0;
         for (int fd = 0; fd < 5000; fd++)
-            Assert.Equal(fd, group.Install(Handle(fd.ToString()), () => { Interlocked.Increment(ref closed); return ValueTask.CompletedTask; }));
+        {
+            Assert.Equal(fd, group.Install(Handle(fd.ToString()), () =>
+            {
+                Interlocked.Increment(ref closed);
+                return ValueTask.CompletedTask;
+            }));
+        }
+
         Assert.Throws<ArgumentOutOfRangeException>(() => group.Install(Handle("unowned"), () => throw new InvalidOperationException("ownership must stay with caller")));
         Assert.Equal(0, closed);
         await group.CloseAsync(0);
-        Assert.Equal(0, group.Install(Handle("reused"), () => { Interlocked.Increment(ref closed); return ValueTask.CompletedTask; }));
+        Assert.Equal(0, group.Install(Handle("reused"), () =>
+        {
+            Interlocked.Increment(ref closed);
+            return ValueTask.CompletedTask;
+        }));
         await table.TerminateAsync(process.Id);
         Assert.Equal(5001, closed);
     }
@@ -250,7 +329,11 @@ public sealed class DescriptorGroupTests
         var (table, process) = CreateProcess();
         int closed = 0;
         var group = process.Descriptors;
-        group.Install(Handle("pinned"), () => { closed++; return ValueTask.CompletedTask; });
+        group.Install(Handle("pinned"), () =>
+        {
+            closed++;
+            return ValueTask.CompletedTask;
+        });
         var lease = group.Acquire(0);
         await table.TerminateAsync(process.Id);
         Assert.Equal(0, closed);
@@ -265,12 +348,20 @@ public sealed class DescriptorGroupTests
     {
         var (table, process) = CreateProcess();
         int closed = 0;
-        process.Descriptors.Install(Handle("live-slot"), () => { closed++; return ValueTask.CompletedTask; });
+        process.Descriptors.Install(Handle("live-slot"), () =>
+        {
+            closed++;
+            return ValueTask.CompletedTask;
+        });
         var lease = process.Descriptors.Acquire(0);
         await lease.DisposeAsync();
         await lease.DisposeAsync();
         Assert.Equal(0, closed);
-        await using (var next = process.Descriptors.Acquire(0)) Assert.Equal("live-slot", next.Handle.HandleId);
+        await using (var next = process.Descriptors.Acquire(0))
+        {
+            Assert.Equal("live-slot", next.Handle.HandleId);
+        }
+
         Assert.Equal(0, closed);
         await table.TerminateAsync(process.Id);
         Assert.Equal(1, closed);
@@ -303,8 +394,17 @@ public sealed class DescriptorGroupTests
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         int otherClosed = 0;
-        group.Install(Handle("blocked"), async () => { entered.SetResult(); await resume.Task; throw new IOException("provider close failed"); });
-        group.Install(Handle("other"), () => { Interlocked.Increment(ref otherClosed); return ValueTask.CompletedTask; });
+        group.Install(Handle("blocked"), async () =>
+        {
+            entered.SetResult();
+            await resume.Task;
+            throw new IOException("provider close failed");
+        });
+        group.Install(Handle("other"), () =>
+        {
+            Interlocked.Increment(ref otherClosed);
+            return ValueTask.CompletedTask;
+        });
         var exiting = table.TerminateAsync(process.Id);
         try
         {
@@ -316,7 +416,11 @@ public sealed class DescriptorGroupTests
             Assert.False(process.TerminationCompletion.IsCompleted);
             Assert.Empty(table.Snapshot());
         }
-        finally { resume.TrySetResult(); }
+        finally
+        {
+            resume.TrySetResult();
+        }
+
         Assert.True(await exiting);
         await process.TerminationCompletion;
         Assert.Equal(1, otherClosed);
@@ -328,7 +432,14 @@ public sealed class DescriptorGroupTests
         var (table, parent) = CreateProcess();
         int closed = 0;
         var group = parent.Descriptors;
-        group.Install(Handle("marked"), () => { closed++; return ValueTask.CompletedTask; }, true);
+        group.Install(
+            Handle("marked"),
+            () =>
+        {
+            closed++;
+            return ValueTask.CompletedTask;
+        },
+            true);
         await group.DuplicateAsync(0, 1);
         var copy = table.Fork(parent.Id, NamespaceForkMode.Share, descriptorMode: DescriptorForkMode.Copy);
         var shared = table.Fork(parent.Id, NamespaceForkMode.Copy);
@@ -355,28 +466,51 @@ public sealed class DescriptorGroupTests
         var order = new List<int>();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        group.Install(Handle("first"), async () =>
+        group.Install(
+            Handle("first"),
+            async () =>
         {
             entered.SetResult();
             await resume.Task;
-            lock (order) order.Add(0);
-        }, true);
-        group.Install(Handle("second"), () =>
+            lock (order)
+            {
+                order.Add(0);
+            }
+        },
+            true);
+        group.Install(
+            Handle("second"),
+            () =>
         {
-            lock (order) order.Add(1);
+            lock (order)
+            {
+                order.Add(1);
+            }
+
             return ValueTask.CompletedTask;
-        }, true);
+        },
+            true);
         Task cleanup = exec ? group.CloseOnExecAsync() : table.TerminateAsync(process.Id);
         try
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.Empty(group.Snapshot());
-            lock (order) Assert.Empty(order);
+            lock (order)
+            {
+                Assert.Empty(order);
+            }
         }
-        finally { resume.TrySetResult(); }
+        finally
+        {
+            resume.TrySetResult();
+        }
+
         await cleanup;
         Assert.Equal(new[] { 0, 1 }, order);
-        if (exec) await table.TerminateAsync(process.Id);
+        if (exec)
+        {
+            await table.TerminateAsync(process.Id);
+        }
     }
 
     [Fact]
@@ -399,20 +533,31 @@ public sealed class DescriptorGroupTests
     {
         var (table, parent) = CreateProcess();
         int closed = 0;
-        parent.Descriptors.Install(Handle("shared-instance"), () => { Interlocked.Increment(ref closed); return ValueTask.CompletedTask; });
+        parent.Descriptors.Install(Handle("shared-instance"), () =>
+        {
+            Interlocked.Increment(ref closed);
+            return ValueTask.CompletedTask;
+        });
         var holders = new List<VProcess> { parent };
         var groups = new HashSet<DescriptorGroup> { parent.Descriptors };
         foreach (byte value in input.Get.Take(40))
         {
-            var child = table.Fork(parent.Id, (NamespaceForkMode)(value % 3), descriptorMode: (DescriptorForkMode)(value / 3 % 3));
+            var child = table.Fork(parent.Id, (NamespaceForkMode)(value % 3), descriptorMode: (DescriptorForkMode)((value / 3) % 3));
             holders.Add(child);
             groups.Add(child.Descriptors);
-            if (child.Descriptors.Snapshot().Count != 0) await child.Descriptors.DuplicateAsync(0);
+            if (child.Descriptors.Snapshot().Count != 0)
+            {
+                await child.Descriptors.DuplicateAsync(0);
+            }
         }
 
         foreach (byte value in input.Get.Take(40))
         {
-            if (holders.Count == 1) break;
+            if (holders.Count == 1)
+            {
+                break;
+            }
+
             var selected = holders[value % holders.Count];
             await table.TerminateAsync(selected.Id);
             holders.Remove(selected);
@@ -422,11 +567,16 @@ public sealed class DescriptorGroupTests
                 Assert.Equal(expectedOwners, group.OwnerCount);
                 Assert.Equal(expectedOwners == 0, group.IsClosed);
             }
+
             bool referenced = groups.Any(g => g.Snapshot().Count != 0);
             Assert.Equal(referenced ? 0 : 1, closed);
         }
 
-        foreach (var holder in holders) await table.TerminateAsync(holder.Id);
+        foreach (var holder in holders)
+        {
+            await table.TerminateAsync(holder.Id);
+        }
+
         Assert.Equal(1, closed);
     }
 

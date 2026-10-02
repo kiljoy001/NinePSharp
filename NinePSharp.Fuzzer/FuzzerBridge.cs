@@ -7,13 +7,13 @@ namespace NinePSharp.Fuzzer
 {
     public static class FuzzerBridge
     {
-        private static readonly System.Random _rnd = new System.Random();
+        private static readonly System.Random Rnd = new System.Random();
         private static readonly string[][] TraversalPayloads =
         [
             ["..", "..", "etc", "passwd"],
             ["..", "..", "windows", "system32"],
             ["/"],
-            ["", "..", ""],
+            [string.Empty, "..", string.Empty],
             ["..", ".", "..", "."],
             ["$", "{IFS}", "..", "etc", "passwd"],
         ];
@@ -27,10 +27,11 @@ namespace NinePSharp.Fuzzer
                 var files = System.IO.Directory.GetFiles(corpusDir, "*.bin");
                 if (files.Length > 0)
                 {
-                    var randomFile = files[_rnd.Next(files.Length)];
+                    var randomFile = files[Rnd.Next(files.Length)];
                     return System.IO.File.ReadAllBytes(randomFile);
                 }
             }
+
             // Fallback to simple valid Tversion message
             return new byte[] { 19, 0, 0, 0, 100, 0, 0, 255, 255, 0, 0, 8, 0, 0, 0, 57, 80, 50, 48, 48, 48, 46, 76 };
         }
@@ -49,9 +50,10 @@ namespace NinePSharp.Fuzzer
             byte[] mutated = (byte[])input.Clone();
             if (mutated.Length > 7)
             {
-                int idx = _rnd.Next(7, mutated.Length);
+                int idx = Rnd.Next(7, mutated.Length);
                 mutated[idx] = (byte)(mutated[idx] ^ 0xFF);
             }
+
             return mutated;
         }
 
@@ -62,12 +64,12 @@ namespace NinePSharp.Fuzzer
                 return BitFlip(input, 1);
             }
 
-            return _rnd.Next(4) switch
+            return Rnd.Next(4) switch
             {
                 0 => BitFlip(input, Math.Max(1, input.Length / 32)),
                 1 => ByteReplace(input, Math.Max(1, input.Length / 32)),
                 2 => ByteInsert(input, Math.Max(1, input.Length / 64)),
-                _ => ByteDelete(input, Math.Max(1, input.Length / 64))
+                _ => ByteDelete(input, Math.Max(1, input.Length / 64)),
             };
         }
 
@@ -81,8 +83,8 @@ namespace NinePSharp.Fuzzer
 
             for (int i = 0; i < count; i++)
             {
-                int index = _rnd.Next(output.Length);
-                int bit = _rnd.Next(8);
+                int index = Rnd.Next(output.Length);
+                int bit = Rnd.Next(8);
                 output[index] ^= (byte)(1 << bit);
             }
 
@@ -99,8 +101,8 @@ namespace NinePSharp.Fuzzer
 
             for (int i = 0; i < count; i++)
             {
-                int index = _rnd.Next(output.Length);
-                output[index] = (byte)_rnd.Next(256);
+                int index = Rnd.Next(output.Length);
+                output[index] = (byte)Rnd.Next(256);
             }
 
             return output;
@@ -109,7 +111,7 @@ namespace NinePSharp.Fuzzer
         public static byte[] ByteInsert(byte[] input, int count)
         {
             var inserted = Enumerable.Range(0, Math.Max(1, count))
-                .Select(_ => (byte)_rnd.Next(256))
+                .Select(_ => (byte)Rnd.Next(256))
                 .ToArray();
 
             if (input.Length == 0)
@@ -117,7 +119,7 @@ namespace NinePSharp.Fuzzer
                 return inserted;
             }
 
-            int index = _rnd.Next(input.Length + 1);
+            int index = Rnd.Next(input.Length + 1);
             var output = new byte[input.Length + inserted.Length];
             Buffer.BlockCopy(input, 0, output, 0, index);
             Buffer.BlockCopy(inserted, 0, output, index, inserted.Length);
@@ -133,7 +135,7 @@ namespace NinePSharp.Fuzzer
             }
 
             int deleteCount = Math.Min(Math.Max(1, count), input.Length);
-            int index = _rnd.Next(input.Length - deleteCount + 1);
+            int index = Rnd.Next(input.Length - deleteCount + 1);
             var output = new byte[input.Length - deleteCount];
             Buffer.BlockCopy(input, 0, output, 0, index);
             Buffer.BlockCopy(input, index + deleteCount, output, index, input.Length - index - deleteCount);
@@ -142,14 +144,14 @@ namespace NinePSharp.Fuzzer
 
         public static string[] GenerateValidPath()
         {
-            return TraversalPayloads[_rnd.Next(TraversalPayloads.Length)];
+            return TraversalPayloads[Rnd.Next(TraversalPayloads.Length)];
         }
 
         public static string[] MutatePath(string[] path)
         {
             // Use pre-generated malicious paths for better coverage
             _ = path;
-            return TraversalPayloads[_rnd.Next(TraversalPayloads.Length)];
+            return TraversalPayloads[Rnd.Next(TraversalPayloads.Length)];
         }
 
         public static byte[][] GenerateAttackVectors()
@@ -171,6 +173,5 @@ namespace NinePSharp.Fuzzer
         {
             return TraversalPayloads;
         }
-
     }
 }

@@ -8,12 +8,6 @@ namespace NinePSharp.Messages;
 // size[4] Rattach tag[2] qid[13]
 public readonly struct Rattach : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Rattach;
-    public ushort Tag { get; }
-
-    public Qid Qid { get; }
-
     public Rattach(ushort tag, Qid qid)
     {
         Tag = tag;
@@ -29,6 +23,14 @@ public readonly struct Rattach : ISerializable
         int offset = NinePConstants.HeaderSize;
         Qid = data.ReadQid(ref offset);
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Rattach;
+
+    public ushort Tag { get; }
+
+    public Qid Qid { get; }
 
     public void WriteTo(Span<byte> data)
     {

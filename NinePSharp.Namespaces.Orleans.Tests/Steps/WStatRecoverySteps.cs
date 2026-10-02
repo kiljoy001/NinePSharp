@@ -151,7 +151,8 @@ public sealed class WStatRecoverySteps
     public async Task OriginalResourceChanged()
     {
         Assert.Equal(expectedResult, Assert.IsType<uint>(recoveredResult));
-        Assert.Equal(NinePConstants.Mode0600,
+        Assert.Equal(
+            NinePConstants.Mode0600,
             (await Resources().StatAsync(RequiredOriginal(), CancellationToken.None)).Mode);
         Assert.Equal(1, (await OriginalControl().GetDiagnosticsAsync()).Mutations);
     }
@@ -159,7 +160,8 @@ public sealed class WStatRecoverySteps
     [Then("the replacement resource remains unchanged")]
     public async Task ReplacementUnchanged()
     {
-        Assert.Equal(NinePConstants.Mode0644,
+        Assert.Equal(
+            NinePConstants.Mode0644,
             (await Resources().StatAsync(RequiredReplacement(), CancellationToken.None)).Mode);
         Assert.Equal(0, (await ReplacementControl().GetDiagnosticsAsync()).Mutations);
     }
@@ -168,8 +170,19 @@ public sealed class WStatRecoverySteps
     public async Task ReleaseProcessAsync()
     {
         if (process is not null)
+        {
             await processes.TerminateAsync(process.Id);
+        }
     }
+
+    private static ResourceHandle Root(string device)
+        => new(new ResourceIdentity("bdd-resource", device, 1), QidType.QTDIR);
+
+    private static ResourceHandle Job(string device)
+        => new(new ResourceIdentity("bdd-resource", device, 2), QidType.QTFILE);
+
+    private static byte[] Update(uint mode)
+        => FileStatOperations.EncodeUpdate(ResourceWStat.Unchanged() with { Mode = mode });
 
     private async Task InitializeAsync()
     {
@@ -210,15 +223,6 @@ public sealed class WStatRecoverySteps
 
     private ITestMountableResourceGrain ReplacementControl()
         => OrleansTestEnvironment.Cluster.GrainFactory.GetGrain<ITestMountableResourceGrain>(replacementDevice);
-
-    private static ResourceHandle Root(string device)
-        => new(new ResourceIdentity("bdd-resource", device, 1), QidType.QTDIR);
-
-    private static ResourceHandle Job(string device)
-        => new(new ResourceIdentity("bdd-resource", device, 2), QidType.QTFILE);
-
-    private static byte[] Update(uint mode)
-        => FileStatOperations.EncodeUpdate(ResourceWStat.Unchanged() with { Mode = mode });
 
     private ResourceOperationId Operation(ulong sequence) => new(sessionId, sequence);
 

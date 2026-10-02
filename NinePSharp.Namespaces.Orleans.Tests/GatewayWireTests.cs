@@ -12,30 +12,6 @@ using Xunit;
 
 namespace NinePSharp.Namespaces.Orleans.Tests;
 
-public sealed class GatewayClusterFixture : IAsyncLifetime
-{
-    public TestCluster Cluster { get; private set; } = null!;
-
-    public async Task InitializeAsync()
-    {
-        var builder = new TestClusterBuilder(2);
-        builder.AddSiloBuilderConfigurator<StorageConfigurator>();
-        Cluster = builder.Build();
-        await Cluster.DeployAsync();
-    }
-
-    public async Task DisposeAsync()
-    {
-        await Cluster.StopAllSilosAsync();
-        Cluster.Dispose();
-    }
-
-    private sealed class StorageConfigurator : ISiloConfigurator
-    {
-        public void Configure(ISiloBuilder siloBuilder) => siloBuilder.AddMemoryGrainStorageAsDefault();
-    }
-}
-
 public sealed class GatewayWireTests(GatewayClusterFixture fixture) : IClassFixture<GatewayClusterFixture>
 {
     [Fact]
@@ -96,8 +72,11 @@ public sealed class GatewayWireTests(GatewayClusterFixture fixture) : IClassFixt
         long sequence = 0;
         ResourceOperationContext Context() => new(new(device, (ulong)Interlocked.Increment(ref sequence)), process.Id, "scott");
         var stat = new FileStatOperations(resources, new[] { new DirectoryDeviceBinding(7, 42, "bdd-resource", device) });
-        var calls = new Plan9FileSyscalls(process,
-            new LocalNamespaceDataPlane(process.ProcessGroup.MountTable, resources), Context, fileStats: stat);
+        var calls = new Plan9FileSyscalls(
+            process,
+            new LocalNamespaceDataPlane(process.ProcessGroup.MountTable, resources),
+            Context,
+            fileStats: stat);
         try
         {
             int fd = await calls.OpenAsync("/job", new(NinePConstants.ORDWR));
@@ -128,7 +107,10 @@ public sealed class GatewayWireTests(GatewayClusterFixture fixture) : IClassFixt
             Assert.Equal(NinePConstants.Mode0600, changed.Mode);
             Assert.Equal(renamed, await resources.WalkAsync(root, "final", default));
         }
-        finally { await table.TerminateAsync(process.Id); }
+        finally
+        {
+            await table.TerminateAsync(process.Id);
+        }
     }
 
     [Fact]
@@ -160,18 +142,22 @@ public sealed class GatewayWireTests(GatewayClusterFixture fixture) : IClassFixt
             Assert.Equal(bytes.ToArray(), (await calls.StatAsync("/job", size)).ToArray());
 
             var job = (await resources.WalkAsync(root, "job", default))!;
-            var replacement = (await resources.CreateAndOpenAsync(root, "replacement", 0x180, 2, Context(), default));
+            var replacement = await resources.CreateAndOpenAsync(root, "replacement", 0x180, 2, Context(), default);
             process.ProcessGroup.MountTable.Mount(NamespaceChannel.Restore(new[] { new ChannelFrame("/", replacement.Resource) }), job);
             Assert.Equal(0UL, System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian((await calls.StatAsync("/job", 4096)).Span[33..]));
             Assert.Equal(3UL, System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian((await calls.FStatAsync(fd, 4096)).Span[33..]));
             process.ProcessGroup.MountTable.Unmount(job);
             await resources.ClunkAsync(replacement, Context(), default);
+
             // This provider invalidates removed resources. Fstat must propagate that policy.
             await resources.RemoveAsync(job, null, Context(), default);
             Assert.Equal("file does not exist", (await Assert.ThrowsAsync<InvalidOperationException>(() => calls.FStatAsync(fd, 4096).AsTask())).Message);
             Assert.Single(process.Descriptors.Snapshot());
         }
-        finally { await table.TerminateAsync(process.Id); }
+        finally
+        {
+            await table.TerminateAsync(process.Id);
+        }
     }
 
     [Fact]
@@ -184,7 +170,9 @@ public sealed class GatewayWireTests(GatewayClusterFixture fixture) : IClassFixt
         var table = new VProcessTable();
         var process = table.CreateInitial(NamespaceChannel.Restore(new[] { new ChannelFrame("/", root) }));
         long sequence = 0;
-        var calls = new Plan9FileSyscalls(process, new LocalNamespaceDataPlane(process.ProcessGroup.MountTable, resources),
+        var calls = new Plan9FileSyscalls(
+            process,
+            new LocalNamespaceDataPlane(process.ProcessGroup.MountTable, resources),
             () => new(new ResourceOperationId(device, (ulong)Interlocked.Increment(ref sequence)), process.Id, "scott"),
             DirectoryReadMode.ProviderStream,
             new DirectoryStatOperations(resources, new[] { new DirectoryDeviceBinding(7, 0, "bdd-resource", device) }));
@@ -208,7 +196,10 @@ public sealed class GatewayWireTests(GatewayClusterFixture fixture) : IClassFixt
             Assert.Equal("new", new NinePSharp.Messages.Stat(bytes.Span, ref position).Name);
             Assert.Equal(bytes.Length, position);
         }
-        finally { await table.TerminateAsync(process.Id); }
+        finally
+        {
+            await table.TerminateAsync(process.Id);
+        }
     }
 
     [Fact]
@@ -221,7 +212,9 @@ public sealed class GatewayWireTests(GatewayClusterFixture fixture) : IClassFixt
         var table = new VProcessTable();
         var process = table.CreateInitial(NamespaceChannel.Restore(new[] { new ChannelFrame("/", root) }));
         long sequence = 0;
-        var calls = new Plan9FileSyscalls(process, new LocalNamespaceDataPlane(process.ProcessGroup.MountTable, resources),
+        var calls = new Plan9FileSyscalls(
+            process,
+            new LocalNamespaceDataPlane(process.ProcessGroup.MountTable, resources),
             () => new(new ResourceOperationId(device, (ulong)Interlocked.Increment(ref sequence)), process.Id, "scott"));
         try
         {
@@ -239,7 +232,10 @@ public sealed class GatewayWireTests(GatewayClusterFixture fixture) : IClassFixt
             Assert.Equal("new", new NinePSharp.Messages.Stat(bytes.Span, ref position).Name);
             Assert.Equal(bytes.Length, position);
         }
-        finally { await table.TerminateAsync(process.Id); }
+        finally
+        {
+            await table.TerminateAsync(process.Id);
+        }
     }
 
     [Fact]
@@ -258,6 +254,7 @@ public sealed class GatewayWireTests(GatewayClusterFixture fixture) : IClassFixt
         {
             int original = await calls.CreateAsync("/new", new(NinePConstants.Mode0600, NinePConstants.ORDWR | NinePConstants.OEXCL));
             await calls.WriteAsync(original, "keep"u8.ToArray());
+
             // Bypass the preliminary syscall walk to exercise the actual serialized rejection.
             var error = await Assert.ThrowsAsync<ResourceCreateRejectedException>(() => resources.CreateAndOpenAsync(
                 root, "new", 0, 2, Context(), default).AsTask());
@@ -265,10 +262,15 @@ public sealed class GatewayWireTests(GatewayClusterFixture fixture) : IClassFixt
             Assert.Equal("keep"u8.ToArray(), (await calls.PReadAsync(original, 0, 10)).ToArray());
             int replacement = await calls.CreateAsync("/new", new(0, NinePConstants.ORDWR));
             Assert.Empty((await calls.ReadAsync(replacement, 10)).ToArray());
-            Assert.Equal(process.Descriptors.Snapshot()[original].Handle.Resource.Identity,
+            Assert.Equal(
+                process.Descriptors.Snapshot()[original].Handle.Resource.Identity,
                 process.Descriptors.Snapshot()[replacement].Handle.Resource.Identity);
         }
-        finally { await table.TerminateAsync(process.Id); }
+        finally
+        {
+            await table.TerminateAsync(process.Id);
+        }
+
         var diagnostics = await fixture.Cluster.GrainFactory.GetGrain<ITestMountableResourceGrain>(device).GetDiagnosticsAsync();
         Assert.Equal(2, diagnostics.Clunks);
     }
@@ -335,6 +337,18 @@ public sealed class GatewayWireTests(GatewayClusterFixture fixture) : IClassFixt
         await Bounded(second.AttachAsync(1, NinePConstants.NoFid, "user", "/"));
     }
 
+    private static Task<T> Bounded<T>(Task<T> task)
+        => task.WaitAsync(TimeSpan.FromSeconds(5));
+
+    private static Task Bounded(Task task)
+        => task.WaitAsync(TimeSpan.FromSeconds(5));
+
+    private static string FileStatName(ReadOnlyMemory<byte> record)
+    {
+        int length = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(record.Span[41..]);
+        return Encoding.UTF8.GetString(record.Span.Slice(43, length));
+    }
+
     private async Task<RunningGateway> StartGatewayAsync()
     {
         string device = Guid.NewGuid().ToString("N");
@@ -354,18 +368,6 @@ public sealed class GatewayWireTests(GatewayClusterFixture fixture) : IClassFixt
         var listener = provider.GetRequiredService<NinePOrleansListener>();
         await listener.StartAsync(CancellationToken.None);
         return new RunningGateway(provider, listener, device);
-    }
-
-    private static Task<T> Bounded<T>(Task<T> task)
-        => task.WaitAsync(TimeSpan.FromSeconds(5));
-
-    private static Task Bounded(Task task)
-        => task.WaitAsync(TimeSpan.FromSeconds(5));
-
-    private static string FileStatName(ReadOnlyMemory<byte> record)
-    {
-        int length = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(record.Span[41..]);
-        return Encoding.UTF8.GetString(record.Span.Slice(43, length));
     }
 
     private sealed record RunningGateway(ServiceProvider Services, NinePOrleansListener Listener, string Device) : IAsyncDisposable

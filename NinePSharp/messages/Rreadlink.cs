@@ -1,18 +1,13 @@
-namespace NinePSharp.Messages;
-
 using System;
 using System.Buffers.Binary;
 using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
+namespace NinePSharp.Messages;
+
 public readonly struct Rreadlink : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Rreadlink;
-    public ushort Tag { get; }
-    public string Target { get; }
-
     public Rreadlink(uint size, ushort tag, string target)
     {
         Size = size;
@@ -27,6 +22,14 @@ public readonly struct Rreadlink : ISerializable
         int offset = NinePConstants.HeaderSize;
         Target = data.ReadString(ref offset);
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Rreadlink;
+
+    public ushort Tag { get; }
+
+    public string Target { get; }
 
     public void WriteTo(Span<byte> span)
     {

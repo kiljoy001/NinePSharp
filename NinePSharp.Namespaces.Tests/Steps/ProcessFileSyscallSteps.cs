@@ -36,7 +36,9 @@ public sealed class ProcessFileSyscallSteps
     public void FillDescriptors()
     {
         for (int i = 1; i < 5000; i++)
+        {
             fixture.Process.Descriptors.Install(DescriptorGroupTests.Handle(i.ToString()), () => ValueTask.CompletedTask);
+        }
     }
 
     [When("native create attempts a new name")]

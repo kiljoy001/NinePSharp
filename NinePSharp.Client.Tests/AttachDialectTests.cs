@@ -17,7 +17,8 @@ public sealed class AttachDialectTests
         var (clientStream, serverStream) = LoopbackStream.CreatePair();
         using var client = new NinePClient(clientStream);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        Task server = Task.Run(async () =>
+        Task server = Task.Run(
+            async () =>
         {
             byte[] firstVersion = await ReadAsync();
             await ReplyAsync(new Rversion(Tag(firstVersion), 8192, version));
@@ -31,7 +32,8 @@ public sealed class AttachDialectTests
             byte[] secondAttach = await ReadAsync();
             Assert.Equal(24, secondAttach.Length);
             await ReplyAsync(new Rattach(Tag(secondAttach), new Qid(QidType.QTDIR, 0, 1)));
-        }, timeout.Token);
+        },
+            timeout.Token);
 
         await client.VersionAsync(version: version).WaitAsync(timeout.Token);
         await client.AttachAsync(1, NinePConstants.NoFid, "user", "/").WaitAsync(timeout.Token);

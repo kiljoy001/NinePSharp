@@ -39,7 +39,7 @@ public sealed class AuthorizedResourceOperations : IResourceDataOperations
     private readonly bool needsContainment;
     private readonly ConcurrentDictionary<ResourceOpenHandle, OpenGrant> opened = new();
 
-    /// <summary>Builds a view for one authenticated principal.</summary>
+    /// <summary>Initializes a new instance of the <see cref="AuthorizedResourceOperations"/> class. The view is for one authenticated principal.</summary>
     /// <param name="inner">The provider the namespace data plane would otherwise call.</param>
     /// <param name="ancestry">The provider's parent relation, or null when it has none.</param>
     /// <param name="policy">The validated policy generation this view enforces.</param>
@@ -56,7 +56,11 @@ public sealed class AuthorizedResourceOperations : IResourceDataOperations
     {
         this.inner = inner ?? throw new ArgumentNullException(nameof(inner));
         this.policy = policy ?? throw new ArgumentNullException(nameof(policy));
-        if (!policy.Contains(user)) throw new ArgumentException($"'{user}' is not a principal of this policy.", nameof(user));
+        if (!policy.Contains(user))
+        {
+            throw new ArgumentException($"'{user}' is not a principal of this policy.", nameof(user));
+        }
+
         this.currentGeneration = currentGeneration ?? throw new ArgumentNullException(nameof(currentGeneration));
         this.ancestry = ancestry;
         this.user = user;
@@ -64,7 +68,9 @@ public sealed class AuthorizedResourceOperations : IResourceDataOperations
         this.readOnlyRoots = new HashSet<ResourceIdentity>(readOnlyRoots ?? Array.Empty<ResourceIdentity>());
         needsContainment = this.readOnlyRoots.Count != 0 || grants.Any(grant => grant.Scope == GrantScope.Tree);
         if (needsContainment && ancestry is null)
+        {
             throw new ArgumentException("Tree grants and read-only roots need the provider's parent relation.", nameof(ancestry));
+        }
     }
 
     /// <inheritdoc/>
@@ -72,14 +78,30 @@ public sealed class AuthorizedResourceOperations : IResourceDataOperations
     {
         RequireCurrent();
         Access access = await AccessAsync(directory, cancellationToken);
+
         // A hidden union member behaves as if it lacked the name.
-        if (access.Rights == ResourceRights.None) return null;
-        if ((access.Rights & ResourceRights.Walk) == 0) throw new ResourceAccessDeniedException();
+        if (access.Rights == ResourceRights.None)
+        {
+            return null;
+        }
+
+        if ((access.Rights & ResourceRights.Walk) == 0)
+        {
+            throw new ResourceAccessDeniedException();
+        }
+
         ResourceStat stat = await inner.StatAsync(directory, cancellationToken);
-        if (!Permits(stat, ExecuteBit)) throw new ResourceAccessDeniedException();
+        if (!Permits(stat, ExecuteBit))
+        {
+            throw new ResourceAccessDeniedException();
+        }
 
         ResourceHandle? child = await inner.WalkAsync(directory, name, cancellationToken);
-        if (child is null) return null;
+        if (child is null)
+        {
+            return null;
+        }
+
         return (await AccessAsync(child, cancellationToken)).Rights == ResourceRights.None ? null : child;
     }
 
@@ -88,15 +110,29 @@ public sealed class AuthorizedResourceOperations : IResourceDataOperations
     {
         RequireCurrent();
         Access access = await AccessAsync(directory, cancellationToken);
-        if (access.Rights == ResourceRights.None) return Array.Empty<ResourceDirectoryEntry>();
-        if ((access.Rights & ResourceRights.Read) == 0) throw new ResourceDirectoryRejectedException("permission denied");
+        if (access.Rights == ResourceRights.None)
+        {
+            return Array.Empty<ResourceDirectoryEntry>();
+        }
+
+        if ((access.Rights & ResourceRights.Read) == 0)
+        {
+            throw new ResourceDirectoryRejectedException("permission denied");
+        }
+
         ResourceStat stat = await inner.StatAsync(directory, cancellationToken);
-        if (!Permits(stat, ReadBit)) throw new ResourceDirectoryRejectedException("permission denied");
+        if (!Permits(stat, ReadBit))
+        {
+            throw new ResourceDirectoryRejectedException("permission denied");
+        }
 
         var visible = new List<ResourceDirectoryEntry>();
         foreach (ResourceDirectoryEntry entry in await inner.ReadDirectoryAsync(directory, cancellationToken))
         {
-            if (((await AccessAsync(entry.Handle, cancellationToken)).Rights & ResourceRights.Stat) != 0) visible.Add(entry);
+            if (((await AccessAsync(entry.Handle, cancellationToken)).Rights & ResourceRights.Stat) != 0)
+            {
+                visible.Add(entry);
+            }
         }
 
         return visible;
@@ -110,20 +146,45 @@ public sealed class AuthorizedResourceOperations : IResourceDataOperations
     }
 
     /// <inheritdoc/>
-    public async ValueTask<ResourceOpenHandle> OpenAsync(ResourceHandle resource, byte mode, ResourceOperationContext context,
+    public async ValueTask<ResourceOpenHandle> OpenAsync(
+        ResourceHandle resource,
+        byte mode,
+        ResourceOperationContext context,
         CancellationToken cancellationToken)
     {
         bool directory = resource.IsDirectory;
-        if (!Current()) throw Denied(directory);
+        if (!Current())
+        {
+            throw Denied(directory);
+        }
+
         Access access = await AccessAsync(resource, cancellationToken);
-        if (access.Rights == ResourceRights.None) throw Hidden(directory);
+        if (access.Rights == ResourceRights.None)
+        {
+            throw Hidden(directory);
+        }
 
         (ResourceRights needed, uint bits, bool mutates) = Requirements(mode);
-        if ((access.Rights & needed) != needed) throw Denied(directory);
+        if ((access.Rights & needed) != needed)
+        {
+            throw Denied(directory);
+        }
+
         ResourceStat stat = await inner.StatAsync(resource, cancellationToken);
-        if (!Permits(stat, bits)) throw Denied(directory);
-        if (mutates && access.ReadOnly) throw Denied(directory);
-        if ((mode & NinePConstants.ORCLOSE) != 0 && !await ParentPermitsWriteAsync(resource, cancellationToken)) throw Denied(directory);
+        if (!Permits(stat, bits))
+        {
+            throw Denied(directory);
+        }
+
+        if (mutates && access.ReadOnly)
+        {
+            throw Denied(directory);
+        }
+
+        if ((mode & NinePConstants.ORCLOSE) != 0 && !await ParentPermitsWriteAsync(resource, cancellationToken))
+        {
+            throw Denied(directory);
+        }
 
         ResourceOpenHandle handle = await inner.OpenAsync(resource, mode, context, cancellationToken);
         opened[handle] = OpenGrant.For(mode);
@@ -134,16 +195,28 @@ public sealed class AuthorizedResourceOperations : IResourceDataOperations
     public ValueTask<ReadOnlyMemory<byte>> ReadAsync(ResourceOpenHandle openHandle, ulong offset, uint count, CancellationToken cancellationToken)
     {
         RequireCurrent();
-        if (!opened.TryGetValue(openHandle, out OpenGrant grant) || !grant.Read) throw new ResourceAccessDeniedException();
+        if (!opened.TryGetValue(openHandle, out OpenGrant grant) || !grant.Read)
+        {
+            throw new ResourceAccessDeniedException();
+        }
+
         return inner.ReadAsync(openHandle, offset, count, cancellationToken);
     }
 
     /// <inheritdoc/>
-    public ValueTask<uint> WriteAsync(ResourceOpenHandle openHandle, ulong offset, ReadOnlyMemory<byte> data,
-        ResourceOperationContext context, CancellationToken cancellationToken)
+    public ValueTask<uint> WriteAsync(
+        ResourceOpenHandle openHandle,
+        ulong offset,
+        ReadOnlyMemory<byte> data,
+        ResourceOperationContext context,
+        CancellationToken cancellationToken)
     {
         RequireCurrent();
-        if (!opened.TryGetValue(openHandle, out OpenGrant grant) || !grant.Write) throw new ResourceAccessDeniedException();
+        if (!opened.TryGetValue(openHandle, out OpenGrant grant) || !grant.Write)
+        {
+            throw new ResourceAccessDeniedException();
+        }
+
         return inner.WriteAsync(openHandle, offset, data, context, cancellationToken);
     }
 
@@ -152,15 +225,28 @@ public sealed class AuthorizedResourceOperations : IResourceDataOperations
     {
         RequireCurrent();
         Access access = await AccessAsync(resource, cancellationToken);
-        if (access.Rights == ResourceRights.None) throw Hidden(directory: false);
+        if (access.Rights == ResourceRights.None)
+        {
+            throw Hidden(directory: false);
+        }
+
         // stat(5) and gefs fsstat need no mode permission; the grant alone decides.
-        if ((access.Rights & ResourceRights.Stat) == 0) throw new ResourceAccessDeniedException();
+        if ((access.Rights & ResourceRights.Stat) == 0)
+        {
+            throw new ResourceAccessDeniedException();
+        }
+
         return await inner.StatAsync(resource, cancellationToken);
     }
 
     /// <inheritdoc/>
-    public async ValueTask<ResourceOpenHandle> CreateAndOpenAsync(ResourceHandle directory, string name, uint permissions, byte mode,
-        ResourceOperationContext context, CancellationToken cancellationToken)
+    public async ValueTask<ResourceOpenHandle> CreateAndOpenAsync(
+        ResourceHandle directory,
+        string name,
+        uint permissions,
+        byte mode,
+        ResourceOperationContext context,
+        CancellationToken cancellationToken)
     {
         (ResourceRights needed, _, _) = Requirements(mode);
         (_, ResourceStat parent) = await AuthorizeCreateAsync(directory, needed, cancellationToken);
@@ -178,21 +264,44 @@ public sealed class AuthorizedResourceOperations : IResourceDataOperations
     public ValueTask ClunkAsync(ResourceOpenHandle openHandle, ResourceOperationContext context, CancellationToken cancellationToken)
     {
         // Release is permitted after revocation, but only for handles this view opened.
-        if (!opened.TryRemove(openHandle, out _)) throw new ResourceAccessDeniedException();
+        if (!opened.TryRemove(openHandle, out _))
+        {
+            throw new ResourceAccessDeniedException();
+        }
+
         return inner.ClunkAsync(openHandle, context, cancellationToken);
     }
 
     /// <inheritdoc/>
-    public async ValueTask RemoveAsync(ResourceHandle resource, ResourceOpenHandle? openHandle, ResourceOperationContext context,
+    public async ValueTask RemoveAsync(
+        ResourceHandle resource,
+        ResourceOpenHandle? openHandle,
+        ResourceOperationContext context,
         CancellationToken cancellationToken)
     {
         // remove(5): the fid is gone whether or not the remove succeeds.
-        if (openHandle is not null) opened.TryRemove(openHandle, out _);
+        if (openHandle is not null)
+        {
+            opened.TryRemove(openHandle, out _);
+        }
+
         RequireCurrent();
         Access access = await AccessAsync(resource, cancellationToken);
-        if (access.Rights == ResourceRights.None) throw Hidden(directory: false);
-        if ((access.Rights & ResourceRights.Remove) == 0 || access.ReadOnly) throw new ResourceAccessDeniedException();
-        if (!await ParentPermitsWriteAsync(resource, cancellationToken)) throw new ResourceAccessDeniedException();
+        if (access.Rights == ResourceRights.None)
+        {
+            throw Hidden(directory: false);
+        }
+
+        if ((access.Rights & ResourceRights.Remove) == 0 || access.ReadOnly)
+        {
+            throw new ResourceAccessDeniedException();
+        }
+
+        if (!await ParentPermitsWriteAsync(resource, cancellationToken))
+        {
+            throw new ResourceAccessDeniedException();
+        }
+
         await inner.RemoveAsync(resource, openHandle, context, cancellationToken);
     }
 
@@ -225,19 +334,39 @@ public sealed class AuthorizedResourceOperations : IResourceDataOperations
         ResourceHandle directory, ResourceRights openRights, CancellationToken cancellationToken)
     {
         var rejected = new ResourceCreateRejectedException("permission denied");
-        if (!Current()) throw rejected;
+        if (!Current())
+        {
+            throw rejected;
+        }
+
         Access access = await AccessAsync(directory, cancellationToken);
-        if ((access.Rights & ResourceRights.Create) == 0 || access.ReadOnly) throw rejected;
+        if ((access.Rights & ResourceRights.Create) == 0 || access.ReadOnly)
+        {
+            throw rejected;
+        }
+
         // The child inherits only tree grants that cover its parent; it must be visible and openable.
-        if (access.Inherited == ResourceRights.None || (access.Inherited & openRights) != openRights) throw rejected;
+        if (access.Inherited == ResourceRights.None || (access.Inherited & openRights) != openRights)
+        {
+            throw rejected;
+        }
+
         ResourceStat parent = await inner.StatAsync(directory, cancellationToken);
-        if (!Permits(parent, WriteBit)) throw rejected;
+        if (!Permits(parent, WriteBit))
+        {
+            throw rejected;
+        }
+
         return (access, parent);
     }
 
     private async ValueTask<bool> ParentPermitsWriteAsync(ResourceHandle resource, CancellationToken cancellationToken)
     {
-        if (ancestry is null) return false;
+        if (ancestry is null)
+        {
+            return false;
+        }
+
         ResourceHandle? parent = await ancestry.GetParentAsync(resource, cancellationToken);
         return parent is not null && Permits(await inner.StatAsync(parent, cancellationToken), WriteBit);
     }
@@ -248,11 +377,22 @@ public sealed class AuthorizedResourceOperations : IResourceDataOperations
         uint mode = stat.Mode;
         if (!string.Equals(user, NoneUser, StringComparison.Ordinal))
         {
-            if (string.Equals(stat.User, user, StringComparison.Ordinal) && (mode & (bits << 6)) == bits << 6) return true;
-            if (policy.InGroup(user, stat.Group) && (mode & (bits << 3)) == bits << 3) return true;
+            if (string.Equals(stat.User, user, StringComparison.Ordinal) && (mode & (bits << 6)) == bits << 6)
+            {
+                return true;
+            }
+
+            if (policy.InGroup(user, stat.Group) && (mode & (bits << 3)) == bits << 3)
+            {
+                return true;
+            }
         }
 
-        if ((mode & bits) != bits) return false;
+        if ((mode & bits) != bits)
+        {
+            return false;
+        }
+
         // gefs: nogroup members keep the other set only to search a directory.
         bool search = bits == ExecuteBit && (mode & (uint)NinePConstants.FileMode9P.DMDIR) != 0;
         return search || !policy.InGroup(user, NoGroup);
@@ -262,7 +402,10 @@ public sealed class AuthorizedResourceOperations : IResourceDataOperations
 
     private void RequireCurrent()
     {
-        if (!Current()) throw new ResourceAccessDeniedException();
+        if (!Current())
+        {
+            throw new ResourceAccessDeniedException();
+        }
     }
 
     private async ValueTask<Access> AccessAsync(ResourceHandle resource, CancellationToken cancellationToken)
@@ -274,7 +417,11 @@ public sealed class AuthorizedResourceOperations : IResourceDataOperations
         foreach (ResourceGrant grant in grants)
         {
             bool self = grant.Resource == resource.Identity;
-            if (self && grant.Scope == GrantScope.Self) rights |= grant.Rights;
+            if (self && grant.Scope == GrantScope.Self)
+            {
+                rights |= grant.Rights;
+            }
+
             if (grant.Scope == GrantScope.Tree && (self || ancestors.Contains(grant.Resource)))
             {
                 rights |= grant.Rights;
@@ -294,15 +441,27 @@ public sealed class AuthorizedResourceOperations : IResourceDataOperations
     /// </summary>
     private async ValueTask<IReadOnlyList<ResourceIdentity>?> AncestorsAsync(ResourceHandle resource, CancellationToken cancellationToken)
     {
-        if (!needsContainment) return Array.Empty<ResourceIdentity>();
+        if (!needsContainment)
+        {
+            return Array.Empty<ResourceIdentity>();
+        }
+
         var chain = new List<ResourceIdentity>();
         var seen = new HashSet<ResourceIdentity>();
         ResourceHandle current = resource;
         while (true)
         {
             ResourceHandle? parent = await ancestry!.GetParentAsync(current, cancellationToken);
-            if (parent is null) return chain;
-            if (chain.Count == MaxAncestryDepth || !seen.Add(parent.Identity)) return null;
+            if (parent is null)
+            {
+                return chain;
+            }
+
+            if (chain.Count == MaxAncestryDepth || !seen.Add(parent.Identity))
+            {
+                return null;
+            }
+
             chain.Add(parent.Identity);
             current = parent;
         }

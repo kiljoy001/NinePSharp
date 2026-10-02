@@ -8,13 +8,6 @@ namespace NinePSharp.Messages;
 // size[4] Topen tag[2] fid[4] mode[1]
 public readonly struct Topen : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Topen;
-    public ushort Tag { get; }
-
-    public uint Fid { get; }
-    public byte Mode { get; }
-
     public Topen(ushort tag, uint fid, byte mode)
     {
         Tag = tag;
@@ -35,6 +28,16 @@ public readonly struct Topen : ISerializable
 
         Mode = data[offset];
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Topen;
+
+    public ushort Tag { get; }
+
+    public uint Fid { get; }
+
+    public byte Mode { get; }
 
     public void WriteTo(Span<byte> data)
     {

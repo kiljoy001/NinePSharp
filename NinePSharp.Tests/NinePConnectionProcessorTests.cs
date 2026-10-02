@@ -26,7 +26,11 @@ public class NinePConnectionProcessorTests
         var dispatcher = new Mock<INinePFSDispatcher>();
         int dispatched = 0;
         dispatcher.Setup(value => value.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), null))
-            .Returns(() => { dispatched++; return complete.Task; });
+            .Returns(() =>
+            {
+                dispatched++;
+                return complete.Task;
+            });
         var lifecycle = dispatcher.As<INinePSessionLifecycle>();
         lifecycle.Setup(value => value.CloseSessionAsync(It.IsAny<string>())).Returns(() =>
         {
@@ -61,8 +65,10 @@ public class NinePConnectionProcessorTests
             using var accepted = await listener.AcceptTcpClientAsync();
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             NetworkStream transport = accepted.GetStream();
-            Task<TransportSecurityResult> server = new DefaultNinePTransportSecurity().AuthenticateAsync(transport,
-                new EndpointConfig { Protocol = "tls", ServerCertificatePath = path }, timeout.Token);
+            Task<TransportSecurityResult> server = new DefaultNinePTransportSecurity().AuthenticateAsync(
+                transport,
+                new EndpointConfig { Protocol = "tls", ServerCertificatePath = path },
+                timeout.Token);
             using var ssl = new SslStream(client.GetStream(), false, (_, _, _, _) => true);
             Task handshake = ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = "localhost" }, timeout.Token);
             await Assert.ThrowsAsync<AuthenticationException>(() => server);
@@ -293,9 +299,8 @@ public class NinePConnectionProcessorTests
         await versionStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
         try
         {
-            Assert.NotSame(nextDispatched.Task, await Task.WhenAny(
-                nextDispatched.Task,
-                Task.Delay(100)));
+            Task first = await Task.WhenAny(nextDispatched.Task, Task.Delay(100));
+            Assert.NotSame(nextDispatched.Task, first);
         }
         finally
         {
@@ -535,7 +540,6 @@ public class NinePConnectionProcessorTests
         Assert.True(dispatcher.SessionClosed);
     }
 
-
     private static NinePConnectionProcessor CreateProcessor(
         Mock<INinePFSDispatcher> dispatcher,
         INinePTransportSecurity security)
@@ -629,25 +633,30 @@ public class NinePConnectionProcessorTests
 
     private sealed class ScriptedDuplexStream : Stream
     {
-        private readonly byte[] _input;
-        private readonly MemoryStream _written = new();
-        private int _position;
+        private readonly byte[] input;
+        private readonly MemoryStream written = new();
+        private int position;
 
         public ScriptedDuplexStream(byte[] input)
         {
-            _input = input;
+            this.input = input;
         }
 
-        public ReadOnlyMemory<byte> Written => _written.ToArray();
+        public ReadOnlyMemory<byte> Written => written.ToArray();
+
         public bool CancelPayload { get; init; }
+
         public override bool CanRead => true;
+
         public override bool CanSeek => false;
+
         public override bool CanWrite => true;
-        public override long Length => _input.Length;
+
+        public override long Length => input.Length;
 
         public override long Position
         {
-            get => _position;
+            get => position;
             set => throw new NotSupportedException();
         }
 
@@ -657,57 +666,61 @@ public class NinePConnectionProcessorTests
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            int available = Math.Max(0, _input.Length - _position);
+            int available = Math.Max(0, input.Length - position);
             int toCopy = Math.Min(count, available);
             if (toCopy == 0)
             {
                 return 0;
             }
 
-            Buffer.BlockCopy(_input, _position, buffer, offset, toCopy);
-            _position += toCopy;
+            Buffer.BlockCopy(input, position, buffer, offset, toCopy);
+            position += toCopy;
             return toCopy;
         }
 
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            if (CancelPayload && _position >= NinePConstants.HeaderSize)
+            if (CancelPayload && position >= NinePConstants.HeaderSize)
             {
                 throw new OperationCanceledException();
             }
 
-            int available = Math.Max(0, _input.Length - _position);
+            int available = Math.Max(0, input.Length - position);
             int toCopy = Math.Min(buffer.Length, available);
             if (toCopy == 0)
             {
                 return ValueTask.FromResult(0);
             }
 
-            _input.AsMemory(_position, toCopy).CopyTo(buffer);
-            _position += toCopy;
+            input.AsMemory(position, toCopy).CopyTo(buffer);
+            position += toCopy;
             return ValueTask.FromResult(toCopy);
         }
 
         public override void Write(byte[] buffer, int offset, int count)
         {
-            _written.Write(buffer, offset, count);
+            written.Write(buffer, offset, count);
         }
 
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            _written.Write(buffer.Span);
+            written.Write(buffer.Span);
             return ValueTask.CompletedTask;
         }
 
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
         public override void SetLength(long value) => throw new NotSupportedException();
     }
 
     private sealed class TrackingBufferPool : ArrayPool<byte>
     {
         internal int Rents { get; private set; }
+
         internal int Returns { get; private set; }
+
         internal bool Cleared { get; private set; }
+
         internal List<bool> ClearFlags { get; } = new();
 
         public override byte[] Rent(int minimumLength)

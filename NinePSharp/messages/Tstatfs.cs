@@ -1,18 +1,13 @@
-namespace NinePSharp.Messages;
-
 using System;
 using System.Buffers.Binary;
 using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Protocol;
 
+namespace NinePSharp.Messages;
+
 public readonly struct Tstatfs : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Tstatfs;
-    public ushort Tag { get; }
-    public uint Fid { get; }
-
     public Tstatfs(uint size, ushort tag, uint fid)
     {
         Size = size;
@@ -26,6 +21,14 @@ public readonly struct Tstatfs : ISerializable
         Tag = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(5, 2));
         Fid = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(NinePConstants.HeaderSize, 4));
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Tstatfs;
+
+    public ushort Tag { get; }
+
+    public uint Fid { get; }
 
     public void WriteTo(Span<byte> span)
     {

@@ -8,12 +8,6 @@ namespace NinePSharp.Messages;
 // size[4] Tflush tag[2] oldtag[2]
 public readonly struct Tflush : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Tflush;
-    public ushort Tag { get; }
-
-    public ushort OldTag { get; }
-
     public Tflush(ushort tag, ushort oldtag)
     {
         Tag = tag;
@@ -29,6 +23,14 @@ public readonly struct Tflush : ISerializable
         int offset = NinePConstants.HeaderSize;
         OldTag = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(offset, 2));
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Tflush;
+
+    public ushort Tag { get; }
+
+    public ushort OldTag { get; }
 
     public void WriteTo(Span<byte> data)
     {

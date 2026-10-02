@@ -9,6 +9,9 @@ internal sealed class SemaphoreLease : IDisposable
         this.semaphore = semaphore;
     }
 
+    public void Dispose()
+        => Interlocked.Exchange(ref semaphore, null)?.Release();
+
     internal static async ValueTask<SemaphoreLease> EnterAsync(
         SemaphoreSlim semaphore,
         CancellationToken cancellationToken)
@@ -16,7 +19,4 @@ internal sealed class SemaphoreLease : IDisposable
         await semaphore.WaitAsync(cancellationToken);
         return new SemaphoreLease(semaphore);
     }
-
-    public void Dispose()
-        => Interlocked.Exchange(ref semaphore, null)?.Release();
 }

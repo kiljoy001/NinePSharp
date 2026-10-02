@@ -50,7 +50,11 @@ public sealed class FileWStatSyscallTests
         int fd = await f.Calls.OpenAsync("/file", new(0));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => f.Calls.FWStatAsync(fd, update, before.Token).AsTask());
         using var during = new CancellationTokenSource();
-        f.Files.Resources.BeforeWalk = () => { during.Cancel(); return Task.CompletedTask; };
+        f.Files.Resources.BeforeWalk = () =>
+        {
+            during.Cancel();
+            return Task.CompletedTask;
+        };
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => f.Calls.WStatAsync("/file", update, during.Token).AsTask());
         await f.Files.Table.TerminateAsync(f.Files.Process.Id);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => f.Calls.WStatAsync("/", update, before.Token).AsTask());
@@ -150,7 +154,7 @@ public sealed class FileWStatSyscallTests
         mounts.Unmount(file);
         byte[] rename = Update(value => value with { Name = "new-name" });
         await Assert.ThrowsAsync<NamespaceFidException>(() => f.Calls.FWStatAsync(mountedFd, rename).AsTask());
-        Assert.Equal((uint)49, await f.Calls.FWStatAsync(mountedFd, Update(value => value)));
+        Assert.Equal(49U, await f.Calls.FWStatAsync(mountedFd, Update(value => value)));
 
         int ordinaryFd = await f.Calls.OpenAsync("/dir", new(0));
         mounts.Mount(other, file);
@@ -206,7 +210,12 @@ public sealed class FileWStatSyscallTests
         await using var f = new FileStatFixture();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        f.UpdateReply = async (_, bytes, _) => { entered.SetResult(); await resume.Task; return (uint)bytes.Length; };
+        f.UpdateReply = async (_, bytes, _) =>
+        {
+            entered.SetResult();
+            await resume.Task;
+            return (uint)bytes.Length;
+        };
         int fd = await f.Calls.OpenAsync("/file", new(0));
         ResourceHandle original = f.Files.Process.Descriptors.Snapshot().Single().Handle.Resource;
         Task<uint> pending = f.Calls.FWStatAsync(fd, Update(value => value)).AsTask();
@@ -228,23 +237,34 @@ public sealed class FileWStatSyscallTests
     private sealed class BlockingUpdates : IFileStatOperations
     {
         internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         internal TaskCompletionSource Resume { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         internal byte[] Observed { get; private set; } = Array.Empty<byte>();
 
         public ValueTask<ReadOnlyMemory<byte>> StatAsync(ResourceHandle resource, uint count, CancellationToken cancellationToken)
             => throw new NotSupportedException();
+
         public ValueTask<ReadOnlyMemory<byte>> StatAsync(ResourceOpenHandle handle, uint count, CancellationToken cancellationToken)
             => throw new NotSupportedException();
-        public async ValueTask<uint> WStatAsync(ResourceHandle resource, ReadOnlyMemory<byte> stat,
-            ResourceOperationContext context, CancellationToken cancellationToken)
+
+        public async ValueTask<uint> WStatAsync(
+            ResourceHandle resource,
+            ReadOnlyMemory<byte> stat,
+            ResourceOperationContext context,
+            CancellationToken cancellationToken)
         {
             Entered.SetResult();
             await Resume.Task;
             Observed = stat.ToArray();
             return (uint)stat.Length;
         }
-        public ValueTask<uint> WStatAsync(ResourceOpenHandle handle, ReadOnlyMemory<byte> stat,
-            ResourceOperationContext context, CancellationToken cancellationToken)
+
+        public ValueTask<uint> WStatAsync(
+            ResourceOpenHandle handle,
+            ReadOnlyMemory<byte> stat,
+            ResourceOperationContext context,
+            CancellationToken cancellationToken)
             => throw new NotSupportedException();
     }
 }

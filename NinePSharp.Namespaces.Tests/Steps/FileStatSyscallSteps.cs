@@ -10,11 +10,11 @@ namespace NinePSharp.Namespaces.Tests.Steps;
 public sealed class FileStatSyscallSteps
 {
     private readonly FileStatFixture f = new();
+    private readonly List<ReadOnlyMemory<byte>> replies = new();
     private ResourceHandle selected = null!;
     private ResourceHandle original = null!;
     private int descriptor;
     private ReadOnlyMemory<byte> result;
-    private readonly List<ReadOnlyMemory<byte>> replies = new();
 
     [Given("a stat process with a new resource mounted on its root")]
     public void RootMount()
@@ -30,7 +30,7 @@ public sealed class FileStatSyscallSteps
     public void RootResult()
     {
         Assert.Equal(selected, Assert.Single(f.Requests).Resource);
-        Assert.Equal("", FileStatSyscallTests.Name(result));
+        Assert.Equal(string.Empty, FileStatSyscallTests.Name(result));
     }
 
     [Then("stat allocates no descriptor")]
@@ -69,8 +69,10 @@ public sealed class FileStatSyscallSteps
     [Given("a stat descriptor with provider size 80 and a visible name twelve bytes longer")]
     public void LongAlias()
     {
-        descriptor = f.Files.Process.Descriptors.Install(new(f.Files.Process.Root.Current, "manual", 0, 0),
-            () => ValueTask.CompletedTask, visibleName: "abcdefghijklmnop");
+        descriptor = f.Files.Process.Descriptors.Install(
+            new(f.Files.Process.Root.Current, "manual", 0, 0),
+            () => ValueTask.CompletedTask,
+            visibleName: "abcdefghijklmnop");
         f.Reply = (resource, count) =>
         {
             byte[] bytes = f.Record(resource, "name");
@@ -81,7 +83,10 @@ public sealed class FileStatSyscallSteps
     [When("it requests stat capacities 2 then 80 then 92")]
     public async Task Sizes()
     {
-        foreach (uint count in new uint[] { 2, 80, 92 }) replies.Add(await f.Calls.FStatAsync(descriptor, count));
+        foreach (uint count in new uint[] { 2, 80, 92 })
+        {
+            replies.Add(await f.Calls.FStatAsync(descriptor, count));
+        }
     }
 
     [Then("stat returns lengths 2 then 2 then 92 with size hints 78 then 90 then 90")]

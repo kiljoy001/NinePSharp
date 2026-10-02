@@ -2,8 +2,8 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using NinePSharp.Constants;
-using NinePSharp.Messages;
 using NinePSharp.Interfaces;
+using NinePSharp.Messages;
 using NinePSharp.Parser;
 using NinePSharp.Protocol;
 using NinePSharp.Server;
@@ -18,7 +18,6 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
     private readonly IDistributedNamespaceAttachResolver attachResolver;
     private readonly uint maximumMessageSize;
 
-    /// <summary>Initializes a distributed namespace dispatcher.</summary>
     public DistributedNamespaceDispatcher(
         DistributedNamespaceOperations operations,
         IDistributedNamespaceAttachResolver attachResolver,
@@ -80,51 +79,6 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         return await inFlight.Completion;
     }
 
-    private async Task<object> DispatchTrackedAsync(
-        string sessionId,
-        SessionHolder holder,
-        NinePMessage message,
-        NinePDialect dialect,
-        X509Certificate2? certificate,
-        ushort tag,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            object response = await DispatchCoreAsync(
-                sessionId,
-                holder,
-                LimitReadCount(message, holder.MessageSize),
-                dialect,
-                certificate,
-                cancellationToken);
-            return response is ISerializable serializable && serializable.Size > holder.MessageSize
-                ? Error(tag, dialect, new IOException("response exceeds negotiated msize"))
-                : response;
-        }
-        catch (Exception exception)
-        {
-            return Error(tag, dialect, exception);
-        }
-        finally
-        {
-            holder.InFlight.TryRemove(tag, out _);
-        }
-    }
-
-    private static NinePMessage LimitReadCount(NinePMessage message, uint messageSize)
-    {
-        uint count = messageSize - NinePConstants.HeaderSize - 4;
-        return message switch
-        {
-            NinePMessage.MsgTread read => NinePMessage.NewMsgTread(
-                new Tread(read.Item.Tag, read.Item.Fid, read.Item.Offset, Math.Min(read.Item.Count, count))),
-            NinePMessage.MsgTreaddir read => NinePMessage.NewMsgTreaddir(
-                new Treaddir(read.Item.Size, read.Item.Tag, read.Item.Fid, read.Item.Offset, Math.Min(read.Item.Count, count))),
-            _ => message,
-        };
-    }
-
     /// <inheritdoc/>
     public async Task CloseSessionAsync(string sessionId)
     {
@@ -144,19 +98,20 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         {
             await holder.Session.DisposeAsync();
         }
-
     }
 
-    private Task<object> DispatchCoreAsync(
-        string sessionId,
-        SessionHolder holder,
-        NinePMessage message,
-        NinePDialect dialect,
-        X509Certificate2? certificate,
-        CancellationToken cancellationToken)
-        => message is NinePMessage.MsgTattach attach
-            ? AttachAsync(sessionId, holder, attach.Item, dialect, certificate, cancellationToken)
-            : DispatchFidRequestAsync(RequireSession(holder), message, dialect, cancellationToken);
+    private static NinePMessage LimitReadCount(NinePMessage message, uint messageSize)
+    {
+        uint count = messageSize - NinePConstants.HeaderSize - 4;
+        return message switch
+        {
+            NinePMessage.MsgTread read => NinePMessage.NewMsgTread(
+                new Tread(read.Item.Tag, read.Item.Fid, read.Item.Offset, Math.Min(read.Item.Count, count))),
+            NinePMessage.MsgTreaddir read => NinePMessage.NewMsgTreaddir(
+                new Treaddir(read.Item.Size, read.Item.Tag, read.Item.Fid, read.Item.Offset, Math.Min(read.Item.Count, count))),
+            _ => message,
+        };
+    }
 
     private static Task<object> DispatchFidRequestAsync(
         NamespaceSession session,
@@ -265,12 +220,10 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         NamespaceSession session,
         Tcreate request,
         CancellationToken cancellationToken)
-        => CreateResponse(request, await session.CreateAsync(
-            request.Fid,
-            request.Name,
-            request.Perm,
-            request.Mode,
-            cancellationToken));
+    {
+        ResourceOpenHandle created = await session.CreateAsync(request.Fid, request.Name, request.Perm, request.Mode, cancellationToken);
+        return CreateResponse(request, created);
+    }
 
     private static Rcreate CreateResponse(Tcreate request, ResourceOpenHandle result)
         => new(request.Tag, result.Resource.Qid, result.IoUnit);
@@ -343,43 +296,6 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
     {
         ResourceStat stat = await session.StatAsync(request.Fid, cancellationToken);
         return LinuxProtocol.ToGetAttr(request, stat);
-    }
-
-    private async Task<object> AttachAsync(
-        string sessionId,
-        SessionHolder holder,
-        Tattach request,
-        NinePDialect dialect,
-        X509Certificate2? certificate,
-        CancellationToken cancellationToken)
-    {
-        using SemaphoreLease initialization = await SemaphoreLease.EnterAsync(
-            holder.Initialization,
-            cancellationToken);
-        DistributedNamespaceAttach descriptor = await attachResolver.ResolveAsync(
-            sessionId,
-            request,
-            dialect,
-            certificate,
-            cancellationToken);
-        if (holder.Session is null)
-        {
-            holder.Descriptor = descriptor;
-            holder.Session = new NamespaceSession(
-                holder.OperationSessionId,
-                descriptor.ProcessId,
-                descriptor.User,
-                new DistributedNamespaceDataPlane(
-                    descriptor.ProcessGroupId,
-                    descriptor.Resources is null ? operations : operations.WithResources(descriptor.Resources)));
-        }
-        else if (!SameNamespace(holder.Descriptor!, descriptor))
-        {
-            throw new InvalidOperationException("A connection cannot attach to different process namespaces.");
-        }
-
-        ResourceHandle root = await holder.Session.AttachAsync(request.Fid, descriptor.Root, cancellationToken);
-        return new Rattach(request.Tag, root.Qid);
     }
 
     private static async Task<object> FlushAsync(SessionHolder holder, Tflush request)
@@ -636,10 +552,90 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
     private static string NegotiateVersion(string requested)
         => requested switch
         {
-            NinePConstants.VersionString_9pl => NinePConstants.VersionString_9pl,
-            NinePConstants.VersionString_9pu => NinePConstants.VersionString_9pu,
-            _ => requested.StartsWith("9P", StringComparison.Ordinal) ? NinePConstants.VersionString_9p : "unknown",
+            NinePConstants.VersionString9pl => NinePConstants.VersionString9pl,
+            NinePConstants.VersionString9pu => NinePConstants.VersionString9pu,
+            _ => requested.StartsWith("9P", StringComparison.Ordinal) ? NinePConstants.VersionString9p : "unknown",
         };
+
+    private async Task<object> DispatchTrackedAsync(
+        string sessionId,
+        SessionHolder holder,
+        NinePMessage message,
+        NinePDialect dialect,
+        X509Certificate2? certificate,
+        ushort tag,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            object response = await DispatchCoreAsync(
+                sessionId,
+                holder,
+                LimitReadCount(message, holder.MessageSize),
+                dialect,
+                certificate,
+                cancellationToken);
+            return response is ISerializable serializable && serializable.Size > holder.MessageSize
+                ? Error(tag, dialect, new IOException("response exceeds negotiated msize"))
+                : response;
+        }
+        catch (Exception exception)
+        {
+            return Error(tag, dialect, exception);
+        }
+        finally
+        {
+            holder.InFlight.TryRemove(tag, out _);
+        }
+    }
+
+    private Task<object> DispatchCoreAsync(
+        string sessionId,
+        SessionHolder holder,
+        NinePMessage message,
+        NinePDialect dialect,
+        X509Certificate2? certificate,
+        CancellationToken cancellationToken)
+        => message is NinePMessage.MsgTattach attach
+            ? AttachAsync(sessionId, holder, attach.Item, dialect, certificate, cancellationToken)
+            : DispatchFidRequestAsync(RequireSession(holder), message, dialect, cancellationToken);
+
+    private async Task<object> AttachAsync(
+        string sessionId,
+        SessionHolder holder,
+        Tattach request,
+        NinePDialect dialect,
+        X509Certificate2? certificate,
+        CancellationToken cancellationToken)
+    {
+        using SemaphoreLease initialization = await SemaphoreLease.EnterAsync(
+            holder.Initialization,
+            cancellationToken);
+        DistributedNamespaceAttach descriptor = await attachResolver.ResolveAsync(
+            sessionId,
+            request,
+            dialect,
+            certificate,
+            cancellationToken);
+        if (holder.Session is null)
+        {
+            holder.Descriptor = descriptor;
+            holder.Session = new NamespaceSession(
+                holder.OperationSessionId,
+                descriptor.ProcessId,
+                descriptor.User,
+                new DistributedNamespaceDataPlane(
+                    descriptor.ProcessGroupId,
+                    descriptor.Resources is null ? operations : operations.WithResources(descriptor.Resources)));
+        }
+        else if (!SameNamespace(holder.Descriptor!, descriptor))
+        {
+            throw new InvalidOperationException("A connection cannot attach to different process namespaces.");
+        }
+
+        ResourceHandle root = await holder.Session.AttachAsync(request.Fid, descriptor.Root, cancellationToken);
+        return new Rattach(request.Tag, root.Qid);
+    }
 
     private sealed class SessionHolder
     {

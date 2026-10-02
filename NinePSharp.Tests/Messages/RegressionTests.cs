@@ -47,7 +47,7 @@ public class RegressionTests : TestBase
 
     /// <summary>
     /// Regression test for Twstat framing:
-    /// size[4] Twstat tag[2] fid[4] nstat[2] stat[nstat]
+    /// size[4] Twstat tag[2] fid[4] nstat[2] stat[nstat].
     /// </summary>
     [Fact]
     public void Test_Twstat_Framing_Regression()

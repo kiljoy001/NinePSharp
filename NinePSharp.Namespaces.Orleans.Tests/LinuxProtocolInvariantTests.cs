@@ -42,7 +42,7 @@ public sealed class LinuxProtocolInvariantTests
 
         Rgetattr result = LinuxProtocol.ToGetAttr(request, stat);
 
-        ulong expected = length / 512 + (length % 512 == 0 ? 0UL : 1UL);
+        ulong expected = (length / 512) + (length % 512 == 0 ? 0UL : 1UL);
         Assert.Equal(expected, result.Blocks);
     }
 
@@ -85,7 +85,8 @@ public sealed class LinuxProtocolInvariantTests
 
         Assert.Equal(firstLength, firstPage.Length);
         Assert.Equal("second".Length, BinaryPrimitives.ReadUInt16LittleEndian(secondPage.Span.Slice(22, 2)));
-        Assert.Equal((ulong)(firstPage.Length + secondPage.Length),
+        Assert.Equal(
+            (ulong)(firstPage.Length + secondPage.Length),
             BinaryPrimitives.ReadUInt64LittleEndian(secondPage.Span.Slice(13, 8)));
     }
 

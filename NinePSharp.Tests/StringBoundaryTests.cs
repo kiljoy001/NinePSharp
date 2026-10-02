@@ -1,23 +1,22 @@
-using NinePSharp.Constants;
 using System;
 using System.Text;
 using FsCheck;
 using FsCheck.Xunit;
+using NinePSharp.Constants;
+using NinePSharp.Generators;
 using NinePSharp.Messages;
 using NinePSharp.Parser;
-using NinePSharp.Generators;
 using Xunit;
 
 namespace NinePSharp.Tests;
 
 /// <summary>
 /// Tests to verify null vs empty string boundary contract
-/// These tests kill mutants that survive when null/empty string handling is inconsistent
+/// These tests kill mutants that survive when null/empty string handling is inconsistent.
 /// </summary>
 public class StringBoundaryTests
 {
     // ─── Null vs Empty String Contract ──────────────────────────────────
-
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -26,9 +25,24 @@ public class StringBoundaryTests
         // Contract: NinePSharp treats null and empty string as equivalent (0-length string in 9P)
         var qid = new Qid((QidType)0, 0, 0);
 
-        var stat = new Stat(0, 0, 0, qid, 0, 0, 0, 0,
-                           testString, testString, testString, testString,
-                           NinePDialect.NineP2000, null, null, null, null);
+        var stat = new Stat(
+            0,
+            0,
+            0,
+            qid,
+            0,
+            0,
+            0,
+            0,
+            testString,
+            testString,
+            testString,
+            testString,
+            NinePDialect.NineP2000,
+            null,
+            null,
+            null,
+            null);
 
         var buffer = new byte[stat.Size];
         int offset = 0;
@@ -39,10 +53,10 @@ public class StringBoundaryTests
         var parsed = new Stat(buffer, ref readOffset, NinePDialect.NineP2000);
 
         // After roundtrip, both null and "" should become ""
-        Assert.Equal("", parsed.Name);
-        Assert.Equal("", parsed.Uid);
-        Assert.Equal("", parsed.Gid);
-        Assert.Equal("", parsed.Muid);
+        Assert.Equal(string.Empty, parsed.Name);
+        Assert.Equal(string.Empty, parsed.Uid);
+        Assert.Equal(string.Empty, parsed.Gid);
+        Assert.Equal(string.Empty, parsed.Muid);
     }
 
     [Theory]
@@ -58,8 +72,8 @@ public class StringBoundaryTests
         var parsed = new Tattach(buffer, false);
 
         // After roundtrip, both null and "" should become ""
-        Assert.Equal("", parsed.Uname);
-        Assert.Equal("", parsed.Aname);
+        Assert.Equal(string.Empty, parsed.Uname);
+        Assert.Equal(string.Empty, parsed.Aname);
     }
 
     [Theory]
@@ -75,8 +89,8 @@ public class StringBoundaryTests
         var parsed = new Tauth(buffer, false);
 
         // After roundtrip, both null and "" should become ""
-        Assert.Equal("", parsed.Uname);
-        Assert.Equal("", parsed.Aname);
+        Assert.Equal(string.Empty, parsed.Uname);
+        Assert.Equal(string.Empty, parsed.Aname);
     }
 
     [Fact]
@@ -85,7 +99,7 @@ public class StringBoundaryTests
         // Verify that null strings count as 0-length (2 bytes for length prefix, 0 bytes for content)
         var qid = new Qid((QidType)0, 0, 0);
         var statNull = new Stat(0, 0, 0, qid, 0, 0, 0, 0, null, null, null, null, NinePDialect.NineP2000, null, null, null, null);
-        var statEmpty = new Stat(0, 0, 0, qid, 0, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000, null, null, null, null);
+        var statEmpty = new Stat(0, 0, 0, qid, 0, 0, 0, 0, string.Empty, string.Empty, string.Empty, string.Empty, NinePDialect.NineP2000, null, null, null, null);
 
         // Both should have identical size
         Assert.Equal(statEmpty.Size, statNull.Size);
@@ -96,7 +110,7 @@ public class StringBoundaryTests
     public void Tattach_Null_String_Size_Calculation()
     {
         var msgNull = new Tattach(1, 100, 0xFFFFFFFF, null, null);
-        var msgEmpty = new Tattach(1, 100, 0xFFFFFFFF, "", "");
+        var msgEmpty = new Tattach(1, 100, 0xFFFFFFFF, string.Empty, string.Empty);
 
         // Both should have identical size
         Assert.Equal(msgEmpty.Size, msgNull.Size);
@@ -104,14 +118,13 @@ public class StringBoundaryTests
     }
 
     // ─── Whitespace vs Empty ─────────────────────────────────────────────
-
     [Fact]
     public void Stat_Whitespace_String_Not_Equivalent_To_Empty()
     {
         // Whitespace is NOT the same as empty
         var qid = new Qid((QidType)0, 0, 0);
         var statSpace = new Stat(0, 0, 0, qid, 0, 0, 0, 0, " ", " ", " ", " ", NinePDialect.NineP2000, null, null, null, null);
-        var statEmpty = new Stat(0, 0, 0, qid, 0, 0, 0, 0, "", "", "", "", NinePDialect.NineP2000, null, null, null, null);
+        var statEmpty = new Stat(0, 0, 0, qid, 0, 0, 0, 0, string.Empty, string.Empty, string.Empty, string.Empty, NinePDialect.NineP2000, null, null, null, null);
 
         // Size should differ (1 byte per space)
         Assert.NotEqual(statEmpty.Size, statSpace.Size);
@@ -139,12 +152,11 @@ public class StringBoundaryTests
     }
 
     // ─── UTF8 Encoding Edge Cases ───────────────────────────────────────
-
     [Theory]
-    [InlineData("café")]           // 2-byte UTF8 chars
-    [InlineData("日本語")]         // 3-byte UTF8 chars
-    [InlineData("𝕳𝖊𝖑𝖑𝖔")]          // 4-byte UTF8 chars
-    [InlineData("💩")]             // Emoji (4-byte UTF8)
+    [InlineData("café")] // 2-byte UTF8 chars
+    [InlineData("日本語")] // 3-byte UTF8 chars
+    [InlineData("𝕳𝖊𝖑𝖑𝖔")] // 4-byte UTF8 chars
+    [InlineData("💩")] // Emoji (4-byte UTF8)
     public void Stat_Unicode_Strings_Roundtrip_With_Correct_Byte_Count(string unicode)
     {
         var qid = new Qid((QidType)0, 0, 0);
@@ -185,7 +197,6 @@ public class StringBoundaryTests
     }
 
     // ─── Property-Based String Boundary Tests ───────────────────────────
-
     [Property(Arbitrary = new[] { typeof(NinePSharp.Generators.Generators.NinePArb) }, MaxTest = 200)]
     public void Stat_Null_Vs_Empty_Roundtrip(Stat stat)
     {

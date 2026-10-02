@@ -115,7 +115,9 @@ public sealed class WStatRecoveryStoreTests
         Assert.Throws<ArgumentException>(() => new WStatRecoveryJournalGrain(persistent.Object, " "));
         await Assert.ThrowsAsync<ArgumentNullException>(() => grain.BeginAsync(null!));
         await Assert.ThrowsAsync<InvalidOperationException>(() => grain.BeginAsync(
-            WStatRecoveryRequest.ForResource(Resource, new byte[] { 1 },
+            WStatRecoveryRequest.ForResource(
+                Resource,
+                new byte[] { 1 },
                 new ResourceOperationContext(new("other", 1), 1, "glenda")).ToModel()));
 
         WStatRecoveryRequest first = Request(1);

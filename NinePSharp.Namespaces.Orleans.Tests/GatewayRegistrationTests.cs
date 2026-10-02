@@ -21,7 +21,8 @@ public sealed class GatewayRegistrationTests
         var factory = new Mock<IGrainFactory>(MockBehavior.Strict);
         var grain = new Mock<IMountableResourceGrain>().Object;
         factory.Setup(value => value.GetGrain<IMountableResourceGrain>(key, null)).Returns(grain);
-        var resolver = new RegisteredMountableResourceResolver(factory.Object,
+        var resolver = new RegisteredMountableResourceResolver(
+            factory.Object,
             new[] { ResourceProviderRegistration.For<IMountableResourceGrain>("resource") });
         return ReferenceEquals(grain, resolver.Resolve(new ResourceIdentityModel("resource", key, 1)));
     }
@@ -37,7 +38,8 @@ public sealed class GatewayRegistrationTests
         Assert.Throws<FileNotFoundException>(() => resolver.Resolve(new("unknown", "device", 1)));
         factory.VerifyNoOtherCalls();
         Assert.Throws<ArgumentException>(() => new RegisteredMountableResourceResolver(factory.Object, new[] { registration, registration }));
-        _ = new RegisteredMountableResourceResolver(factory.Object,
+        _ = new RegisteredMountableResourceResolver(
+            factory.Object,
             new[] { registration, ResourceProviderRegistration.For<IMountableResourceGrain>("files") });
     }
 
@@ -48,7 +50,8 @@ public sealed class GatewayRegistrationTests
     public void EmptyProviderAndDeviceAreRejected(string? value)
     {
         Assert.ThrowsAny<ArgumentException>(() => ResourceProviderRegistration.For<IMountableResourceGrain>(value!));
-        var resolver = new RegisteredMountableResourceResolver(new Mock<IGrainFactory>().Object,
+        var resolver = new RegisteredMountableResourceResolver(
+            new Mock<IGrainFactory>().Object,
             new[] { ResourceProviderRegistration.For<IMountableResourceGrain>("test") });
         Assert.ThrowsAny<ArgumentException>(() => resolver.Resolve(new("test", value!, 1)));
     }

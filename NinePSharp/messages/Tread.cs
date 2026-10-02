@@ -8,14 +8,6 @@ namespace NinePSharp.Messages;
 // size[4] Tread tag[2] fid[4] offset[8] count[4]
 public readonly struct Tread : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Tread;
-    public ushort Tag { get; }
-
-    public uint Fid { get; }
-    public ulong Offset { get; }
-    public uint Count { get; }
-
     public Tread(ushort tag, uint fid, ulong offset, uint count)
     {
         Tag = tag;
@@ -40,6 +32,18 @@ public readonly struct Tread : ISerializable
 
         Count = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Tread;
+
+    public ushort Tag { get; }
+
+    public uint Fid { get; }
+
+    public ulong Offset { get; }
+
+    public uint Count { get; }
 
     public void WriteTo(Span<byte> data)
     {

@@ -8,20 +8,13 @@ namespace NinePSharp.Messages;
 // size[4] Twstat tag[2] fid[4] nstat[2] stat[nstat]
 public readonly struct Twstat : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Twstat;
-    public ushort Tag { get; }
-
-    public uint Fid { get; }
-    public ushort NStat { get; }
-    public Stat Stat { get; }
-
     public Twstat(ushort tag, uint fid, Stat stat)
     {
         Tag = tag;
         Fid = fid;
         Stat = stat;
         NStat = Stat.Size;
+
         // Standard 9P2000 framing: Header(7) + fid[4] + nstat[2] + stat[nstat]
         Size = (uint)(NinePConstants.HeaderSize + 4 + 2 + NStat);
     }
@@ -41,6 +34,18 @@ public readonly struct Twstat : ISerializable
         int statOffset = 0;
         Stat = new Stat(data.Slice(offset, NStat), ref statOffset);
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Twstat;
+
+    public ushort Tag { get; }
+
+    public uint Fid { get; }
+
+    public ushort NStat { get; }
+
+    public Stat Stat { get; }
 
     public void WriteTo(Span<byte> data)
     {

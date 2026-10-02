@@ -8,20 +8,13 @@ namespace NinePSharp.Messages;
 // size[4] Twalk tag[2] fid[4] newfid[4] nwname[2] nwname*(wname[s])
 public readonly struct Twalk : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Twalk;
-    public ushort Tag { get; }
-
-    public uint Fid { get; }
-    public uint NewFid { get; }
-    public string[] Wname { get; }
-
     public Twalk(ushort tag, uint fid, uint newFid, string[] wname)
     {
         Tag = tag;
         Fid = fid;
         NewFid = newFid;
         Wname = wname;
+
         // Size will be calculated during write if needed,
         // but let's set a minimal valid size for now
         Size = (uint)(NinePConstants.HeaderSize + 4 + 4 + 2 + (wname?.Sum(s => 2 + s.Length) ?? 0));
@@ -49,6 +42,18 @@ public readonly struct Twalk : ISerializable
             Wname[i] = data.ReadString(ref offset);
         }
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Twalk;
+
+    public ushort Tag { get; }
+
+    public uint Fid { get; }
+
+    public uint NewFid { get; }
+
+    public string[] Wname { get; }
 
     public void WriteTo(Span<byte> data)
     {

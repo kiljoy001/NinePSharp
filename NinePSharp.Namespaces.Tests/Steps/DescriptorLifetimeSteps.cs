@@ -54,13 +54,23 @@ public sealed class DescriptorLifetimeSteps
     [When("all descriptor owners terminate")]
     public async Task AllExit()
     {
-        foreach (var process in table.Snapshot()) await table.TerminateAsync(process.Id);
+        foreach (var process in table.Snapshot())
+        {
+            await table.TerminateAsync(process.Id);
+        }
     }
 
     [AfterScenario]
     public async Task Cleanup()
     {
-        if (table is not null) await AllExit();
-        if (lease is not null) await lease.DisposeAsync();
+        if (table is not null)
+        {
+            await AllExit();
+        }
+
+        if (lease is not null)
+        {
+            await lease.DisposeAsync();
+        }
     }
 }

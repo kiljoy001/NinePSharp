@@ -40,8 +40,7 @@ public class Program
 
         var processor = new NinePConnectionProcessor(
             logger,
-            dispatcher
-        );
+            dispatcher);
 
         var port = args.Length > 0 ? int.Parse(args[0]) : 5640;
         var listener = new TcpListener(IPAddress.Any, port);
@@ -62,6 +61,7 @@ public class Program
                         var session = new NinePConnectionProcessor.ClientSession();
                         await processor.ProcessStreamAsync(stream, client.Client.RemoteEndPoint, session, CancellationToken.None);
                     }
+
                     logger.LogInformation("Client disconnected.");
                 }
                 catch (Exception ex)
@@ -71,12 +71,4 @@ public class Program
             });
         }
     }
-}
-
-class SimpleDispatcher : INinePFSDispatcher
-{
-    private readonly INinePFSDispatcher _engine;
-    public SimpleDispatcher(INinePFSDispatcher engine) => _engine = engine;
-    public Task<object> DispatchAsync(string sessionId, NinePSharp.Parser.NinePMessage message, NinePSharp.Constants.NinePDialect dialect, X509Certificate2? certificate = null)
-        => _engine.DispatchAsync(sessionId, message, dialect, certificate);
 }

@@ -8,13 +8,6 @@ namespace NinePSharp.Messages;
 // size[4] Rcreate tag[2] qid[13] iounit[4]
 public readonly struct Rcreate : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Rcreate;
-    public ushort Tag { get; }
-
-    public Qid Qid { get; }
-    public uint Iounit { get; }
-
     public Rcreate(ushort tag, Qid qid, uint iounit)
     {
         Tag = tag;
@@ -33,6 +26,16 @@ public readonly struct Rcreate : ISerializable
         Qid = data.ReadQid(ref offset);
         Iounit = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Rcreate;
+
+    public ushort Tag { get; }
+
+    public Qid Qid { get; }
+
+    public uint Iounit { get; }
 
     public void WriteTo(Span<byte> data)
     {

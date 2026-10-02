@@ -9,16 +9,6 @@ namespace NinePSharp.Messages;
 // size[4] Tattach tag[2] fid[4] afid[4] uname[s] aname[s]
 public readonly struct Tattach : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Tattach;
-    public ushort Tag { get; }
-
-    public uint Fid { get; }
-    public uint Afid { get; }
-    public string Uname { get; }
-    public string Aname { get; }
-    public uint? NUname { get; } // 9P2000.u extension
-
     public Tattach(ushort tag, uint fid, uint afid, string? uname, string? aname)
         : this(tag, fid, afid, uname, aname, null)
     {
@@ -59,6 +49,22 @@ public readonly struct Tattach : ISerializable
             NUname = null;
         }
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Tattach;
+
+    public ushort Tag { get; }
+
+    public uint Fid { get; }
+
+    public uint Afid { get; }
+
+    public string Uname { get; }
+
+    public string Aname { get; }
+
+    public uint? NUname { get; } // 9P2000.u extension
 
     public void WriteTo(Span<byte> data) => WriteTo(data, NUname.HasValue);
 

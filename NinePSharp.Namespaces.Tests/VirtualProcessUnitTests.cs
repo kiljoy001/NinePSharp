@@ -16,6 +16,7 @@ public sealed class VirtualProcessUnitTests
         Assert.Throws<ArgumentNullException>(() => process.ReplaceProcessGroup(null!));
         Assert.Equal(new[] { process.Id }, table.Snapshot().Select(item => item.Id));
     }
+
     [Fact]
     public void ProcessAndGroupRejectInvalidConstruction()
     {

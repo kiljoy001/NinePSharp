@@ -13,8 +13,14 @@ public sealed class DirectoryStreamBoundaryTests
         await using var f = new FileSyscallFixture();
         var handle = new ResourceOpenHandle(f.Process.Root.Current, "manual", 0, 0);
         int calls = 0;
-        int fd = f.Process.Descriptors.Install(handle, () => ValueTask.CompletedTask,
-            readDirectoryAsync: _ => { calls++; return ValueTask.FromResult<IReadOnlyList<ResourceStat>>(Array.Empty<ResourceStat>()); });
+        int fd = f.Process.Descriptors.Install(
+            handle,
+            () => ValueTask.CompletedTask,
+            readDirectoryAsync: _ =>
+            {
+                calls++;
+                return ValueTask.FromResult<IReadOnlyList<ResourceStat>>(Array.Empty<ResourceStat>());
+            });
         Assert.Empty((await f.Calls.ReadAsync(fd, 100)).ToArray());
         Assert.Equal(1, calls);
     }
@@ -74,7 +80,7 @@ public sealed class DirectoryStreamBoundaryTests
         await using var f = new StreamingDirectoryFixture();
         f.Records[f.Root.Identity] = new[] { f.Record("first", 64) };
         f.ReplaceRecord(100, f.Directory("replacement"));
-        f.StatOverride = (_, _) => ValueTask.FromResult<ReadOnlyMemory<byte>>(f.Record("", replacementSize - 5));
+        f.StatOverride = (_, _) => ValueTask.FromResult<ReadOnlyMemory<byte>>(f.Record(string.Empty, replacementSize - 5));
         int fd = await f.Calls.OpenAsync("/", new(0));
         var bytes = await f.Calls.ReadAsync(fd, 70000);
         Assert.Equal(accepted ? replacementSize : 64, bytes.Length);
@@ -103,6 +109,7 @@ public sealed class DirectoryStreamBoundaryTests
         int fd = await f.Calls.OpenAsync("/", new(0));
         await f.Calls.ReadAsync(fd, 120);
         var lease = f.Files.Process.Descriptors.Acquire(fd);
+
         // Inspect retained allocation ownership, not the contents or cursor algorithm.
         var rock = (List<byte[]>)typeof(ProviderDirectoryCursor).GetField("rock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(lease.Directory)!;
         Assert.Single(rock);

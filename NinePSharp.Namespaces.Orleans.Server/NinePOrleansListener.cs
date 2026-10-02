@@ -9,16 +9,6 @@ using NinePSharp.Server.Configuration.Models;
 
 namespace NinePSharp.Namespaces.Orleans.Server;
 
-/// <summary>Endpoint and admission settings for a hosted 9P listener.</summary>
-public sealed class NinePOrleansListenerOptions
-{
-    /// <summary>Gets or sets the TCP or mutually authenticated TLS endpoint.</summary>
-    public EndpointConfig Endpoint { get; set; } = new() { Address = "127.0.0.1", Port = 5640, Protocol = "tcp" };
-
-    /// <summary>Gets or sets the maximum number of concurrently connected clients.</summary>
-    public int MaxConnections { get; set; } = 256;
-}
-
 /// <summary>Hosts the distributed dispatcher with the shared 9P stream processor.</summary>
 public sealed class NinePOrleansListener : BackgroundService
 {
@@ -29,7 +19,7 @@ public sealed class NinePOrleansListener : BackgroundService
     private readonly int maxConnections;
     private readonly TcpListener listener;
 
-    /// <summary>Creates a listener; no socket is opened until the host starts.</summary>
+    /// <summary>Initializes a new instance of the <see cref="NinePOrleansListener"/> class. No socket is opened until the host starts.</summary>
     public NinePOrleansListener(
         DistributedNamespaceDispatcher dispatcher,
         IOptions<NinePOrleansListenerOptions> options,
@@ -80,6 +70,12 @@ public sealed class NinePOrleansListener : BackgroundService
         return base.StartAsync(cancellationToken);
     }
 
+    internal static TcpClient ConfigureAcceptedClient(TcpClient client)
+    {
+        client.NoDelay = true;
+        return client;
+    }
+
     /// <inheritdoc/>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -110,12 +106,6 @@ public sealed class NinePOrleansListener : BackgroundService
             KeyValuePair<TcpClient, Task>[] active = connections.ToArray();
             await Task.WhenAll(active.Select(static connection => connection.Value));
         }
-    }
-
-    internal static TcpClient ConfigureAcceptedClient(TcpClient client)
-    {
-        client.NoDelay = true;
-        return client;
     }
 
     private async Task RemoveCompletedAsync(TcpClient client, Task processing)

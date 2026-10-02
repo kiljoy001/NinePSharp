@@ -7,8 +7,11 @@ namespace NinePSharp.Server.Interfaces;
 public interface IProtocolBackend
 {
     string Name { get; }
+
     string MountPath { get; }
+
     Task InitializeAsync(IConfiguration configuration);
+
     INinePFileSystem GetFileSystem(X509Certificate2? certificate = null);
 }
 

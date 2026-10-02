@@ -8,12 +8,6 @@ namespace NinePSharp.Messages;
 // size[4] Tclunk tag[2] fid[4]
 public readonly struct Tclunk : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Tclunk;
-    public ushort Tag { get; }
-
-    public uint Fid { get; }
-
     public Tclunk(ushort tag, uint fid)
     {
         Tag = tag;
@@ -29,6 +23,14 @@ public readonly struct Tclunk : ISerializable
         int offset = NinePConstants.HeaderSize;
         Fid = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Tclunk;
+
+    public ushort Tag { get; }
+
+    public uint Fid { get; }
 
     public void WriteTo(Span<byte> data)
     {

@@ -20,7 +20,11 @@ public sealed class Plan9FileSyscallsTests
         int contexts = 0;
         var calls = new Plan9FileSyscalls(f.Process, f.Plane, () => ++contexts == 2 ? throw new IOException("identity unavailable") : f.Context());
         int opens = 0;
-        f.Plane.AfterOpen = _ => { opens++; return Task.CompletedTask; };
+        f.Plane.AfterOpen = _ =>
+        {
+            opens++;
+            return Task.CompletedTask;
+        };
         await Assert.ThrowsAsync<IOException>(() => calls.OpenAsync("/file", new(0)).AsTask());
         Assert.Equal(0, opens);
         Assert.Empty(f.Process.Descriptors.Snapshot());
@@ -111,10 +115,23 @@ public sealed class Plan9FileSyscallsTests
     {
         await using var f = new FileSyscallFixture();
         int fd = await f.OpenAsync(mode);
-        if (readable) Assert.Empty((await f.Calls.ReadAsync(fd, 1)).ToArray());
-        else await Assert.ThrowsAsync<NamespaceFidException>(() => f.Calls.ReadAsync(fd, 1).AsTask());
-        if (writable) Assert.Equal(1U, await f.Calls.WriteAsync(fd, new byte[1]));
-        else await Assert.ThrowsAsync<NamespaceFidException>(() => f.Calls.WriteAsync(fd, new byte[1]).AsTask());
+        if (readable)
+        {
+            Assert.Empty((await f.Calls.ReadAsync(fd, 1)).ToArray());
+        }
+        else
+        {
+            await Assert.ThrowsAsync<NamespaceFidException>(() => f.Calls.ReadAsync(fd, 1).AsTask());
+        }
+
+        if (writable)
+        {
+            Assert.Equal(1U, await f.Calls.WriteAsync(fd, new byte[1]));
+        }
+        else
+        {
+            await Assert.ThrowsAsync<NamespaceFidException>(() => f.Calls.WriteAsync(fd, new byte[1]).AsTask());
+        }
     }
 
     [Fact]
@@ -161,11 +178,25 @@ public sealed class Plan9FileSyscallsTests
         }
         finally
         {
-            if (fail) pending.SetException(new IOException("failed"));
-            else pending.SetResult(3);
+            if (fail)
+            {
+                pending.SetException(new IOException("failed"));
+            }
+            else
+            {
+                pending.SetResult(3);
+            }
         }
-        if (fail) await Assert.ThrowsAsync<IOException>(() => first);
-        else Assert.Equal(3U, await first);
+
+        if (fail)
+        {
+            await Assert.ThrowsAsync<IOException>(() => first);
+        }
+        else
+        {
+            Assert.Equal(3U, await first);
+        }
+
         Assert.Equal(fail ? 4 : 7, await f.Calls.SeekAsync(fd, 0, Plan9SeekWhence.Current));
     }
 
@@ -235,9 +266,16 @@ public sealed class Plan9FileSyscallsTests
     {
         await using var f = new FileSyscallFixture();
         for (int fd = 0; fd < 5000; fd++)
+        {
             f.Process.Descriptors.Install(DescriptorGroupTests.Handle(fd.ToString()), () => ValueTask.CompletedTask);
+        }
+
         int attempts = 0;
-        f.Plane.BeforeClunk = () => { attempts++; throw new IOException("cleanup failed"); };
+        f.Plane.BeforeClunk = () =>
+        {
+            attempts++;
+            throw new IOException("cleanup failed");
+        };
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => f.OpenAsync().AsTask());
         Assert.Equal(1, attempts);
         Assert.Equal(5000, f.Process.Descriptors.Snapshot().Count);
@@ -255,9 +293,14 @@ public sealed class Plan9FileSyscallsTests
         await using var f = new FileSyscallFixture();
         f.Plane.AfterOpen = _ => throw new IOException("must not open");
         if (path.StartsWith("/file/", StringComparison.Ordinal) || path == "/missing")
+        {
             await Assert.ThrowsAsync<NamespaceException>(() => f.Calls.OpenAsync(path, new(mode)).AsTask());
+        }
         else
+        {
             await Assert.ThrowsAsync<NamespaceFidException>(() => f.Calls.OpenAsync(path, new(mode)).AsTask());
+        }
+
         Assert.Empty(f.Process.Descriptors.Snapshot());
     }
 
@@ -286,7 +329,10 @@ public sealed class Plan9FileSyscallsTests
         int fd = await f.Calls.OpenAsync("/", new(NinePConstants.OCEXEC));
         Assert.Equal(0, await f.Calls.SeekAsync(fd, 0, Plan9SeekWhence.Set));
         foreach (Plan9SeekWhence whence in new[] { Plan9SeekWhence.Current, Plan9SeekWhence.End })
+        {
             await Assert.ThrowsAsync<NamespaceFidException>(() => f.Calls.SeekAsync(fd, 0, whence).AsTask());
+        }
+
         await Assert.ThrowsAsync<NamespaceFidException>(() => f.Calls.SeekAsync(fd, 1, Plan9SeekWhence.Set).AsTask());
         await Assert.ThrowsAsync<NamespaceFidException>(() => f.Calls.ReadAsync(fd, 1).AsTask());
         await Assert.ThrowsAsync<NamespaceFidException>(() => f.Calls.WriteAsync(fd, new byte[1]).AsTask());
@@ -305,6 +351,7 @@ public sealed class Plan9FileSyscallsTests
             await Assert.ThrowsAsync<IOException>(() => f.Calls.PReadAsync(fd, offset, 1).AsTask());
             await Assert.ThrowsAsync<IOException>(() => f.Calls.PWriteAsync(fd, offset, new byte[1]).AsTask());
         }
+
         await Assert.ThrowsAsync<NamespaceFidException>(() => f.Calls.PReadAsync(fd, -2, 1).AsTask());
         await Assert.ThrowsAsync<NamespaceFidException>(() => f.Calls.PWriteAsync(fd, -2, new byte[1]).AsTask());
         Assert.Equal(5, await f.Calls.SeekAsync(fd, 0, Plan9SeekWhence.Current));
@@ -338,6 +385,7 @@ public sealed class Plan9FileSyscallsTests
                     Assert.Equal((uint)count, await f.Calls.PWriteAsync(fd, value, new byte[count]));
                     break;
             }
+
             Assert.Equal(position, await f.Calls.SeekAsync(dup, 0, Plan9SeekWhence.Current));
         }
     }

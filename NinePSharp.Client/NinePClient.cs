@@ -1,19 +1,14 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using System.IO.Pipelines;
 using System.Net.Sockets;
 using System.Text;
-using System.IO.Pipelines;
 using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Messages;
 
 namespace NinePSharp.Client;
-
-public class NinePException : Exception
-{
-    public NinePException(string message) : base(message) { }
-}
 
 public class NinePClient : IDisposable
 {
@@ -41,35 +36,35 @@ public class NinePClient : IDisposable
             [MessageTypes.Rflush] = message => new Rflush(message),
         };
 
-    private readonly TcpClient? _tcpClient;
-    private readonly Stream _stream;
-    private readonly PipeReader _reader;
-    private readonly object _stateGate = new();
-    private readonly ConcurrentDictionary<ushort, TaskCompletionSource<object>> _pendingRequests = new();
-    private readonly CancellationTokenSource _cts = new();
-    private readonly Task _readLoopTask;
-    private ushort _nextTag = 1;
-    private uint _nextFid = 1;
-    private uint _msize = 8192;
-    private bool _extendedAttach;
-    private bool _isDisposed;
+    private readonly TcpClient? tcpClient;
+    private readonly Stream stream;
+    private readonly PipeReader reader;
+    private readonly object stateGate = new();
+    private readonly ConcurrentDictionary<ushort, TaskCompletionSource<object>> pendingRequests = new();
+    private readonly CancellationTokenSource cts = new();
+    private readonly Task readLoopTask;
+    private ushort nextTag = 1;
+    private uint nextFid = 1;
+    private uint msize = 8192;
+    private bool extendedAttach;
+    private bool isDisposed;
 
     public NinePClient(string host, int port)
     {
-        _tcpClient = new TcpClient(host, port);
-        _stream = _tcpClient.GetStream();
-        _reader = PipeReader.Create(_stream);
-        _readLoopTask = Task.Run(ReadLoopAsync);
+        tcpClient = new TcpClient(host, port);
+        stream = tcpClient.GetStream();
+        reader = PipeReader.Create(stream);
+        readLoopTask = Task.Run(ReadLoopAsync);
     }
 
     public NinePClient(Stream stream)
     {
-        _stream = stream;
-        _reader = PipeReader.Create(_stream);
-        _readLoopTask = Task.Run(ReadLoopAsync);
+        this.stream = stream;
+        reader = PipeReader.Create(this.stream);
+        readLoopTask = Task.Run(ReadLoopAsync);
     }
 
-    public uint MSize => _msize;
+    public uint MSize => msize;
 
     public async Task<RemoteFs> MountAsync(string uname = "root", string aname = "/")
     {
@@ -81,21 +76,20 @@ public class NinePClient : IDisposable
 
     public uint GetNextFid()
     {
-        lock (_stateGate)
+        lock (stateGate)
         {
-            return _nextFid++;
+            return nextFid++;
         }
     }
 
     // --- Low-level API ---
-
     public async Task<Rversion> VersionAsync(uint msize = 8192, string version = "9P2000.L")
     {
         var tag = (ushort)NinePConstants.NoTag;
         var tversion = new Tversion(tag, msize, version);
         var response = await SendInternalAsync<Rversion>(tversion, default);
-        _msize = response.MSize;
-        _extendedAttach = response.Version is "9P2000.u" or "9P2000.L";
+        this.msize = response.MSize;
+        extendedAttach = response.Version is "9P2000.u" or "9P2000.L";
         return response;
     }
 
@@ -109,7 +103,7 @@ public class NinePClient : IDisposable
     public async Task<Rattach> AttachAsync(uint fid, uint afid, string uname, string aname)
     {
         var tag = GetNextTag();
-        var tattach = new Tattach(tag, fid, afid, uname, aname, _extendedAttach ? uint.MaxValue : null);
+        var tattach = new Tattach(tag, fid, afid, uname, aname, extendedAttach ? uint.MaxValue : null);
         return await SendInternalAsync<Rattach>(tattach, default);
     }
 
@@ -204,59 +198,26 @@ public class NinePClient : IDisposable
         await SendInternalAsync<Rflush>(tflush, default);
     }
 
-    private ushort GetNextTag()
+    public void Dispose()
     {
-        lock (_stateGate)
+        if (isDisposed)
         {
-            var tag = _nextTag++;
-            if (_nextTag == NinePConstants.NoTag) _nextTag = 1;
-            return tag;
-        }
-    }
-
-    private async Task<T> SendInternalAsync<T>(ISerializable message, CancellationToken ct) where T : struct
-    {
-        var tcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
-        if (!_pendingRequests.TryAdd(message.Tag, tcs))
-        {
-            throw new InvalidOperationException($"Tag {message.Tag} is already in use.");
+            return;
         }
 
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, ct);
-
+        isDisposed = true;
+        cts.Cancel();
+        stream.Dispose();
+        tcpClient?.Dispose();
         try
         {
-            byte[] buffer = new byte[message.Size];
-            message.WriteTo(buffer);
-            await _stream.WriteAsync(buffer, linkedCts.Token);
-            await _stream.FlushAsync(linkedCts.Token);
-
-            var result = await tcs.Task.WaitAsync(linkedCts.Token);
-
-            if (result is Rerror rerror)
-            {
-                throw new NinePException(rerror.Ename);
-            }
-            if (result is Rlerror rlerror)
-            {
-                throw new NinePException($"Linux error code: {rlerror.Ecode}");
-            }
-
-            return (T)result;
+            readLoopTask.GetAwaiter().GetResult();
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            _ = FlushAsync(message.Tag);
-            throw new NinePException($"Operation with tag {message.Tag} was cancelled and flush was sent.");
         }
-        catch (OperationCanceledException) when (_cts.IsCancellationRequested)
-        {
-            throw new NinePException("Operation cancelled - client is disposing");
-        }
-        finally
-        {
-            _pendingRequests.TryRemove(message.Tag, out _);
-        }
+
+        cts.Dispose();
     }
 
     private static bool TryReadFrame(ref ReadOnlySequence<byte> buffer, out byte[] fullMessage, out MessageTypes type, out ushort tag)
@@ -294,9 +255,70 @@ public class NinePClient : IDisposable
         throw new NotSupportedException($"Unsupported message type: {type}");
     }
 
+    private ushort GetNextTag()
+    {
+        lock (stateGate)
+        {
+            var tag = nextTag++;
+            if (nextTag == NinePConstants.NoTag)
+            {
+                nextTag = 1;
+            }
+
+            return tag;
+        }
+    }
+
+    private async Task<T> SendInternalAsync<T>(ISerializable message, CancellationToken ct)
+        where T : struct
+    {
+        var tcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!pendingRequests.TryAdd(message.Tag, tcs))
+        {
+            throw new InvalidOperationException($"Tag {message.Tag} is already in use.");
+        }
+
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, ct);
+
+        try
+        {
+            byte[] buffer = new byte[message.Size];
+            message.WriteTo(buffer);
+            await stream.WriteAsync(buffer, linkedCts.Token);
+            await stream.FlushAsync(linkedCts.Token);
+
+            var result = await tcs.Task.WaitAsync(linkedCts.Token);
+
+            if (result is Rerror rerror)
+            {
+                throw new NinePException(rerror.Ename);
+            }
+
+            if (result is Rlerror rlerror)
+            {
+                throw new NinePException($"Linux error code: {rlerror.Ecode}");
+            }
+
+            return (T)result;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            _ = FlushAsync(message.Tag);
+            throw new NinePException($"Operation with tag {message.Tag} was cancelled and flush was sent.");
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            throw new NinePException("Operation cancelled - client is disposing");
+        }
+        finally
+        {
+            pendingRequests.TryRemove(message.Tag, out _);
+        }
+    }
+
     private void CompletePendingRequest(ushort tag, object response)
     {
-        if (_pendingRequests.TryGetValue(tag, out var tcs))
+        if (pendingRequests.TryGetValue(tag, out var tcs))
         {
             tcs.TrySetResult(response);
         }
@@ -304,7 +326,7 @@ public class NinePClient : IDisposable
 
     private void FailPendingRequests(Exception exception)
     {
-        foreach (var tcs in _pendingRequests.Values)
+        foreach (var tcs in pendingRequests.Values)
         {
             tcs.TrySetException(exception);
         }
@@ -312,7 +334,7 @@ public class NinePClient : IDisposable
 
     private void CancelPendingRequests()
     {
-        foreach (var tcs in _pendingRequests.Values)
+        foreach (var tcs in pendingRequests.Values)
         {
             tcs.TrySetCanceled();
         }
@@ -322,9 +344,9 @@ public class NinePClient : IDisposable
     {
         try
         {
-            while (!_cts.IsCancellationRequested)
+            while (!cts.IsCancellationRequested)
             {
-                ReadResult result = await _reader.ReadAsync(_cts.Token);
+                ReadResult result = await reader.ReadAsync(cts.Token);
                 ReadOnlySequence<byte> buffer = result.Buffer;
 
                 while (TryReadFrame(ref buffer, out var fullMessage, out var type, out var tag))
@@ -332,9 +354,12 @@ public class NinePClient : IDisposable
                     CompletePendingRequest(tag, ParseResponse(type, fullMessage));
                 }
 
-                _reader.AdvanceTo(buffer.Start, buffer.End);
+                reader.AdvanceTo(buffer.Start, buffer.End);
 
-                if (result.IsCompleted) break;
+                if (result.IsCompleted)
+                {
+                    break;
+                }
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -343,25 +368,8 @@ public class NinePClient : IDisposable
         }
         finally
         {
-             _reader.Complete();
+             reader.Complete();
              CancelPendingRequests();
         }
-    }
-
-    public void Dispose()
-    {
-        if (_isDisposed) return;
-        _isDisposed = true;
-        _cts.Cancel();
-        _stream.Dispose();
-        _tcpClient?.Dispose();
-        try
-        {
-            _readLoopTask.GetAwaiter().GetResult();
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        _cts.Dispose();
     }
 }

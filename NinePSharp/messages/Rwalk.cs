@@ -8,12 +8,6 @@ namespace NinePSharp.Messages;
 // size[4] Rwalk tag[2] nwqid[2] nwqid*(wqid[13])
 public readonly struct Rwalk : ISerializable
 {
-    public uint Size { get; }
-    public MessageTypes Type => MessageTypes.Rwalk;
-    public ushort Tag { get; }
-
-    public Qid[] Wqid { get; }
-
     public Rwalk(ushort tag, Qid[]? wqid)
     {
         Tag = tag;
@@ -37,6 +31,14 @@ public readonly struct Rwalk : ISerializable
             Wqid[i] = data.ReadQid(ref offset);
         }
     }
+
+    public uint Size { get; }
+
+    public MessageTypes Type => MessageTypes.Rwalk;
+
+    public ushort Tag { get; }
+
+    public Qid[] Wqid { get; }
 
     public void WriteTo(Span<byte> data)
     {

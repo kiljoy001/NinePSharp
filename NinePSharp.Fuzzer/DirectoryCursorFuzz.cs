@@ -14,7 +14,8 @@ internal static class DirectoryCursorFuzz
     {
         var root = new ResourceHandle(new ResourceIdentity("directory-fuzz", "root", 1), QidType.QTDIR);
         string[] names = data.Take(24).Select((value, index) => "entry" + index + new string('x', value % 12)).ToArray();
-        var children = names.Select((name, index) => new ResourceDirectoryEntry(name,
+        var children = names.Select((name, index) => new ResourceDirectoryEntry(
+            name,
             new ResourceHandle(new ResourceIdentity("directory-fuzz", "root", (ulong)index + 2), QidType.QTFILE))).ToArray();
         var resources = new Mock<IResourceDataOperations>(MockBehavior.Strict);
         resources.Setup(x => x.OpenAsync(root, 0, It.IsAny<ResourceOperationContext>(), default))
@@ -25,11 +26,17 @@ internal static class DirectoryCursorFuzz
                 new ResourceStat(handle, names[(int)handle.Identity.Path - 2], 0x180, 0, 0, 0, "u", "g", "m")));
         int clunks = 0;
         resources.Setup(x => x.ClunkAsync(It.IsAny<ResourceOpenHandle>(), It.IsAny<ResourceOperationContext>(), default))
-            .Returns(() => { clunks++; return ValueTask.CompletedTask; });
+            .Returns(() =>
+            {
+                clunks++;
+                return ValueTask.CompletedTask;
+            });
         var table = new VProcessTable();
         var process = table.CreateInitial(NamespaceChannel.Restore(new[] { new ChannelFrame("/", root) }));
         ulong sequence = 0;
-        var calls = new Plan9FileSyscalls(process, new LocalNamespaceDataPlane(process.ProcessGroup.MountTable, resources.Object),
+        var calls = new Plan9FileSyscalls(
+            process,
+            new LocalNamespaceDataPlane(process.ProcessGroup.MountTable, resources.Object),
             () => new(new ResourceOperationId("directory-fuzz", ++sequence), process.Id, "fuzzer"));
         try
         {
@@ -37,7 +44,10 @@ internal static class DirectoryCursorFuzz
             int duplicate = await process.Descriptors.DuplicateAsync(fd);
             var actual = new List<string>();
             foreach (byte value in data.Take(32))
+            {
                 Decode(await calls.ReadAsync(duplicate, (uint)(80 + value)), actual);
+            }
+
             Decode(await calls.ReadAsync(fd, 4096), actual);
             Check(names.SequenceEqual(actual), "bounded directory reads lost or reordered records");
             await calls.SeekAsync(duplicate, 0, Plan9SeekWhence.Set);
@@ -45,7 +55,11 @@ internal static class DirectoryCursorFuzz
             Decode(await calls.ReadAsync(fd, 4096), actual);
             Check(names.SequenceEqual(actual), "rewind did not restore the directory cursor");
         }
-        finally { await table.TerminateAsync(process.Id); }
+        finally
+        {
+            await table.TerminateAsync(process.Id);
+        }
+
         Check(clunks == 1, "directory channel did not close exactly once");
     }
 
@@ -66,6 +80,9 @@ internal static class DirectoryCursorFuzz
 
     private static void Check(bool condition, string message)
     {
-        if (!condition) throw new InvalidOperationException(message);
+        if (!condition)
+        {
+            throw new InvalidOperationException(message);
+        }
     }
 }

@@ -13,11 +13,6 @@ internal sealed class GatewayTestContext
 {
     internal static readonly ResourceHandle Root = new(new ResourceIdentity("test", "resource", 1), QidType.QTDIR);
     internal static readonly ResourceHandle File = new(new ResourceIdentity("test", "resource", 2), QidType.QTFILE);
-    internal Mock<IGrainFactory> Factory { get; } = new();
-    internal Mock<IResourceDataOperations> Resources { get; } = new();
-    internal TestAttachResolver Attach { get; } = new();
-    internal DistributedNamespaceDispatcher Dispatcher { get; }
-    internal List<ResourceOperationContext> Mutations { get; } = new();
 
     internal GatewayTestContext(uint maximumMessageSize = 1024 * 1024)
     {
@@ -44,6 +39,16 @@ internal sealed class GatewayTestContext
         Dispatcher = new DistributedNamespaceDispatcher(new DistributedNamespaceOperations(Factory.Object, Resources.Object), Attach, maximumMessageSize);
     }
 
+    internal Mock<IGrainFactory> Factory { get; } = new();
+
+    internal Mock<IResourceDataOperations> Resources { get; } = new();
+
+    internal TestAttachResolver Attach { get; } = new();
+
+    internal DistributedNamespaceDispatcher Dispatcher { get; }
+
+    internal List<ResourceOperationContext> Mutations { get; } = new();
+
     internal async Task OpenFileAsync(string session = "unit")
     {
         Assert.IsType<Rattach>(await SendAsync(
@@ -56,26 +61,4 @@ internal sealed class GatewayTestContext
 
     internal async Task<object> SendAsync(NinePMessage request, string session = "unit", NinePDialect dialect = NinePDialect.NineP2000)
         => await Dispatcher.DispatchAsync(session, request, dialect).WaitAsync(TimeSpan.FromSeconds(1));
-}
-
-public sealed class TestAttachResolver : IDistributedNamespaceAttachResolver
-{
-    public string Group { get; set; } = "group";
-    public ResourceHandle Root { get; set; } = GatewayTestContext.Root;
-    public bool Deny { get; set; }
-    public long ProcessId { get; set; } = 1;
-    public string User { get; set; } = "user";
-    public IResourceOperations? Resources { get; set; }
-
-    public ValueTask<DistributedNamespaceAttach> ResolveAsync(
-        string sessionId, Tattach request, NinePDialect dialect, X509Certificate2? certificate, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (Deny)
-        {
-            throw new UnauthorizedAccessException("attach denied");
-        }
-
-        return ValueTask.FromResult(new DistributedNamespaceAttach(Group, ProcessId, User, Root) { Resources = Resources });
-    }
 }

@@ -10,18 +10,18 @@ namespace NinePSharp.Server;
 
 public sealed class NinePFSDispatcher : INinePFSDispatcher, INinePSessionLifecycle
 {
-    private readonly INinePFSDispatcher _engine;
+    private readonly INinePFSDispatcher engine;
 
     public NinePFSDispatcher(ILogger<NinePFSDispatcher> logger, INinePRequestHandler handler)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(handler);
-        _engine = new NinePFSDispatcherEngine(handler);
+        engine = new NinePFSDispatcherEngine(handler);
     }
 
     public Task<object> DispatchAsync(string sessionId, NinePMessage message, NinePDialect dialect, X509Certificate2? certificate = null)
-        => _engine.DispatchAsync(sessionId, message, dialect, certificate);
+        => engine.DispatchAsync(sessionId, message, dialect, certificate);
 
     public Task CloseSessionAsync(string sessionId)
-        => ((INinePSessionLifecycle)_engine).CloseSessionAsync(sessionId);
+        => ((INinePSessionLifecycle)engine).CloseSessionAsync(sessionId);
 }

@@ -2,16 +2,6 @@ using NinePSharp.Constants;
 
 namespace NinePSharp.Namespaces;
 
-/// <summary>Thrown when a 9P fid operation violates protocol state.</summary>
-public sealed class NamespaceFidException : InvalidOperationException
-{
-    /// <summary>Initializes a fid error.</summary>
-    public NamespaceFidException(string message)
-        : base(message)
-    {
-    }
-}
-
 /// <summary>
 /// Owns the ephemeral fid table for one 9P connection. Closing the session invalidates every fid.
 /// </summary>
@@ -24,7 +14,6 @@ public sealed class NamespaceSession : IAsyncDisposable
     private long operationSequence;
     private bool closed;
 
-    /// <summary>Initializes a connection-local namespace session.</summary>
     public NamespaceSession(string sessionId, long processId, string user, INamespaceDataPlane dataPlane)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
@@ -56,6 +45,7 @@ public sealed class NamespaceSession : IAsyncDisposable
         lock (gate)
         {
             EnsureOpen();
+
             // AcquireAsync owns this fid until publication completes.
             fids.Add(fid, new FidState(channel));
         }
@@ -94,6 +84,7 @@ public sealed class NamespaceSession : IAsyncDisposable
             lock (gate)
             {
                 EnsureOpen();
+
                 // Both fid locks remain held across the provider walk.
                 fids[newFid] = new FidState(result.Channel);
             }
