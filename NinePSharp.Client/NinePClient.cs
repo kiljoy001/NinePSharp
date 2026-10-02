@@ -99,6 +99,13 @@ public class NinePClient : IDisposable
         return response;
     }
 
+    public async Task<Rauth> AuthAsync(uint afid, string uname, string aname)
+    {
+        var tag = GetNextTag();
+        var tauth = new Tauth(tag, afid, uname, aname);
+        return await SendInternalAsync<Rauth>(tauth, default);
+    }
+
     public async Task<Rattach> AttachAsync(uint fid, uint afid, string uname, string aname)
     {
         var tag = GetNextTag();
@@ -160,6 +167,13 @@ public class NinePClient : IDisposable
         var tag = GetNextTag();
         var tremove = new Tremove(tag, fid);
         return await SendInternalAsync<Rremove>(tremove, default);
+    }
+
+    public async Task<Rwstat> WstatAsync(uint fid, Stat stat)
+    {
+        var tag = GetNextTag();
+        var twstat = new Twstat(tag, fid, stat);
+        return await SendInternalAsync<Rwstat>(twstat, default);
     }
 
     public async Task<Rsymlink> SymlinkAsync(uint fid, string name, string symtgt, uint gid)
