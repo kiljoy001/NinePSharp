@@ -46,6 +46,9 @@ public sealed class NinePConnectionProcessor
         this.buffers = buffers ?? throw new ArgumentNullException(nameof(buffers));
     }
 
+    // How long a connection that has ended waits for its session to close and its requests to finish.
+    public TimeSpan Drain { get; init; } = TimeSpan.FromSeconds(5);
+
     public async Task HandleClientAsync(TcpClient client, EndpointConfig endpoint, CancellationToken ct)
     {
         EndPoint? endPoint = client.Client.RemoteEndPoint;
@@ -126,12 +129,16 @@ public sealed class NinePConnectionProcessor
         }
         finally
         {
-            if (dispatcher is INinePSessionLifecycle lifecycle)
+            if (dispatcher is INinePSessionLifecycle lifecycle &&
+                !await WithinDrainAsync(lifecycle.CloseSessionAsync(session.SessionId)))
             {
-                await lifecycle.CloseSessionAsync(session.SessionId);
+                logger.LogWarning("Closing the session of {EndPoint} did not finish within the drain limit; its outcome is unknown.", endPoint);
             }
 
-            await work.Barrier();
+            if (!await WithinDrainAsync(work.Barrier()))
+            {
+                logger.LogWarning("Requests from {EndPoint} did not finish within the drain limit ({Count} left); their outcome is unknown.", endPoint, work.PendingCount);
+            }
         }
     }
 
@@ -189,6 +196,19 @@ public sealed class NinePConnectionProcessor
         finally
         {
             writeLock.Release();
+        }
+    }
+
+    private async Task<bool> WithinDrainAsync(Task work)
+    {
+        try
+        {
+            await work.WaitAsync(Drain);
+            return true;
+        }
+        catch (TimeoutException)
+        {
+            return false;
         }
     }
 

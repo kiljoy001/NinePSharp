@@ -69,3 +69,24 @@ Feature: A Plan 9 client uses the distributed namespace dispatcher
     Given a distributed 9P2000.L dispatcher and attached fid 1
     When the client negotiates 9P2000.L
     Then the negotiated version is 9P2000.L
+
+  Scenario Outline: A request that ignores cancellation is abandoned with an unknown outcome
+    Given a distributed 9P dispatcher with a drain limit of 200 milliseconds whose attach resolver never answers
+    And an attach is in flight
+    When <drain>
+    Then it finishes within 2 seconds
+    And the attach is answered with the error "unknown"
+    And the attach's outcome is logged as unknown
+
+    Examples:
+      | drain                                |
+      | the transport closes during the attach |
+      | 9P negotiates the version during the attach |
+      | 9P flushes the attach                |
+
+  Scenario: A flushed tag can be used again while its abandoned request still runs
+    Given a distributed 9P dispatcher with a drain limit of 200 milliseconds whose attach resolver never answers
+    And an attach is in flight
+    When 9P flushes the attach
+    And 9P attaches again with the same tag
+    Then the second attach is not refused as a duplicate tag

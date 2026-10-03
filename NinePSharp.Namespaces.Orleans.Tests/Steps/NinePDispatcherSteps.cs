@@ -20,6 +20,7 @@ public sealed class NinePDispatcherSteps
     private readonly string sessionId = $"wire-{Guid.NewGuid():N}";
     private readonly string groupId = $"wire-group-{Guid.NewGuid():N}";
     private readonly string device = $"wire-resource-{Guid.NewGuid():N}";
+    private readonly RecordingLogger logger = new();
     private NinePDialect dialect = NinePDialect.NineP2000;
     private DistributedNamespaceDispatcher? dispatcher;
     private object? readResponse;
@@ -29,6 +30,9 @@ public sealed class NinePDispatcherSteps
     private object? unsupportedResponse;
     private object? versionResponse;
     private TimeSpan flushDuration;
+    private Task<object>? attach;
+    private Task? drain;
+    private Task<object>? secondAttach;
 
     [Given("a distributed 9P dispatcher and attached fid 1")]
     public Task GivenDispatcherAndAttach()
@@ -54,6 +58,57 @@ public sealed class NinePDispatcherSteps
         object response = await DispatchAsync(
             NinePMessage.NewMsgTopen(new Topen(24, 1, NinePConstants.OREAD)));
         Assert.IsType<Ropen>(response);
+    }
+
+    [Given(@"^a distributed 9P dispatcher with a drain limit of (\d+) milliseconds whose attach resolver never answers$")]
+    public void DispatcherWithStuckResolver(int milliseconds)
+        => dispatcher = new DistributedNamespaceDispatcher(
+            new DistributedNamespaceOperations(
+                OrleansTestEnvironment.Cluster.GrainFactory,
+                new OrleansResourceOperations(new TestMountableResourceResolver(OrleansTestEnvironment.Cluster.GrainFactory))),
+            new NeverResolves(),
+            drain: TimeSpan.FromMilliseconds(milliseconds),
+            logger: logger);
+
+    [Given("an attach is in flight")]
+    public async Task AttachInFlight()
+    {
+        attach = DispatchAsync(NinePMessage.NewMsgTattach(new Tattach(20, 1, NinePConstants.NoFid, User, string.Empty)));
+        await Task.Delay(50);
+        Assert.False(attach.IsCompleted);
+    }
+
+    [When("the transport closes during the attach")]
+    public void CloseDuringAttach() => drain = RequiredDispatcher().CloseSessionAsync(sessionId);
+
+    [When("9P negotiates the version during the attach")]
+    public void VersionDuringAttach() => drain = DispatchAsync(NinePMessage.NewMsgTversion(new Tversion(NinePConstants.NoTag, 8192, "9P2000")));
+
+    [When("9P flushes the attach")]
+    public void FlushAttach() => drain = DispatchAsync(NinePMessage.NewMsgTflush(new Tflush(21, 20)));
+
+    [When("9P attaches again with the same tag")]
+    public async Task AttachAgain()
+    {
+        await drain!.WaitAsync(TimeSpan.FromSeconds(2));
+        secondAttach = DispatchAsync(NinePMessage.NewMsgTattach(new Tattach(20, 3, NinePConstants.NoFid, User, string.Empty)));
+    }
+
+    [Then(@"^it finishes within (\d+) seconds$")]
+    public Task DrainFinishes(int seconds) => drain!.WaitAsync(TimeSpan.FromSeconds(seconds));
+
+    [Then(@"^the attach is answered with the error ""(.*)""$")]
+    public async Task AttachAnswered(string error)
+        => Assert.Equal(error, Assert.IsType<Rerror>(await attach!.WaitAsync(TimeSpan.FromSeconds(2))).Ename);
+
+    [Then("the attach's outcome is logged as unknown")]
+    public void AttachLoggedUnknown() => Assert.Contains(logger.Warnings, message => message.Contains("outcome is unknown", StringComparison.Ordinal));
+
+    [Then("the second attach is not refused as a duplicate tag")]
+    public async Task SecondAttachNotDuplicate()
+    {
+        await Task.Delay(100);
+        Assert.False(secondAttach!.IsCompleted && secondAttach.Result is Rerror { Ename: "duplicate tag" });
     }
 
     [Given("the next resource read is delayed")]
@@ -316,5 +371,17 @@ public sealed class NinePDispatcherSteps
                 request.Uname,
                 root));
         }
+    }
+
+    // Ignores cancellation and never answers, so an attach through it can only be abandoned.
+    private sealed class NeverResolves : IDistributedNamespaceAttachResolver
+    {
+        public ValueTask<DistributedNamespaceAttach> ResolveAsync(
+            string sessionId,
+            Tattach request,
+            NinePDialect dialect,
+            System.Security.Cryptography.X509Certificates.X509Certificate2? certificate,
+            CancellationToken cancellationToken)
+            => new(new TaskCompletionSource<DistributedNamespaceAttach>().Task);
     }
 }

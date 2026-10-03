@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using NinePSharp.Constants;
 using NinePSharp.Interfaces;
 using NinePSharp.Messages;
@@ -10,18 +12,26 @@ using NinePSharp.Server;
 
 namespace NinePSharp.Namespaces.Orleans.Server;
 
-/// <summary>Dispatches 9P2000-family requests to connection-local fids backed by Orleans resources.</summary>
+/// <summary>
+/// Dispatches 9P2000-family requests to connection-local fids backed by Orleans resources. Closing a
+/// session, Tversion and Tflush cancel in-flight requests and wait at most the drain limit; a request
+/// still running then is abandoned and answered "unknown", since its effect may yet happen.
+/// </summary>
 public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePSessionLifecycle
 {
     private readonly ConcurrentDictionary<string, SessionHolder> sessions = new(StringComparer.Ordinal);
     private readonly DistributedNamespaceOperations operations;
     private readonly IDistributedNamespaceAttachResolver attachResolver;
     private readonly uint maximumMessageSize;
+    private readonly TimeSpan drain;
+    private readonly ILogger logger;
 
     public DistributedNamespaceDispatcher(
         DistributedNamespaceOperations operations,
         IDistributedNamespaceAttachResolver attachResolver,
-        uint maximumMessageSize = 1024 * 1024)
+        uint maximumMessageSize = 1024 * 1024,
+        TimeSpan? drain = null,
+        ILogger? logger = null)
     {
         this.operations = operations ?? throw new ArgumentNullException(nameof(operations));
         this.attachResolver = attachResolver ?? throw new ArgumentNullException(nameof(attachResolver));
@@ -31,6 +41,13 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         }
 
         this.maximumMessageSize = maximumMessageSize;
+        this.drain = drain ?? TimeSpan.FromSeconds(5);
+        if (this.drain <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(drain));
+        }
+
+        this.logger = logger ?? NullLogger.Instance;
     }
 
     /// <inheritdoc/>
@@ -76,7 +93,21 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
             return Error(tag, dialect, new NamespaceFidException("duplicate tag"));
         }
 
-        return await inFlight.Completion;
+        try
+        {
+            if (await Task.WhenAny(inFlight.Completion, inFlight.Abandoned.Task) != inFlight.Completion)
+            {
+                logger.LogWarning("Request {Tag} was abandoned after the drain limit; its outcome is unknown.", tag);
+                return Error(tag, dialect, new IOException("unknown"));
+            }
+
+            return await inFlight.Completion;
+        }
+        finally
+        {
+            holder.InFlight.TryRemove(KeyValuePair.Create(tag, inFlight));
+            inFlight.Answered.TrySetResult();
+        }
     }
 
     /// <inheritdoc/>
@@ -93,7 +124,7 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
             request.Cancel();
         }
 
-        await Task.WhenAll(requests.Select(request => request.Completion));
+        await DrainAsync(requests);
         if (holder.Session is not null)
         {
             await holder.Session.DisposeAsync();
@@ -296,17 +327,6 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
     {
         ResourceStat stat = await session.StatAsync(request.Fid, cancellationToken);
         return LinuxProtocol.ToGetAttr(request, stat);
-    }
-
-    private static async Task<object> FlushAsync(SessionHolder holder, Tflush request)
-    {
-        if (holder.InFlight.TryGetValue(request.OldTag, out InFlightRequest? oldRequest))
-        {
-            oldRequest.Cancel();
-            await oldRequest.Completion;
-        }
-
-        return new Rflush(request.Tag);
     }
 
     private static bool SameNamespace(DistributedNamespaceAttach left, DistributedNamespaceAttach right)
@@ -557,6 +577,17 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
             _ => requested.StartsWith("9P", StringComparison.Ordinal) ? NinePConstants.VersionString9p : "unknown",
         };
 
+    private async Task<object> FlushAsync(SessionHolder holder, Tflush request)
+    {
+        if (holder.InFlight.TryGetValue(request.OldTag, out InFlightRequest? oldRequest))
+        {
+            oldRequest.Cancel();
+            await DrainAsync([oldRequest]);
+        }
+
+        return new Rflush(request.Tag);
+    }
+
     private async Task<object> DispatchTrackedAsync(
         string sessionId,
         SessionHolder holder,
@@ -583,9 +614,25 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         {
             return Error(tag, dialect, exception);
         }
-        finally
+    }
+
+    // Waits at most the drain limit for cancelled requests, then abandons those still running.
+    private async Task DrainAsync(InFlightRequest[] requests)
+    {
+        Task all = Task.WhenAll(requests.Select(request => request.Completion));
+        try
         {
-            holder.InFlight.TryRemove(tag, out _);
+            await all.WaitAsync(drain);
+        }
+        catch (TimeoutException)
+        {
+            foreach (InFlightRequest request in requests)
+            {
+                request.Abandoned.TrySetResult();
+            }
+
+            // An abandoned request answers at once; its tag is free when this returns.
+            await Task.WhenAll(requests.Select(request => request.Answered.Task));
         }
     }
 
@@ -662,6 +709,10 @@ public sealed class DistributedNamespaceDispatcher : INinePFSDispatcher, INinePS
         }
 
         internal CancellationTokenSource Cancellation { get; } = new();
+
+        internal TaskCompletionSource Abandoned { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal TaskCompletionSource Answered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal Task<object> Completion => completion.Value;
 

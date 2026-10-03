@@ -264,6 +264,7 @@ public sealed class GatewayProtocolTests
         var operations = new DistributedNamespaceOperations(test.Factory.Object, test.Resources.Object);
         Assert.Throws<ArgumentNullException>(() => new DistributedNamespaceDispatcher(null!, test.Attach));
         Assert.Throws<ArgumentNullException>(() => new DistributedNamespaceDispatcher(operations, null!));
+        Assert.Equal("drain", Assert.Throws<ArgumentOutOfRangeException>(() => new DistributedNamespaceDispatcher(operations, test.Attach, drain: TimeSpan.Zero)).ParamName);
         Assert.Throws<ArgumentOutOfRangeException>(() => new GatewayTestContext(255));
         Assert.Throws<ArgumentOutOfRangeException>(() => new GatewayTestContext((uint)int.MaxValue + 1));
         _ = new GatewayTestContext(256);
