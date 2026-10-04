@@ -34,9 +34,9 @@ public sealed class DirectoryStreamingTests
         int fd = await f.Calls.OpenAsync("/", new(0));
         await Assert.ThrowsAsync<ResourceDirectoryRejectedException>(() => f.Calls.ReadAsync(fd, 63).AsTask());
         Assert.Equal(64, (await f.Calls.PReadAsync(fd, -1, 64)).Length);
-        foreach (long invalid in new long[] { -2, 1 })
+        foreach ((long invalid, string error) in new[] { (-2L, "negative offset"), (1L, "invalid directory offset") })
         {
-            await Assert.ThrowsAsync<NamespaceFidException>(() => f.Calls.PReadAsync(fd, invalid, 100).AsTask());
+            Assert.Equal(error, (await Assert.ThrowsAsync<NamespaceFidException>(() => f.Calls.PReadAsync(fd, invalid, 100).AsTask())).Message);
         }
 
         Assert.Equal(2, f.Reads.Count);

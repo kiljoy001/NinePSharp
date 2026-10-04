@@ -27,6 +27,20 @@ public sealed class MountTableUnitTests
     }
 
     [Fact]
+    public async Task MountAsyncWithACancelledTokenMountsNothing()
+    {
+        var table = new MountTable();
+        ResourceHandle target = Directory("target", 1);
+        ResourceHandle mountedOn = Directory("mounted-on", 2);
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => table.MountAsync(target, mountedOn, cancellationToken: cancellation.Token).AsTask());
+        Assert.Null(table.Find(mountedOn.Identity));
+    }
+
+    [Fact]
     public void BindingARestoredUnionCopiesOrderFlagsSpecsAndFreshIds()
     {
         ResourceHandle first = Directory("first", 1);

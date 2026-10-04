@@ -121,12 +121,13 @@ public sealed partial class MountTable
         Func<DirectoryMountHead?, T> mutate,
         CancellationToken cancellationToken)
     {
-        while (true)
+        for (; ;)
         {
             DirectoryMountHead? head;
+
+            // Mount and UnmountCore refuse a closed namespace under the lock.
             lock (gate)
             {
-                EnsureOpen();
                 directoryHeads.TryGetValue(identity, out head);
             }
 

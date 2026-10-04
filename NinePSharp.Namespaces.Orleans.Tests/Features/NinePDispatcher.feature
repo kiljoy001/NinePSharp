@@ -75,6 +75,7 @@ Feature: A Plan 9 client uses the distributed namespace dispatcher
     And an attach is in flight
     When <drain>
     Then it finishes within 2 seconds
+    And the attach was answered before it finished
     And the attach is answered with the error "unknown"
     And the attach's outcome is logged as unknown
 

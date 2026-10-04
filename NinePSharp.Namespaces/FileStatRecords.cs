@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
+using System.Text.Unicode;
 using NinePSharp.Constants;
 using NinePSharp.Messages;
 
@@ -192,18 +193,14 @@ internal static class FileStatRecords
     private static string ReadString(ReadOnlySpan<byte> bytes, ref int offset)
     {
         int length = ReadUInt16(bytes, ref offset);
-        string value;
-        try
-        {
-            value = StrictUtf8.GetString(bytes.Slice(offset, length));
-        }
-        catch (DecoderFallbackException)
+        ReadOnlySpan<byte> raw = bytes.Slice(offset, length);
+        if (!Utf8.IsValid(raw))
         {
             throw new NamespaceFidException("bad UTF-8 in stat");
         }
 
         offset += length;
-        return value;
+        return StrictUtf8.GetString(raw);
     }
 
     private static void WriteUInt16(Span<byte> bytes, ref int offset, ushort value)

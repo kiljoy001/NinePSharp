@@ -45,6 +45,35 @@ public sealed class DirectoryMountLifetimeTests
     }
 
     [Fact]
+    public async Task AMountWaitingOnAHeadThatIsReplacedWaitsForTheCurrentHead()
+    {
+        await using var f = new StreamingDirectoryFixture();
+        var a = f.Directory("A");
+        var b = f.Directory("B");
+        var c = f.Directory("C");
+        f.Union(a, b);
+        DirectoryMountHead old = f.Mounts.RetainDirectoryHead(f.Root.Identity)!;
+        await old.Gate.WaitAsync();
+
+        // The old head's gate goes to the unmount, then to this test, then to the mount.
+        Task unmount = f.Mounts.UnmountAsync(f.Root).AsTask();
+        Task turn = old.Gate.WaitAsync();
+        Task<MountBinding> mount = f.Mounts.MountAsync(c, f.Root, MountFlags.After).AsTask();
+        old.Gate.Release();
+        await unmount.WaitAsync(TimeSpan.FromSeconds(5));
+        await turn.WaitAsync(TimeSpan.FromSeconds(5));
+        f.Union(a, b);
+        DirectoryMountHead replacement = f.Mounts.RetainDirectoryHead(f.Root.Identity)!;
+        await replacement.Gate.WaitAsync();
+        old.Gate.Release();
+
+        await Assert.ThrowsAsync<TimeoutException>(() => mount.WaitAsync(TimeSpan.FromMilliseconds(200)));
+        replacement.Gate.Release();
+        await mount.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(new[] { a, b, c }, f.Mounts.Find(f.Root.Identity)!.Mounts.Select(binding => binding.Target));
+    }
+
+    [Fact]
     public async Task AsyncMountValidationMatchesSynchronousEntryPoints()
     {
         await using var f = new StreamingDirectoryFixture();

@@ -48,7 +48,7 @@ internal sealed class ProviderDirectoryCursor(
                 await CloseMemberAsync();
             }
 
-            ReadOnlyMemory<byte> result;
+            ReadOnlyMemory<byte> result = default;
             try
             {
                 result = ReadRock(count);
@@ -73,8 +73,8 @@ internal sealed class ProviderDirectoryCursor(
                 DirectoryRecords.Validate(result.Span, count);
                 int rawLength = result.Length;
                 result = await FixMountsAsync(result, count, callingNamespace);
-                offset = checked(offset + result.Length);
-                deviceOffset = checked(deviceOffset + (uint)rawLength);
+                offset += result.Length;
+                deviceOffset += (uint)rawLength;
             }
             catch (ResourceDirectoryRejectedException)
             {

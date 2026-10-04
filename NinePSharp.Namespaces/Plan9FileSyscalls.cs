@@ -265,7 +265,7 @@ public sealed class Plan9FileSyscalls
         ValidateAccess(lease.Handle, write: true);
         ResourceOperationContext context = contextFactory();
         long position = offset == -1 ? lease.ReserveWrite(data.Length) : offset;
-        uint written;
+        uint written = 0;
         try
         {
             if (position < 0)

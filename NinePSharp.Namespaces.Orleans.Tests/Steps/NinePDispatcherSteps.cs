@@ -32,6 +32,7 @@ public sealed class NinePDispatcherSteps
     private TimeSpan flushDuration;
     private Task<object>? attach;
     private Task? drain;
+    private Task<bool>? answeredFirst;
     private Task<object>? secondAttach;
 
     [Given("a distributed 9P dispatcher and attached fid 1")]
@@ -79,13 +80,13 @@ public sealed class NinePDispatcherSteps
     }
 
     [When("the transport closes during the attach")]
-    public void CloseDuringAttach() => drain = RequiredDispatcher().CloseSessionAsync(sessionId);
+    public void CloseDuringAttach() => Drain(RequiredDispatcher().CloseSessionAsync(sessionId));
 
     [When("9P negotiates the version during the attach")]
-    public void VersionDuringAttach() => drain = DispatchAsync(NinePMessage.NewMsgTversion(new Tversion(NinePConstants.NoTag, 8192, "9P2000")));
+    public void VersionDuringAttach() => Drain(DispatchAsync(NinePMessage.NewMsgTversion(new Tversion(NinePConstants.NoTag, 8192, "9P2000"))));
 
     [When("9P flushes the attach")]
-    public void FlushAttach() => drain = DispatchAsync(NinePMessage.NewMsgTflush(new Tflush(21, 20)));
+    public void FlushAttach() => Drain(DispatchAsync(NinePMessage.NewMsgTflush(new Tflush(21, 20))));
 
     [When("9P attaches again with the same tag")]
     public async Task AttachAgain()
@@ -96,6 +97,9 @@ public sealed class NinePDispatcherSteps
 
     [Then(@"^it finishes within (\d+) seconds$")]
     public Task DrainFinishes(int seconds) => drain!.WaitAsync(TimeSpan.FromSeconds(seconds));
+
+    [Then("the attach was answered before it finished")]
+    public async Task AttachAnsweredFirst() => Assert.True(await answeredFirst!.WaitAsync(TimeSpan.FromSeconds(2)));
 
     [Then(@"^the attach is answered with the error ""(.*)""$")]
     public async Task AttachAnswered(string error)
@@ -343,6 +347,14 @@ public sealed class NinePDispatcherSteps
 
     private ITestMountableResourceGrain Control()
         => OrleansTestEnvironment.Cluster.GrainFactory.GetGrain<ITestMountableResourceGrain>(device);
+
+    // Whether the abandoned attach had its answer at the moment the drain finished, which 9P
+    // requires before the flush, version or close completes.
+    private void Drain(Task completion)
+    {
+        drain = completion;
+        answeredFirst = completion.ContinueWith(_ => attach!.IsCompleted, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    }
 
     private sealed class FixedAttachResolver : IDistributedNamespaceAttachResolver
     {

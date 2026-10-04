@@ -137,7 +137,7 @@ public sealed class ResourceAuthorizationSteps
     [Given(@"^(\w+) has opened ""(.*)"" for (\S+)$")]
     public async Task GivenOpened(string user, string path, string mode)
     {
-        retained = await View(user).OpenAsync(tree.Handle(path), OpenMode(mode), Context(user), CancellationToken.None);
+        retained = await View(user).OpenAsync(tree.Handle(path), OpenMode(mode), Context(user), Bounded());
         retainedUser = user;
         retainedPath = path;
     }
@@ -153,7 +153,7 @@ public sealed class ResourceAuthorizationSteps
 
     [When(@"^(\w+) stats ""(.*)""$")]
     public Task Stats(string user, string path)
-        => Attempt("stat", path, async () => await View(user).StatAsync(tree.Handle(path), CancellationToken.None));
+        => Attempt("stat", path, async () => await View(user).StatAsync(tree.Handle(path), Bounded()));
 
     [When(@"^(\w+) stats the handle of ""(.*)"" obtained elsewhere$")]
     public Task StatsForeign(string user, string path) => Stats(user, path);
@@ -161,13 +161,13 @@ public sealed class ResourceAuthorizationSteps
     [When(@"^(\w+) writes ""(.*)"" through that handle$")]
     public Task WritesThroughHandle(string user, string data)
         => Attempt("write", retainedPath, async () =>
-            await View(user).WriteAsync(retained!, 0, Encoding.ASCII.GetBytes(data), Context(user), CancellationToken.None));
+            await View(user).WriteAsync(retained!, 0, Encoding.ASCII.GetBytes(data), Context(user), Bounded()));
 
     [When(@"^(\w+) reads through a handle opened directly from the provider$")]
     public Task ReadsForeignHandle(string user)
     {
         ResourceOpenHandle direct = tree.OpenDirect("/data/report", NinePConstants.OREAD);
-        return Attempt("read", "/data/report", async () => await View(user).ReadAsync(direct, 0, 64, CancellationToken.None));
+        return Attempt("read", "/data/report", async () => await View(user).ReadAsync(direct, 0, 64, Bounded()));
     }
 
     [When(@"^(\w+) walks to ""(.*)""$")]
@@ -180,9 +180,9 @@ public sealed class ResourceAuthorizationSteps
         try
         {
             var plane = new LocalNamespaceDataPlane(mounts, View(user));
-            NamespaceChannel root = await plane.AttachAsync(tree.Handle("/"), CancellationToken.None);
+            NamespaceChannel root = await plane.AttachAsync(tree.Handle("/"), Bounded());
             string[] names = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            result = (await plane.WalkAsync(root, names, CancellationToken.None), names.Length);
+            result = (await plane.WalkAsync(root, names, Bounded()), names.Length);
         }
         catch (Exception caught)
         {
@@ -196,11 +196,11 @@ public sealed class ResourceAuthorizationSteps
     {
         error = null;
         var plane = new LocalNamespaceDataPlane(mounts, View(user));
-        NamespaceChannel root = await plane.AttachAsync(tree.Handle("/"), CancellationToken.None);
+        NamespaceChannel root = await plane.AttachAsync(tree.Handle("/"), Bounded());
         string[] names = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        NamespaceWalkResult walk = await plane.WalkAsync(root, names, CancellationToken.None);
+        NamespaceWalkResult walk = await plane.WalkAsync(root, names, Bounded());
         Assert.True(walk.Complete(names.Length));
-        result = await plane.ReadDirectoryAsync(walk.Channel, CancellationToken.None);
+        result = await plane.ReadDirectoryAsync(walk.Channel, Bounded());
     }
 
     [When(@"^(\w+) creates (file|directory) ""(.*)"" in ""(.*)"" with permissions (\d+) for (\S+)$")]
@@ -209,14 +209,14 @@ public sealed class ResourceAuthorizationSteps
         createdDirectory = kind == "directory";
         uint perm = Octal(permissions) | (createdDirectory ? (uint)NinePConstants.FileMode9P.DMDIR : 0);
         return Attempt("create", directory, async () => await View(user).CreateAndOpenAsync(
-            tree.Handle(directory), name, perm, OpenMode(mode), Context(user), CancellationToken.None));
+            tree.Handle(directory), name, perm, OpenMode(mode), Context(user), Bounded()));
     }
 
     [When(@"^(\w+) removes ""(.*)"" through that handle$")]
     public Task RemovesThroughHandle(string user, string path)
         => Attempt("remove", path, async () =>
         {
-            await View(user).RemoveAsync(tree.Handle(path), retained, Context(user), CancellationToken.None);
+            await View(user).RemoveAsync(tree.Handle(path), retained, Context(user), Bounded());
             return true;
         });
 
@@ -224,7 +224,7 @@ public sealed class ResourceAuthorizationSteps
     public Task Removes(string user, string path)
         => Attempt("remove", path, async () =>
         {
-            await View(user).RemoveAsync(tree.Handle(path), null, Context(user), CancellationToken.None);
+            await View(user).RemoveAsync(tree.Handle(path), null, Context(user), Bounded());
             return true;
         });
 
@@ -245,15 +245,15 @@ public sealed class ResourceAuthorizationSteps
     [When(@"^(\w+) lists ""(.*)"" after revocation$")]
     [When(@"^(\w+) lists the directory ""(.*)"" directly$")]
     public Task ListsDirectly(string user, string path)
-        => Attempt("readdir", path, async () => await View(user).ReadDirectoryAsync(tree.Handle(path), CancellationToken.None));
+        => Attempt("readdir", path, async () => await View(user).ReadDirectoryAsync(tree.Handle(path), Bounded()));
 
     [When(@"^(\w+) walks out of the file ""(.*)""$")]
     public Task WalksOutOfFile(string user, string path)
-        => Attempt("walk", path, async () => (object?)await View(user).WalkAsync(tree.Handle(path), "child", CancellationToken.None) ?? "none");
+        => Attempt("walk", path, async () => (object?)await View(user).WalkAsync(tree.Handle(path), "child", Bounded()) ?? "none");
 
     [When(@"^(\w+) reads through that handle$")]
     public Task ReadsThroughHandle(string user)
-        => Attempt("read", retainedPath, async () => await View(user).ReadAsync(retained!, 0, 64, CancellationToken.None));
+        => Attempt("read", retainedPath, async () => await View(user).ReadAsync(retained!, 0, 64, Bounded()));
 
     [When(@"^(\w+) clunks a handle opened directly from the provider$")]
     public Task ClunksForeignHandle(string user)
@@ -261,14 +261,14 @@ public sealed class ResourceAuthorizationSteps
         ResourceOpenHandle direct = tree.OpenDirect("/data/report", NinePConstants.OREAD);
         return Attempt("clunk", "/data/report", async () =>
         {
-            await View(user).ClunkAsync(direct, Context(user), CancellationToken.None);
+            await View(user).ClunkAsync(direct, Context(user), Bounded());
             return true;
         });
     }
 
     [When(@"^(\w+) creates the entry ""(.*)"" in ""(.*)"" without opening it$")]
     public Task CreatesEntry(string user, string name, string directory)
-        => Attempt("create", directory, async () => await View(user).CreateAsync(tree.Handle(directory), name, false, CancellationToken.None));
+        => Attempt("create", directory, async () => await View(user).CreateAsync(tree.Handle(directory), name, false, Bounded()));
 
     [Given(@"^a chain of (\d+) nested directories under ""/"" ending in a file$")]
     public void GivenChain(int depth)
@@ -448,7 +448,7 @@ public sealed class ResourceAuthorizationSteps
 
         // Counted across paths: a moved file is logged under its new name.
         int before = tree.CallsMatching("read ");
-        ReadOnlyMemory<byte> bytes = await View(user).ReadAsync(retained!, 0, 64, CancellationToken.None);
+        ReadOnlyMemory<byte> bytes = await View(user).ReadAsync(retained!, 0, 64, Bounded());
         Assert.False(bytes.IsEmpty);
         Assert.Equal(before + 1, tree.CallsMatching("read "));
     }
@@ -457,9 +457,9 @@ public sealed class ResourceAuthorizationSteps
     public async Task HandleDenied(string operation)
     {
         await (operation == "reading"
-            ? Attempt("read", retainedPath, async () => await View(retainedUser).ReadAsync(retained!, 0, 64, CancellationToken.None))
+            ? Attempt("read", retainedPath, async () => await View(retainedUser).ReadAsync(retained!, 0, 64, Bounded()))
             : Attempt("write", retainedPath, async () =>
-                await View(retainedUser).WriteAsync(retained!, 0, new byte[] { 1 }, Context(retainedUser), CancellationToken.None)));
+                await View(retainedUser).WriteAsync(retained!, 0, new byte[] { 1 }, Context(retainedUser), Bounded())));
         DeniedBeforeDispatch();
     }
 
@@ -467,7 +467,7 @@ public sealed class ResourceAuthorizationSteps
     public async Task ClunkReachesProvider()
     {
         int before = tree.CallsMatching("clunk ");
-        await View(retainedUser).ClunkAsync(retained!, Context(retainedUser), CancellationToken.None);
+        await View(retainedUser).ClunkAsync(retained!, Context(retainedUser), Bounded());
         Assert.Equal(before + 1, tree.CallsMatching("clunk "));
     }
 
@@ -572,9 +572,12 @@ public sealed class ResourceAuthorizationSteps
         return mode;
     }
 
+    // Each call is bounded, so a walk that never ends fails its scenario instead of hanging it.
+    private static CancellationToken Bounded() => new CancellationTokenSource(TimeSpan.FromSeconds(1)).Token;
+
     private async Task OpenAs(string user, string path, string mode, string contextUser)
         => await Attempt("open", path, async () =>
-            await View(user).OpenAsync(tree.Handle(path), OpenMode(mode), Context(contextUser), CancellationToken.None));
+            await View(user).OpenAsync(tree.Handle(path), OpenMode(mode), Context(contextUser), Bounded()));
 
     private async Task Attempt(string kind, string path, Func<Task<object>> operation)
     {
