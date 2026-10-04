@@ -18,10 +18,11 @@ NinePSharp is a modular .NET 9P toolkit and server. It lets you expose local or 
 - `NinePSharp.Namespaces/` - Plan 9 mount tables, virtual process groups, fid sessions, and resource contracts.
 - `NinePSharp.Namespaces.Orleans/` - distributed namespace and data-plane adapters for Orleans grains.
 - `NinePSharp.Namespaces.Orleans.Server/` - 9P2000 and maintained 9P2000.L-subset dispatcher for Orleans resources.
-- `NinePSharp.Fog/` - bounded LibTab records and ephemeral control transactions.
-- `NinePSharp.Fog.Server/` - direct TLS node listener, 9P control files, and transaction client.
 - `NinePSharp.Examples/` - runnable sample host with an in-memory handler.
 - `NinePSharp.Tests/` and `NinePSharp.Parser.Tests/` - test suites.
+
+Fog, the Plan 9-style application platform built on these libraries, lives in its own
+repository, `kiljoy001/Fog`, and takes NinePSharp from NuGet.
 
 ## Quick Start
 
@@ -65,8 +66,8 @@ thresholds, CRAP scoring, and the custom Semgrep rules in `quality/semgrep.yml` 
 Semgrep is installed.
 
 `--full` also runs the scoped Stryker mutation gate (`MIN_MUTATION=100` by default)
-and bounded SharpFuzz/AFL++ parser, filesystem, namespace, namespace-syscall, Orleans gateway, and Fog campaigns.
-Mutation scopes include the Orleans adapters, gateway, shared transport, Fog core/server,
+and bounded SharpFuzz/AFL++ parser, filesystem, namespace, namespace-syscall, authorization and
+Orleans gateway campaigns. Mutation scopes include the Orleans adapters, gateway, shared transport,
 and sequential control client. Coverage
 defaults can be tuned with `MIN_LINE` and `MIN_BRANCH`; CRAP failure is controlled by
 `CRAP_LIMIT`.
@@ -77,7 +78,7 @@ Run a read-only, loopback example with `dotnet run --project NinePSharp.Examples
 Attach as `guest` and read `/hello`. See [hosting, provider registration, security,
 and lifetime semantics](docs/orleans-integration.md) for embedding the gateway in your own host.
 
-## Plan 9 namespaces and Fog
+## Plan 9 namespaces
 
 Current development focuses on Plan 9 namespace behavior: virtual processes and
 process groups, bind/mount/unmount, union mounts, channel and fid lifetime, and
@@ -92,12 +93,8 @@ admitted I/O references, and provider-close failure handling. These have
 [executable cleanup scenarios](NinePSharp.Namespaces.Tests/Features/DescriptorCleanup.feature).
 Durable Orleans ownership and cleanup recovery remain separate implementation work.
 
-The [Fog control adapter](NinePSharp.Fog.Server/README.md) provides generic bounded
-transactions over 9P. The selected primary workload is
-[dotnet-webassembly with WASI file access](docs/specifications/fog-v1-profiles/Wasm.md)
-through the virtual namespace. Pinned engine compatibility tests run in CI; the full
-WASI bridge and supervised workload host remain implementation work.
-The symbolic-math workload, execution bundle, and direct-worker demo have been removed.
+Pinned [dotnet-webassembly compatibility tests](tools/WasmCompatibility.Tests/README.md) run in
+CI, checking WASI file access through the virtual namespace.
 
 ## NuGet Packages
 

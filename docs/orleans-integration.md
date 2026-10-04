@@ -5,34 +5,10 @@ TLS. A connection owns its fids; a virtual process group owns its mount table;
 resource grains own their workload or data. Clients speak 9P. Inside the cluster,
 the adapter uses typed Orleans grain calls, not a replacement Orleans wire transport.
 
-The proposed next-stage behavior is specified in the
-[swarm-wide 9P transport BDD contract](specifications/swarm-9p-transport/README.md).
-Those scenarios are specification-only; the transport described there is not yet
-implemented by this gateway.
-
-The proposed future workload interface is specified in the
-[LibTab compute-job BDD contract](specifications/libtab-compute-jobs/README.md).
-It uses LibTab metadata and Plan 9 text controls over ordinary 9P files; those
-workloads and job lifecycle are also specification-only.
-
-The [universal workload-provider specification](specifications/workload-providers/README.md)
-defines the proposed authoring API for custom engines behind that job interface.
-The shared workload-grain adapter and provider SDK are not implemented yet.
-
-The [single-operator fog foundation](specifications/fog-foundation/README.md)
-designs user-side factotum authentication, namespace authorization, bootstrap,
-admission and bounded failure recovery. It reuses Plan 9 auth-fid and namespace
-semantics, but is also specification-only. Its user-proof TLS profile, membership
-service and authority enforcement are not supplied by the current gateway.
-
-[Built-in AAN requirements](specifications/swarm-9p-transport/Aan.md) add bounded
-same-session recovery from temporary link failures. They distinguish carrier loss
-from terminal session loss and preserve job/lease deadlines. The selected data path
-is TLS, stock AAN framing, then 9P. The
-[concrete v1 profiles](specifications/fog-v1-profiles/README.md) specify secure AAN
-establishment, membership, runtime ABIs, storage, worker authority and containment;
-the current gateway does not implement
-AAN and still releases connection-owned fids on disconnect as described below.
+The swarm-wide 9P transport with built-in AAN, LibTab compute jobs, workload providers and
+the single-operator foundation with its v1 profiles build on this gateway and are specified
+with Fog, in its own repository. The gateway implements none of them: it has no AAN and
+releases connection-owned fids on disconnect as described below.
 
 ## Run the example
 

@@ -40,24 +40,12 @@ case "$TARGET" in
     CORPUS="$ROOT/corpus/orleans"
     INSTRUMENT=("NinePSharp.Namespaces.Orleans.Server.dll" "NinePSharp.Namespaces.Orleans.dll" "NinePSharp.Namespaces.dll")
     ;;
-  fog)
-    CORPUS="$ROOT/corpus/fog"
-    INSTRUMENT=("NinePSharp.Fog.dll")
-    ;;
-  fog-files)
-    CORPUS="$ROOT/corpus/fog"
-    INSTRUMENT=("NinePSharp.Fog.Server.dll" "NinePSharp.Fog.dll")
-    ;;
   authorization)
     CORPUS="$ROOT/corpus/authorization"
     INSTRUMENT=("NinePSharp.Namespaces.Authorization.dll")
     ;;
-  fog-dispatcher)
-    CORPUS="$ROOT/corpus/fog-dispatcher"
-    INSTRUMENT=("NinePSharp.Fog.Server.dll" "NinePSharp.Fog.dll")
-    ;;
   *)
-    echo "usage: FUZZ_SECONDS=30 scripts/fuzz.sh [parser|filesystem|inmemory|namespace|namespace-syscalls|orleans|authorization|fog|fog-files|fog-dispatcher]" >&2
+    echo "usage: FUZZ_SECONDS=30 scripts/fuzz.sh [parser|filesystem|inmemory|namespace|namespace-syscalls|orleans|authorization]" >&2
     exit 2
     ;;
 esac

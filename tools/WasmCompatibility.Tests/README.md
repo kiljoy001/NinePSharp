@@ -26,7 +26,7 @@ while the coordinating test continues. This does not test an Orleans silo.
 per call, one write at offset zero, and only the errors needed by those cases. It is
 not a production WASI implementation or an untrusted-code runner. It supplies no
 path_open, rights/preopens, general vector IO, shared offsets, metering or containment.
-Production requirements and pending BDD are in
-[Wasm.md](../../docs/specifications/fog-v1-profiles/Wasm.md). These integration tests
+Production requirements and pending BDD are in Fog's
+`docs/specifications/fog-v1-profiles/Wasm.md`, in the Fog repository. These integration tests
 do not replace the normal property, fuzz or zero-survivor mutation gates for production
 adapter code when it is added.

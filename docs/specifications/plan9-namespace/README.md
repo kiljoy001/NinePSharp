@@ -32,8 +32,9 @@ The specifications are organized by behavior:
   specifications with stat/fstat/wstat/fwstat implementation and eight executable
   BDD scenarios; wstat/fwstat lost-reply recovery is implemented, while pathname
   removal and its durable recovery remain pending.
-- [WASI namespace adaptation](../fog-v1-profiles/Wasm.md) makes dotnet-webassembly
-  the primary workload target without changing native Plan 9 syscall semantics.
+- Fog's WASI namespace adaptation (`docs/specifications/fog-v1-profiles/Wasm.md` in the Fog
+  repository) makes dotnet-webassembly its primary workload target without changing native
+  Plan 9 syscall semantics.
 - `NamespaceControlPlane.feature` covers the 9P filesystem used to request remote namespace operations.
 - `NamespaceDevices.feature` covers `/proc`, `/srv`, and `/shr` projections.
 - `AsyncResourceChannels.feature` covers CSP-style message resources exposed through the namespace.

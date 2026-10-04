@@ -1,8 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\NinePSharp.Fog.Server\NinePSharp.Fog.Server.csproj" />
-    <ProjectReference Include="..\NinePSharp.Fog\NinePSharp.Fog.csproj" />
     <ProjectReference Include="..\NinePSharp.Namespaces\NinePSharp.Namespaces.csproj" />
     <ProjectReference Include="..\NinePSharp.Namespaces.Authorization\NinePSharp.Namespaces.Authorization.csproj" />
     <ProjectReference Include="..\NinePSharp.Parser\NinePSharp.Parser.fsproj" />

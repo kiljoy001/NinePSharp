@@ -59,7 +59,7 @@ This document records why each feature exists and whether it is already covered 
 | `NS_REMOVE_001`–`NS_REMOVE_007`, `NS_REMOVE_014` | `sysfile.c:sysremove`; `chan.c:namec(Aremove)`; `devmnt.c:mntremove`; `sys/man/2/remove`, `sys/man/5/remove` | Fid/data-plane remove exists; dedicated pathname syscall with private lookup ownership, mount-point refusal and no double clunk is specified | Native design; pending implementation and executable bindings |
 | `NS_REMOVE_008`–`NS_REMOVE_009` | `sys/man/2/remove`, `sys/man/5/remove` | Parent permissions, empty directories and provider-dependent other-fid behavior are specified | Provider contract; pending conformance tests |
 | `NS_REMOVE_010`–`NS_REMOVE_013` | Native channel ownership adapted to async completion; `DistributedLifetimes.feature` | Namespace/exit/cancellation races and lost-reply removal of replacement-file prevention are specified | Async extension; pending implementation and durable recovery evidence |
-| `WASI_NS_001`–`WASI_NS_014` | Preview 1 WITX and `fog-v1-profiles/Wasm.md` | dotnet-webassembly primary workload: capabilities, marshalling, renumber, provider extensions and worker isolation | Adapter extension; ten executable engine compatibility cases provide narrower evidence only |
+| `WASI_NS_001`–`WASI_NS_014` | Preview 1 WITX and Fog's `fog-v1-profiles/Wasm.md` | dotnet-webassembly primary workload: capabilities, marshalling, renumber, provider extensions and worker isolation | Adapter extension; ten executable engine compatibility cases provide narrower evidence only |
 
 The largest semantic gaps before claiming 9front namespace compatibility are exact
 `Chan`/`Path` identity and history, distributed namespace lifecycle, native `/proc` namespace
