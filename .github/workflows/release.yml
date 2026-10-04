@@ -83,6 +83,7 @@ jobs:
             NinePSharp.Server.FSharp/NinePSharp.Server.FSharp.fsproj
             NinePSharp.Server/NinePSharp.Server.csproj
             NinePSharp.Namespaces/NinePSharp.Namespaces.csproj
+            NinePSharp.Namespaces.Authorization/NinePSharp.Namespaces.Authorization.csproj
             NinePSharp.Namespaces.Orleans.Abstractions/NinePSharp.Namespaces.Orleans.Abstractions.csproj
             NinePSharp.Namespaces.Orleans/NinePSharp.Namespaces.Orleans.csproj
             NinePSharp.Namespaces.Orleans.Server/NinePSharp.Namespaces.Orleans.Server.csproj
@@ -103,8 +104,8 @@ jobs:
           shopt -s nullglob
           packages=(artifacts/packages/*.nupkg)
           symbols=(artifacts/packages/*.snupkg)
-          if [[ ${#packages[@]} -ne 11 || ${#symbols[@]} -ne 11 ]]; then
-            printf 'Expected eleven packages and eleven symbol packages; found %d and %d.\n' \
+          if [[ ${#packages[@]} -ne 12 || ${#symbols[@]} -ne 12 ]]; then
+            printf 'Expected twelve packages and twelve symbol packages; found %d and %d.\n' \
               "${#packages[@]}" "${#symbols[@]}" >&2
             exit 1
           fi
