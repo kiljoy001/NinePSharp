@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using NinePSharp.Namespaces;
 using NinePSharp.Namespaces.Tests.Support;
@@ -111,7 +112,11 @@ public sealed class RuntimeFileTests
             module.Imports.Add(new Import.Function("wasi_snapshot_preview1", imports[i], i));
             module.Functions.Add(new Function { Type = i });
             var code = new List<Instruction>();
-            for (uint p = 0; p < module.Types[(int)i].Parameters.Count; p++) code.Add(new LocalGet(p));
+            for (uint p = 0; p < module.Types[(int)i].Parameters.Count; p++)
+            {
+                code.Add(new LocalGet(p));
+            }
+
             code.Add(new Call(i));
             code.Add(new End());
             module.Codes.Add(new FunctionBody { Code = code });
@@ -125,25 +130,39 @@ public sealed class RuntimeFileTests
 
     public abstract class Guest
     {
+        [SuppressMessage("StyleCop.CSharp.NamingRules", "SA1300", Justification = "The binding matches the module's memory export.")]
         public abstract UnmanagedMemory memory { get; }
+
         public abstract int Write(int fd, int vectors, int count, int result);
+
         public abstract int Read(int fd, int vectors, int count, long offset, int result);
+
         public abstract int Close(int fd);
     }
 
     private sealed class FileHost : IAsyncDisposable
     {
-        internal MemoryDataResources Resources { get; } = new();
-        internal DescriptorGroup Descriptors { get; } = new();
-        internal LocalNamespaceDataPlane Data { get; private set; } = null!;
-        internal ResourceOpenHandle Opened { get; private set; } = null!;
-        internal UnmanagedMemory Memory { get; set; } = null!;
-        internal int Fd { get; private set; }
-        internal bool PauseWrite { get; set; }
-        internal int WriteCount { get; private set; }
-        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        internal TaskCompletionSource Continue { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private ulong sequence;
+
+        internal MemoryDataResources Resources { get; } = new();
+
+        internal DescriptorGroup Descriptors { get; } = new();
+
+        internal LocalNamespaceDataPlane Data { get; private set; } = null!;
+
+        internal ResourceOpenHandle Opened { get; private set; } = null!;
+
+        internal UnmanagedMemory Memory { get; set; } = null!;
+
+        internal int Fd { get; private set; }
+
+        internal bool PauseWrite { get; set; }
+
+        internal int WriteCount { get; private set; }
+
+        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal TaskCompletionSource Continue { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal ImportDictionary Imports => new()
         {
@@ -151,6 +170,14 @@ public sealed class RuntimeFileTests
             { "wasi_snapshot_preview1", "fd_pread", new FunctionImport(new Func<int, int, int, long, int, int>(Read)) },
             { "wasi_snapshot_preview1", "fd_close", new FunctionImport(new Func<int, int>(Close)) },
         };
+
+        public async ValueTask DisposeAsync()
+        {
+            foreach (DescriptorSlot slot in Descriptors.Snapshot())
+            {
+                await Descriptors.CloseAsync(slot.Number);
+            }
+        }
 
         internal static async Task<FileHost> CreateAsync()
         {
@@ -177,7 +204,11 @@ public sealed class RuntimeFileTests
         private bool Vector(int vectors, int count, int result, out int buffer, out int length)
         {
             buffer = length = 0;
-            if (count != 1 || !Range(vectors, 8) || !Range(result, 4)) return false;
+            if (count != 1 || !Range(vectors, 8) || !Range(result, 4))
+            {
+                return false;
+            }
+
             buffer = Marshal.ReadInt32(Memory.Start + vectors);
             length = Marshal.ReadInt32(Memory.Start + vectors + 4);
             return Range(buffer, unchecked((uint)length));
@@ -185,9 +216,14 @@ public sealed class RuntimeFileTests
 
         private int Write(int fd, int vectors, int count, int result)
         {
-            if (!Vector(vectors, count, result, out int buffer, out int length)) return 21;
+            if (!Vector(vectors, count, result, out int buffer, out int length))
+            {
+                return 21;
+            }
+
             byte[] copy = new byte[length];
             Marshal.Copy(Memory.Start + buffer, copy, 0, length);
+
             // Only this dedicated test worker blocks. Never call this on an Orleans turn.
             uint written = WriteAsync(fd, copy).GetAwaiter().GetResult();
             Marshal.WriteInt32(Memory.Start + result, checked((int)written));
@@ -209,7 +245,11 @@ public sealed class RuntimeFileTests
 
         private int Read(int fd, int vectors, int count, long offset, int result)
         {
-            if (!Vector(vectors, count, result, out int buffer, out int length)) return 21;
+            if (!Vector(vectors, count, result, out int buffer, out int length))
+            {
+                return 21;
+            }
+
             byte[] bytes = ReadAsync(fd, unchecked((ulong)offset), checked((uint)length)).GetAwaiter().GetResult();
             Marshal.Copy(bytes, 0, Memory.Start + buffer, bytes.Length);
             Marshal.WriteInt32(Memory.Start + result, bytes.Length);
@@ -224,13 +264,15 @@ public sealed class RuntimeFileTests
 
         private int Close(int fd)
         {
-            try { Descriptors.CloseAsync(fd).AsTask().GetAwaiter().GetResult(); return 0; }
-            catch (ArgumentException) { return 8; }
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            foreach (DescriptorSlot slot in Descriptors.Snapshot()) await Descriptors.CloseAsync(slot.Number);
+            try
+            {
+                Descriptors.CloseAsync(fd).AsTask().GetAwaiter().GetResult();
+                return 0;
+            }
+            catch (ArgumentException)
+            {
+                return 8;
+            }
         }
     }
 }
