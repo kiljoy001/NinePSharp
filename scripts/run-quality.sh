@@ -115,7 +115,7 @@ if [[ $FULL -eq 1 ]]; then
   rm -rf .artifacts/stryker-fog-kernel
   (cd NinePSharp.Fog.Kernel.Tests && dotnet stryker --config-file ../stryker-config-fog-kernel.json --reporter json --reporter progress --output ../.artifacts/stryker-fog-kernel --skip-version-check --break-on-initial-test-failure --verbosity error)
   python3 tools/mutation_summary.py --output-dir .artifacts/stryker-fog-kernel --min-score "$MIN_MUTATION"
-  (cd NinePSharp.Fog.Server.Tests && dotnet stryker --config-file ../stryker-config-control-client.json --reporter json --reporter progress --output ../.artifacts/stryker-control-client --skip-version-check --break-on-initial-test-failure --verbosity error)
+  (cd NinePSharp.Client.Tests && dotnet stryker --config-file ../stryker-config-control-client.json --reporter json --reporter progress --output ../.artifacts/stryker-control-client --skip-version-check --break-on-initial-test-failure --verbosity error)
   python3 tools/mutation_summary.py --output-dir .artifacts/stryker-control-client --min-score "$MIN_MUTATION"
 
   step "SharpFuzz/AFL parser campaign"

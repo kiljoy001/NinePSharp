@@ -2,7 +2,7 @@
   "stryker-config": {
     "project": "NinePSharp.Client.csproj",
     "test-projects": [
-      "NinePSharp.Fog.Server.Tests.csproj"
+      "NinePSharp.Client.Tests.csproj"
     ],
     "mutate": [
       "NinePSequentialClient.cs"

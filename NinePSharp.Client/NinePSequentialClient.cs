@@ -58,24 +58,21 @@ public sealed class NinePSequentialClient : IAsyncDisposable
             }
 
             byte[] frame = SerializeRequest(createRequest(tag), tag);
-            object parsed;
+            bool answered = false;
             try
             {
-                byte[] response = await RoundTripAsync(frame, tag, cancellationToken).ConfigureAwait(false);
-                parsed = ParseResponse<T>(response);
+                object parsed = ParseResponse<T>(await RoundTripAsync(frame, tag, cancellationToken).ConfigureAwait(false));
+                answered = true;
+                return parsed is Rerror error ? throw new NinePException(error.Ename) : (T)parsed;
             }
-            catch
+            finally
             {
-                await DisposeAsync().ConfigureAwait(false);
-                throw;
+                // An Rerror answers the request; anything else that fails leaves the stream ambiguous.
+                if (!answered)
+                {
+                    await DisposeAsync().ConfigureAwait(false);
+                }
             }
-
-            if (parsed is Rerror error)
-            {
-                throw new NinePException(error.Ename);
-            }
-
-            return (T)parsed;
         }
         finally
         {
