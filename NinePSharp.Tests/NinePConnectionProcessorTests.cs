@@ -221,6 +221,44 @@ public class NinePConnectionProcessorTests
     }
 
     [Fact]
+    public async Task AFlushIsAnsweredOnlyAfterTheRequestItFlushes()
+    {
+        var releaseRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var flushDispatched = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatcher = new Mock<INinePFSDispatcher>();
+        dispatcher.Setup(value => value.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), null))
+            .Returns(async (string id, NinePMessage message, NinePDialect dialect, X509Certificate2? certificate) =>
+            {
+                if (message is NinePMessage.MsgTread read)
+                {
+                    await releaseRead.Task;
+                    return (object)new Rread(read.Item.Tag, new byte[] { 1 });
+                }
+
+                flushDispatched.TrySetResult();
+                return new Rflush(12);
+            });
+        var processor = CreateProcessor(dispatcher, new StubTransportSecurity());
+        byte[] input = Serialize(new Tread(10, 1, 0, 1)).Concat(Serialize(new Tflush(12, 10))).ToArray();
+        using var stream = new ScriptedDuplexStream(input);
+        Task processing = processor.ProcessStreamAsync(stream, null, new NinePConnectionProcessor.ClientSession(), CancellationToken.None);
+        await flushDispatched.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        try
+        {
+            // Time enough for an Rflush that did not wait for the read to reach the wire.
+            await Task.Delay(200);
+            Assert.Empty(stream.Written.ToArray());
+        }
+        finally
+        {
+            releaseRead.TrySetResult();
+            await processing.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+
+        Assert.Equal(new[] { MessageTypes.Rread, MessageTypes.Rflush }, ResponseTypes(stream.Written.Span));
+    }
+
+    [Fact]
     public async Task VersionIsAWireBarrierAndNextRequestUsesNewDialect()
     {
         var releaseRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
