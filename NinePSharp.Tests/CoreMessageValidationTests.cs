@@ -188,7 +188,8 @@ public class CoreMessageValidationTests
         Assert.Equal(names, reparsed.Wname);
     }
 
-    [Property]
+    // Small inputs keep shrinking a failure short, so a broken writer fails fast.
+    [Property(EndSize = 32)]
     public void Rread_ReadOnlyMemory_Handling(ushort tag, byte[] data)
     {
         var mem = new ReadOnlyMemory<byte>(data ?? Array.Empty<byte>());
@@ -346,7 +347,8 @@ public class CoreMessageValidationTests
         Assert.Equal(t.Size, reparsed.Size);
     }
 
-    [Property]
+    // Small inputs keep shrinking a failure short, so a broken writer fails fast.
+    [Property(EndSize = 32)]
     public void Rversion_Fields_Preserved(ushort tag, uint msize, string version)
     {
         var v = version ?? string.Empty;
