@@ -23,6 +23,6 @@
       "break": 100
     },
     "concurrency": 4,
-    "additional-timeout": 20000
+    "additional-timeout": 60000
   }
 }

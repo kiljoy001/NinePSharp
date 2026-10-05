@@ -18,7 +18,7 @@
       "low": 100,
       "break": 100
     },
-    "additional-timeout": 30000,
+    "additional-timeout": 60000,
     "concurrency": 4
   }
 }
