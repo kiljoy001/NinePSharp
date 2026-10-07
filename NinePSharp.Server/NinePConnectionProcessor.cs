@@ -99,8 +99,9 @@ public sealed class NinePConnectionProcessor
                     break;
                 }
 
-                // A tag is reusable only after its previous wire response. A duplicate cannot
-                // safely receive Rerror (it would ambiguously answer the original operation).
+                // A tag is reusable once its previous response is handed to the writer, which a client
+                // may see before that write returns. A duplicate cannot safely receive Rerror (it
+                // would ambiguously answer the original operation).
                 if (work.TryGetOutstanding(frame.Value.Tag, out _))
                 {
                     buffers.Return(frame.Value.Buffer, clearArray: true);
@@ -118,8 +119,10 @@ public sealed class NinePConnectionProcessor
                     precedingResponse = work.Barrier();
                 }
 
-                Task request = ProcessFrameAsync(stream, endPoint, session, frame.Value, ct, precedingResponse);
-                work.Track(frame.Value.Tag, request);
+                ushort tag = frame.Value.Tag;
+                object claim = work.Claim(tag);
+                Task request = ProcessFrameAsync(stream, endPoint, session, frame.Value, ct, precedingResponse, () => work.Answered(tag, claim));
+                work.Track(tag, request, claim);
 
                 if (frame.Value.Type == MessageTypes.Tversion)
                 {
@@ -178,7 +181,7 @@ public sealed class NinePConnectionProcessor
         return outcome.Response;
     }
 
-    internal async Task SendResponseAsync(Stream stream, object response, SemaphoreSlim writeLock, CancellationToken ct)
+    internal async Task SendResponseAsync(Stream stream, object response, SemaphoreSlim writeLock, CancellationToken ct, Action? answered = null)
     {
         if (response is not ISerializable serializable)
         {
@@ -191,6 +194,7 @@ public sealed class NinePConnectionProcessor
         await writeLock.WaitAsync(ct);
         try
         {
+            answered?.Invoke();
             await stream.WriteAsync(outBuffer, ct);
         }
         finally
@@ -218,7 +222,8 @@ public sealed class NinePConnectionProcessor
         ClientSession session,
         FrameBuffer frame,
         CancellationToken cancellationToken,
-        Task? precedingResponse)
+        Task? precedingResponse,
+        Action answered)
     {
         try
         {
@@ -240,7 +245,7 @@ public sealed class NinePConnectionProcessor
                 await precedingResponse;
             }
 
-            await SendResponseAsync(stream, response, session.WriteLock, cancellationToken);
+            await SendResponseAsync(stream, response, session.WriteLock, cancellationToken, answered);
         }
         catch (Exception ex)
         {
@@ -251,7 +256,8 @@ public sealed class NinePConnectionProcessor
                     stream,
                     new Rerror(frame.Tag, ex.Message),
                     session.WriteLock,
-                    cancellationToken);
+                    cancellationToken,
+                    answered);
             }
             catch (Exception sendError)
             {
@@ -368,6 +374,11 @@ public sealed class NinePConnectionProcessor
         private readonly HashSet<Task> pending = new();
         private readonly Dictionary<ushort, Task> responsesByTag = new();
 
+        // A tag is in use from its request's arrival until its response is handed to the writer, or
+        // the request ends without one. Each claim is its own object, so an older request's ending
+        // cannot free a newer request's tag.
+        private readonly Dictionary<ushort, object> claims = new();
+
         internal int PendingCount
         {
             get
@@ -394,13 +405,36 @@ public sealed class NinePConnectionProcessor
         {
             lock (gate)
             {
-                if (responsesByTag.TryGetValue(tag, out response) && !response.IsCompleted)
+                if (claims.ContainsKey(tag))
                 {
+                    response = responsesByTag[tag];
                     return true;
                 }
 
                 response = null;
                 return false;
+            }
+        }
+
+        internal object Claim(ushort tag)
+        {
+            var claim = new object();
+            lock (gate)
+            {
+                claims[tag] = claim;
+            }
+
+            return claim;
+        }
+
+        internal void Answered(ushort tag, object claim)
+        {
+            lock (gate)
+            {
+                if (claims.TryGetValue(tag, out object? current) && ReferenceEquals(current, claim))
+                {
+                    claims.Remove(tag);
+                }
             }
         }
 
@@ -420,7 +454,9 @@ public sealed class NinePConnectionProcessor
             }
         }
 
-        internal void Track(ushort tag, Task response)
+        internal void Track(ushort tag, Task response) => Track(tag, response, Claim(tag));
+
+        internal void Track(ushort tag, Task response, object claim)
         {
             lock (gate)
             {
@@ -428,10 +464,10 @@ public sealed class NinePConnectionProcessor
                 responsesByTag[tag] = response;
             }
 
-            _ = ForgetWhenCompleteAsync(tag, response);
+            _ = ForgetWhenCompleteAsync(tag, response, claim);
         }
 
-        private async Task ForgetWhenCompleteAsync(ushort tag, Task response)
+        private async Task ForgetWhenCompleteAsync(ushort tag, Task response, object claim)
         {
             try
             {
@@ -441,6 +477,7 @@ public sealed class NinePConnectionProcessor
             {
             }
 
+            Answered(tag, claim);
             lock (gate)
             {
                 pending.Remove(response);

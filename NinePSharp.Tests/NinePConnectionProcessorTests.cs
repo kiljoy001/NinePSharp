@@ -51,6 +51,21 @@ public class NinePConnectionProcessorTests
     }
 
     [Fact]
+    public async Task ATagReusedAsSoonAsItsReplyIsOnTheWireIsServed()
+    {
+        var dispatcher = new Mock<INinePFSDispatcher>();
+        int dispatched = 0;
+        dispatcher.Setup(value => value.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), null))
+            .Returns(() => Task.FromResult<object>(new Rread(7, new[] { (byte)Interlocked.Increment(ref dispatched) })));
+        var processor = new NinePConnectionProcessor(NullLogger.Instance, dispatcher.Object);
+        byte[] read = Serialize(new Tread(7, 1, 0, 1));
+        using var stream = new TagReusingStream(read, read);
+        await processor.ProcessStreamAsync(stream, null, new NinePConnectionProcessor.ClientSession(), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(2, dispatched);
+        Assert.Equal(new[] { MessageTypes.Rread, MessageTypes.Rread }, ResponseTypes(stream.Written.Span));
+    }
+
+    [Fact]
     public async Task DefaultTlsRejectsAnonymousClientAndClosesFailedTransport()
     {
         using var certificate = CreateSelfSignedCertificate();
@@ -749,6 +764,87 @@ public class NinePConnectionProcessorTests
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 
         public override void SetLength(long value) => throw new NotSupportedException();
+    }
+
+    // A client like 9front's, which reuses a tag the moment its reply arrives: the second request can be
+    // read only once the first reply is written, and that write returns only after the client is done.
+    private sealed class TagReusingStream(byte[] first, byte[] second) : Stream
+    {
+        private static readonly TimeSpan Wait = TimeSpan.FromSeconds(5);
+        private readonly MemoryStream written = new();
+        private readonly TaskCompletionSource replied = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private byte[] current = first;
+        private int position;
+
+        public ReadOnlyMemory<byte> Written
+        {
+            get
+            {
+                lock (written)
+                {
+                    return written.ToArray();
+                }
+            }
+        }
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => true;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (position == current.Length)
+            {
+                if (current != first)
+                {
+                    finished.TrySetResult();
+                    return 0;
+                }
+
+                await replied.Task.WaitAsync(Wait, cancellationToken);
+                current = second;
+                position = 0;
+            }
+
+            int count = Math.Min(buffer.Length, current.Length - position);
+            current.AsMemory(position, count).CopyTo(buffer);
+            position += count;
+            return count;
+        }
+
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            lock (written)
+            {
+                written.Write(buffer.Span);
+            }
+
+            replied.TrySetResult();
+            await finished.Task.WaitAsync(Wait, cancellationToken);
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private sealed class TrackingBufferPool : ArrayPool<byte>
