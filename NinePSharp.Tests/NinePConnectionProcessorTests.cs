@@ -165,6 +165,8 @@ public class NinePConnectionProcessorTests
         work.Track(9, newer.Task);
         older.TrySetResult();
         await WaitForAsync(() => work.PendingCount == 1);
+        Assert.True(work.TryGetOutstanding(9, out outstanding), "the older request's end freed the newer request's tag");
+        Assert.Same(newer.Task, outstanding);
         Assert.Equal(1, work.ResponseCount);
         Assert.Same(newer.Task, work.FindResponse(9));
         newer.TrySetResult();
