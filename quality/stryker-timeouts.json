@@ -1,1 +1,8 @@
-[]
+[
+  {
+    "file": "NinePConnectionProcessor.cs",
+    "mutator": "Statement mutation",
+    "line": "break;",
+    "reason": "ReadAtLeastAsync ends at the end of the stream only by this break; a socket or MemoryStream keeps returning 0, so without it the loop spins."
+  }
+]
