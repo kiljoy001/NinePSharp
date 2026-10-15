@@ -222,13 +222,11 @@ public sealed class NinePConnectionProcessor
         return total;
     }
 
-    // WhenAny and Delay rather than WaitAsync, whose timer a Coyote-rewritten caller cannot control.
+    // WhenAny and Delay rather than WaitAsync, whose timer a Coyote-rewritten caller cannot control. Work that
+    // fails within the drain fails the caller, as WaitAsync's would.
     private async Task<bool> WithinDrainAsync(Task work)
     {
-        using var expiry = new CancellationTokenSource();
-        Task finished = await Task.WhenAny(work, Task.Delay(Drain, expiry.Token));
-        expiry.Cancel();
-        if (finished != work)
+        if (await Task.WhenAny(work, Task.Delay(Drain)) != work)
         {
             return false;
         }

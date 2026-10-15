@@ -51,6 +51,31 @@ public class NinePConnectionProcessorTests
     }
 
     [Fact]
+    public async Task TheEndOfTheStreamIsReadOnce()
+    {
+        var dispatcher = new Mock<INinePFSDispatcher>();
+        dispatcher.Setup(value => value.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), null))
+            .Returns(() => Task.FromResult<object>(new Rread(7, new byte[] { 42 })));
+        var processor = new NinePConnectionProcessor(NullLogger.Instance, dispatcher.Object);
+        using var stream = new ScriptedDuplexStream(Serialize(new Tread(7, 1, 0, 1))) { RefuseReadsPastTheEnd = true };
+        await processor.ProcessStreamAsync(stream, null, new NinePConnectionProcessor.ClientSession(), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(new[] { MessageTypes.Rread }, ResponseTypes(stream.Written.Span));
+    }
+
+    [Fact]
+    public async Task ASessionCloseThatFailsWithinTheDrainFailsTheConnection()
+    {
+        var dispatcher = new Mock<INinePFSDispatcher>();
+        dispatcher.As<INinePSessionLifecycle>().Setup(value => value.CloseSessionAsync(It.IsAny<string>()))
+            .Returns(Task.FromException(new InvalidOperationException("close failed")));
+        var processor = new NinePConnectionProcessor(NullLogger.Instance, dispatcher.Object);
+        using var stream = new ScriptedDuplexStream([]);
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            processor.ProcessStreamAsync(stream, null, new NinePConnectionProcessor.ClientSession(), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal("close failed", failure.Message);
+    }
+
+    [Fact]
     public async Task ATagReusedAsSoonAsItsReplyIsOnTheWireIsServed()
     {
         var dispatcher = new Mock<INinePFSDispatcher>();
@@ -691,6 +716,7 @@ public class NinePConnectionProcessorTests
         private readonly byte[] input;
         private readonly MemoryStream written = new();
         private int position;
+        private int endReads;
 
         public ScriptedDuplexStream(byte[] input)
         {
@@ -700,6 +726,9 @@ public class NinePConnectionProcessorTests
         public ReadOnlyMemory<byte> Written => written.ToArray();
 
         public bool CancelPayload { get; init; }
+
+        // A reader that reads again once told the stream has ended is refused, rather than told again.
+        public bool RefuseReadsPastTheEnd { get; init; }
 
         public override bool CanRead => true;
 
@@ -744,6 +773,11 @@ public class NinePConnectionProcessorTests
             int toCopy = Math.Min(buffer.Length, available);
             if (toCopy == 0)
             {
+                if (RefuseReadsPastTheEnd && endReads++ > 0)
+                {
+                    throw new IOException("read past the end of the stream");
+                }
+
                 return ValueTask.FromResult(0);
             }
 
