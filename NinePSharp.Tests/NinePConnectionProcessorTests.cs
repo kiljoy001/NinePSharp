@@ -811,6 +811,7 @@ public class NinePConnectionProcessorTests
         private readonly TaskCompletionSource replied = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private byte[] current = first;
+        private bool onSecond;
         private int position;
 
         public ReadOnlyMemory<byte> Written
@@ -842,15 +843,15 @@ public class NinePConnectionProcessorTests
         {
             if (position == current.Length)
             {
-                if (current != first)
+                // The two requests may be one array, so which is being read is kept apart from it.
+                if (onSecond)
                 {
                     finished.TrySetResult();
                     return 0;
                 }
 
                 await replied.Task.WaitAsync(Wait, cancellationToken);
-                current = second;
-                position = 0;
+                (current, onSecond, position) = (second, true, 0);
             }
 
             int count = Math.Min(buffer.Length, current.Length - position);
