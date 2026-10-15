@@ -203,17 +203,38 @@ public sealed class NinePConnectionProcessor
         }
     }
 
+    // Stream.ReadAtLeastAsync without throwing at the end of the stream, as a loop of this assembly's own
+    // awaiting each read as a Task, so a Coyote-rewritten caller controls every wait for the client's bytes.
+    private static async Task<int> ReadAtLeastAsync(Stream stream, Memory<byte> buffer, CancellationToken ct)
+    {
+        int total = 0;
+        while (total < buffer.Length)
+        {
+            int read = await stream.ReadAsync(buffer[total..], ct).AsTask();
+            if (read == 0)
+            {
+                break;
+            }
+
+            total += read;
+        }
+
+        return total;
+    }
+
+    // WhenAny and Delay rather than WaitAsync, whose timer a Coyote-rewritten caller cannot control.
     private async Task<bool> WithinDrainAsync(Task work)
     {
-        try
-        {
-            await work.WaitAsync(Drain);
-            return true;
-        }
-        catch (TimeoutException)
+        using var expiry = new CancellationTokenSource();
+        Task finished = await Task.WhenAny(work, Task.Delay(Drain, expiry.Token));
+        expiry.Cancel();
+        if (finished != work)
         {
             return false;
         }
+
+        await work;
+        return true;
     }
 
     private async Task ProcessFrameAsync(
@@ -272,7 +293,7 @@ public sealed class NinePConnectionProcessor
 
     private async Task<FrameBuffer?> ReadFrameAsync(Stream stream, byte[] headerBuffer, EndPoint? endPoint, ClientSession session, CancellationToken ct)
     {
-        int headerRead = await stream.ReadAtLeastAsync(headerBuffer, headerBuffer.Length, throwOnEndOfStream: false, ct);
+        int headerRead = await ReadAtLeastAsync(stream, headerBuffer, ct);
         if (headerRead == 0)
         {
             logger.LogInformation("Client {EndPoint} disconnected cleanly.", endPoint);
@@ -315,11 +336,7 @@ public sealed class NinePConnectionProcessor
         uint payloadSize = size - (uint)NinePConstants.HeaderSize;
         try
         {
-            int payloadRead = await stream.ReadAtLeastAsync(
-                buffer.AsMemory(NinePConstants.HeaderSize, (int)payloadSize),
-                (int)payloadSize,
-                throwOnEndOfStream: false,
-                ct);
+            int payloadRead = await ReadAtLeastAsync(stream, buffer.AsMemory(NinePConstants.HeaderSize, (int)payloadSize), ct);
             if (payloadRead < payloadSize)
             {
                 logger.LogWarning("Client {EndPoint} disconnected mid-frame after {PayloadRead}/{PayloadSize} payload bytes.", endPoint, payloadRead, payloadSize);
