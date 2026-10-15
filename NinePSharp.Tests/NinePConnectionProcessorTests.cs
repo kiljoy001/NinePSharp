@@ -57,7 +57,7 @@ public class NinePConnectionProcessorTests
         dispatcher.Setup(value => value.DispatchAsync(It.IsAny<string>(), It.IsAny<NinePMessage>(), It.IsAny<NinePDialect>(), null))
             .Returns(() => Task.FromResult<object>(new Rread(7, new byte[] { 42 })));
         var processor = new NinePConnectionProcessor(NullLogger.Instance, dispatcher.Object);
-        using var stream = new ScriptedDuplexStream(Serialize(new Tread(7, 1, 0, 1))) { RefuseReadsPastTheEnd = true };
+        using var stream = new ScriptedDuplexStream(Serialize(new Tread(7, 1, 0, 1)));
         await processor.ProcessStreamAsync(stream, null, new NinePConnectionProcessor.ClientSession(), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(new[] { MessageTypes.Rread }, ResponseTypes(stream.Written.Span));
     }
@@ -727,9 +727,6 @@ public class NinePConnectionProcessorTests
 
         public bool CancelPayload { get; init; }
 
-        // A reader that reads again once told the stream has ended is refused, rather than told again.
-        public bool RefuseReadsPastTheEnd { get; init; }
-
         public override bool CanRead => true;
 
         public override bool CanSeek => false;
@@ -773,7 +770,8 @@ public class NinePConnectionProcessorTests
             int toCopy = Math.Min(buffer.Length, available);
             if (toCopy == 0)
             {
-                if (RefuseReadsPastTheEnd && endReads++ > 0)
+                // A reader that reads again once told the stream has ended is refused, rather than told again.
+                if (endReads++ > 0)
                 {
                     throw new IOException("read past the end of the stream");
                 }
@@ -846,7 +844,12 @@ public class NinePConnectionProcessorTests
                 // The two requests may be one array, so which is being read is kept apart from it.
                 if (onSecond)
                 {
-                    finished.TrySetResult();
+                    // Told once that the stream has ended, a reader that reads again is refused.
+                    if (!finished.TrySetResult())
+                    {
+                        throw new IOException("read past the end of the stream");
+                    }
+
                     return 0;
                 }
 
