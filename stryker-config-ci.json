@@ -12,7 +12,12 @@
       "messages/Tread.cs",
       "messages/Rread.cs",
       "messages/Twrite.cs",
-      "messages/Rwrite.cs"
+      "messages/Rwrite.cs",
+      "messages/Twalk.cs",
+      "messages/Tcreate.cs",
+      "messages/Tauth.cs",
+      "messages/Rerror.cs",
+      "messages/Stat.cs"
     ],
     "mutation-level": "Standard",
     "ignore-mutations": [
