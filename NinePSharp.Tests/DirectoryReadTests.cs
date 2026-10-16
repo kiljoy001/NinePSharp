@@ -36,6 +36,29 @@ public class DirectoryReadTests
         Assert.Equal(["docs"], Names((await DispatcherIntegrationTestKit.ReadAsync(dispatcher, 6, 2, read.Count, 8192)).Data.ToArray()));
     }
 
+    [Fact]
+    public async Task A_record_that_exactly_fills_the_count_is_given()
+    {
+        NinePFSDispatcher dispatcher = await OpenRootAsync();
+        int first = (await DispatcherIntegrationTestKit.ReadAsync(dispatcher, 4, 2, 0, 8192)).Data.Span[0] + 2;
+
+        Rread read = await DispatcherIntegrationTestKit.ReadAsync(dispatcher, 5, 2, 0, (uint)first);
+
+        Assert.Equal(["notes"], Names(read.Data.ToArray()));
+    }
+
+    [Fact]
+    public async Task A_file_read_gives_its_data()
+    {
+        NinePFSDispatcher dispatcher = await OpenRootAsync();
+        await DispatcherIntegrationTestKit.WalkAsync(dispatcher, 4, 1, 3, ["notes"]);
+        await DispatcherIntegrationTestKit.OpenAsync(dispatcher, 5, 3, NinePConstants.OREAD);
+
+        Rread read = await DispatcherIntegrationTestKit.ReadAsync(dispatcher, 6, 3, 0, 8192);
+
+        Assert.Equal("hello", Encoding.UTF8.GetString(read.Data.Span));
+    }
+
     private static async Task<NinePFSDispatcher> OpenRootAsync()
     {
         var root = new NinePDir("/");
