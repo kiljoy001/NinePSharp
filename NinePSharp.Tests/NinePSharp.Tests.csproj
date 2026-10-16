@@ -32,6 +32,7 @@
     <ProjectReference Include="..\NinePSharp\NinePSharp.csproj" />
     <ProjectReference Include="..\NinePSharp.Generators\NinePSharp.Generators.fsproj" />
     <ProjectReference Include="..\NinePSharp.Server\NinePSharp.Server.csproj" />
+    <ProjectReference Include="..\NinePSharp.Server.Abstractions\NinePSharp.Server.Abstractions.csproj" />
     <ProjectReference Include="..\NinePSharp.Examples\NinePSharp.Examples.csproj" />
   </ItemGroup>
 
