@@ -55,6 +55,11 @@ public class FileSystemBackend : IBackendRuntime, IReaddirCapableBackendRuntime,
         return await WithCancellation(msg.Tag, ct, async (token) =>
         {
             var node = await ResolveNode(relativePath, token);
+            if ((node.GetStat(Dialect).Qid.Type & QidType.QTDIR) != 0)
+            {
+                return new Rread(msg.Tag, await DirectoryRecordsAsync(node, msg.Offset, msg.Count, token));
+            }
+
             var data = await node.ReadAsync(msg.Offset, msg.Count, token);
             return new Rread(msg.Tag, data);
         });
@@ -309,6 +314,34 @@ public class FileSystemBackend : IBackendRuntime, IReaddirCapableBackendRuntime,
             uint size = (uint)(NinePConstants.HeaderSize + 13);
             return new Rsymlink(size, msg.Tag, linkNode!.GetStat(dialect).Qid);
         });
+    }
+
+    // 9P2000's directory read: the entries' stat records, from the offset, as many whole ones as fit in
+    // the count.
+    private async Task<byte[]> DirectoryRecordsAsync(INinePNode directory, ulong offset, uint count, CancellationToken ct)
+    {
+        var records = new List<byte>();
+        ulong at = 0;
+        foreach (INinePNode entry in await directory.ReaddirAsync(ct))
+        {
+            Stat stat = entry.GetStat(Dialect);
+            byte[] record = new byte[stat.Size];
+            int written = 0;
+            stat.WriteTo(record, ref written);
+            if (at >= offset)
+            {
+                if ((ulong)records.Count + (ulong)record.Length > count)
+                {
+                    break;
+                }
+
+                records.AddRange(record);
+            }
+
+            at += (ulong)record.Length;
+        }
+
+        return [.. records];
     }
 
     private async Task<Rreaddir> ReaddirCoreAsync(string[] relativePath, Treaddir msg, NinePDialect dialect, CancellationToken ct)
