@@ -5,8 +5,8 @@
       "NinePSharp.Tests.csproj"
     ],
     "mutate": [
-      "FileSystem/FileSystemBackend.cs{58..61}",
-      "FileSystem/FileSystemBackend.cs{321..344}"
+      "FileSystem/FileSystemBackend.cs{58:1..61:200}",
+      "FileSystem/FileSystemBackend.cs{321:1..344:200}"
     ],
     "mutation-level": "Standard",
     "ignore-mutations": [
