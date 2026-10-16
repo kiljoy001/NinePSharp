@@ -8,7 +8,7 @@
   {
     "file": "MountTable.Directories.cs",
     "mutator": "Equality mutation",
-    "line": "head == current",
+    "line": "if (head != current)",
     "reason": "The retry that waits for the directory's head to settle continues while the head is not current; inverted, it continues while it is, and spins until the caller's cancellation, which only a timeout ends."
   }
 ]
