@@ -16,6 +16,7 @@ public sealed class Plan9FileSyscalls
     private readonly DirectoryReadMode directoryReadMode;
     private readonly IDirectoryStatOperations? directoryStats;
     private readonly IFileStatOperations? fileStats;
+    private readonly DeviceAttach? attach;
 
     /// <summary>Initializes a new instance of the <see cref="Plan9FileSyscalls"/> class. Syscalls use authenticated, unique provider operation contexts.</summary>
     public Plan9FileSyscalls(
@@ -24,7 +25,8 @@ public sealed class Plan9FileSyscalls
         Func<ResourceOperationContext> contextFactory,
         DirectoryReadMode directoryReadMode = DirectoryReadMode.Metadata,
         IDirectoryStatOperations? directoryStats = null,
-        IFileStatOperations? fileStats = null)
+        IFileStatOperations? fileStats = null,
+        DeviceAttach? attach = null)
     {
         this.process = process ?? throw new ArgumentNullException(nameof(process));
         this.dataPlane = dataPlane ?? throw new ArgumentNullException(nameof(dataPlane));
@@ -37,6 +39,7 @@ public sealed class Plan9FileSyscalls
         this.directoryReadMode = directoryReadMode;
         this.directoryStats = directoryStats;
         this.fileStats = fileStats;
+        this.attach = attach;
     }
 
     /// <summary>Resolves a process path and opens it in the lowest free descriptor.</summary>
@@ -44,8 +47,8 @@ public sealed class Plan9FileSyscalls
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         request.Validate();
-        NamespaceChannel start = path.StartsWith('/') ? process.Root.Clone() : process.CurrentDirectory.Clone();
-        string[] names = path.Split('/', StringSplitOptions.RemoveEmptyEntries).Where(name => name != ".").ToArray();
+        NamespaceChannel start = Start(path, out string walked);
+        string[] names = walked.Split('/', StringSplitOptions.RemoveEmptyEntries).Where(name => name != ".").ToArray();
         NamespaceWalkResult result = await dataPlane.WalkAsync(start, names, cancellationToken);
         if (!result.Complete(names.Length))
         {
@@ -94,13 +97,13 @@ public sealed class Plan9FileSyscalls
             throw new NamespaceFidException("create without DMDIR");
         }
 
-        string[] names = path.Split('/', StringSplitOptions.RemoveEmptyEntries).Where(name => name != ".").ToArray();
+        NamespaceChannel start = Start(path, out string walked);
+        string[] names = walked.Split('/', StringSplitOptions.RemoveEmptyEntries).Where(name => name != ".").ToArray();
         if (names.Length == 0)
         {
             throw new NamespaceException(NamespaceError.ResourceAlreadyExists, "file already exists");
         }
 
-        NamespaceChannel start = path.StartsWith('/') ? process.Root.Clone() : process.CurrentDirectory.Clone();
         NamespaceWalkResult parent = await dataPlane.WalkAsync(start, names[..^1], cancellationToken);
         if (!parent.Complete(names.Length - 1))
         {
@@ -125,8 +128,8 @@ public sealed class Plan9FileSyscalls
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         cancellationToken.ThrowIfCancellationRequested();
-        var (start, mounts) = process.CapturePath(path.StartsWith('/'));
-        string[] names = path.Split('/', StringSplitOptions.RemoveEmptyEntries).Where(name => name != ".").ToArray();
+        var (start, mounts) = CapturePath(path, out string walked);
+        string[] names = walked.Split('/', StringSplitOptions.RemoveEmptyEntries).Where(name => name != ".").ToArray();
         NamespaceWalkResult result = await dataPlane.WalkAsync(start, names, cancellationToken);
         if (!result.Complete(names.Length))
         {
@@ -174,8 +177,8 @@ public sealed class Plan9FileSyscalls
         byte[] owned = FileStatRecords.ValidateAndCopyUpdate(stat);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         cancellationToken.ThrowIfCancellationRequested();
-        var (start, mounts) = process.CapturePath(path.StartsWith('/'));
-        string[] names = path.Split('/', StringSplitOptions.RemoveEmptyEntries).Where(name => name != ".").ToArray();
+        var (start, mounts) = CapturePath(path, out string walked);
+        string[] names = walked.Split('/', StringSplitOptions.RemoveEmptyEntries).Where(name => name != ".").ToArray();
         NamespaceWalkResult result = await dataPlane.WalkAsync(start, names, cancellationToken);
         if (!result.Complete(names.Length))
         {
@@ -440,4 +443,15 @@ public sealed class Plan9FileSyscalls
 
     private IFileStatOperations RequireFileStats()
         => fileStats ?? throw new NotSupportedException("Configure native file stat operations for this syscall host.");
+
+    private NamespaceChannel Start(string path, out string walked)
+        => NamecPath.TryDevice(path, attach, out NamespaceChannel device, out walked)
+            ? device
+            : path.StartsWith('/') ? process.Root.Clone() : process.CurrentDirectory.Clone();
+
+    private (NamespaceChannel Channel, MountTable Mounts) CapturePath(string path, out string walked)
+    {
+        var (start, mounts) = process.CapturePath(path.StartsWith('/'));
+        return NamecPath.TryDevice(path, attach, out NamespaceChannel device, out walked) ? (device, mounts) : (start, mounts);
+    }
 }

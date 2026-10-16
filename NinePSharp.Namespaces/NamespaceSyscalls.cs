@@ -6,9 +6,14 @@ namespace NinePSharp.Namespaces;
 public sealed class NamespaceSyscalls
 {
     private readonly IResourceOperations resources;
+    private readonly DeviceAttach? attach;
 
-    public NamespaceSyscalls(IResourceOperations resources)
-        => this.resources = resources ?? throw new ArgumentNullException(nameof(resources));
+    /// <summary>Initializes a new instance of the <see cref="NamespaceSyscalls"/> class; with attach, a name starting with # begins at the device it names.</summary>
+    public NamespaceSyscalls(IResourceOperations resources, DeviceAttach? attach = null)
+    {
+        this.resources = resources ?? throw new ArgumentNullException(nameof(resources));
+        this.attach = attach;
+    }
 
     /// <summary>Binds a resource resolved from the process namespace onto a target path.</summary>
     public async ValueTask<MountBinding> BindAsync(
@@ -85,13 +90,13 @@ public sealed class NamespaceSyscalls
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        NamespaceChannel channel = path.StartsWith("/", StringComparison.Ordinal)
-            ? process.Root.Clone()
-            : process.CurrentDirectory.Clone();
+        NamespaceChannel channel = NamecPath.TryDevice(path, attach, out NamespaceChannel device, out string walked)
+            ? device
+            : path.StartsWith("/", StringComparison.Ordinal) ? process.Root.Clone() : process.CurrentDirectory.Clone();
 
         // Like parsename, discard dot elements without collapsing dot-dot across
         // mount boundaries. A trailing dot must not turn Amount into Abind.
-        string[] names = path.Split('/', StringSplitOptions.RemoveEmptyEntries)
+        string[] names = walked.Split('/', StringSplitOptions.RemoveEmptyEntries)
             .Where(name => name != ".").ToArray();
 
         NamespaceWalkResult result = await new NamespaceNavigator(process.ProcessGroup.MountTable, resources)

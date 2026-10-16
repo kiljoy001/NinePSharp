@@ -23,6 +23,7 @@
       "NamespaceFidException.cs",
       "NamespaceControlResource.cs",
       "NamespaceSyscalls.cs",
+      "NamecPath.cs",
       "NamespaceMountSource.cs",
       "ResourceOperationId.cs",
       "IResourceDataOperations.cs",
