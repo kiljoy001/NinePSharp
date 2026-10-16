@@ -79,6 +79,9 @@ if [[ $FULL -eq 1 ]]; then
   (cd NinePSharp.Namespaces.Orleans.Tests && dotnet stryker --config-file ../stryker-config-orleans.json --reporter json --reporter progress --output ../.artifacts/stryker-orleans --skip-version-check --break-on-initial-test-failure --verbosity error)
   (cd NinePSharp.Namespaces.Orleans.Tests && dotnet stryker --config-file ../stryker-config-orleans-server.json --reporter json --reporter progress --output ../.artifacts/stryker-orleans-server --skip-version-check --break-on-initial-test-failure --verbosity error)
   (cd NinePSharp.Tests && dotnet stryker --config-file ../stryker-config-transport.json --reporter json --reporter progress --output ../.artifacts/stryker-transport --skip-version-check --break-on-initial-test-failure --verbosity error)
+  rm -rf .artifacts/stryker-fs
+  (cd NinePSharp.Tests && dotnet stryker --config-file ../stryker-config-fs.json --reporter json --reporter progress --output ../.artifacts/stryker-fs --skip-version-check --break-on-initial-test-failure --verbosity error)
+  python3 tools/mutation_summary.py --output-dir .artifacts/stryker-fs --min-score "$MIN_MUTATION" --accepted-timeouts quality/stryker-timeouts.json
   python3 tools/mutation_summary.py --output-dir .artifacts/stryker --min-score "$MIN_MUTATION" --accepted-timeouts quality/stryker-timeouts.json
   python3 tools/mutation_summary.py --output-dir .artifacts/stryker-namespaces --min-score "$MIN_MUTATION" --accepted-timeouts quality/stryker-timeouts.json
   rm -rf .artifacts/stryker-namespaces-authorization

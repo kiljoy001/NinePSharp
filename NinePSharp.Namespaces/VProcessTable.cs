@@ -21,6 +21,15 @@ public sealed class VProcessTable
         }
     }
 
+    /// <summary>Takes the next process id for something other than a process, as 9front's pidadd(0) does for a note group.</summary>
+    public long ReserveId()
+    {
+        lock (gate)
+        {
+            return ++nextProcessId;
+        }
+    }
+
     /// <summary>Forks a child with a shared, copied, or empty namespace group.</summary>
     public VProcess Fork(
         long parentId,

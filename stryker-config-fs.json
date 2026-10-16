@@ -1,0 +1,24 @@
+{
+  "stryker-config": {
+    "project": "NinePSharp.Server.Abstractions.csproj",
+    "test-projects": [
+      "NinePSharp.Tests.csproj"
+    ],
+    "mutate": [
+      "FileSystem/FileSystemBackend.cs{2257..2463}",
+      "FileSystem/FileSystemBackend.cs{12765..13527}"
+    ],
+    "mutation-level": "Standard",
+    "ignore-mutations": [
+      "String",
+      "Regex"
+    ],
+    "thresholds": {
+      "high": 100,
+      "low": 100,
+      "break": 100
+    },
+    "concurrency": 4,
+    "additional-timeout": 60000
+  }
+}
