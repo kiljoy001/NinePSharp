@@ -23,9 +23,11 @@ public sealed class DeviceNameTests
         int fd = await calls.OpenAsync("#c/user", new(NinePConstants.OREAD));
         await calls.OpenAsync("#cspec", new(NinePConstants.OREAD));
         await calls.OpenAsync("#¤/user", new(NinePConstants.OREAD));
+        await calls.OpenAsync("#/", new(NinePConstants.OREAD));
+        await calls.OpenAsync("#//user", new(NinePConstants.OREAD));
 
         Assert.True(fd >= 0);
-        Assert.Equal([("c", string.Empty), ("c", "spec"), ("¤", string.Empty)], attached);
+        Assert.Equal([("c", string.Empty), ("c", "spec"), ("¤", string.Empty), ("/", string.Empty), ("/", string.Empty)], attached);
     }
 
     [Fact]

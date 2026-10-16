@@ -13,10 +13,11 @@ internal static class NamecPath
             return false;
         }
 
-        int slash = path.IndexOf('/', StringComparison.Ordinal);
+        // The device's rune may itself be a slash, as in #/; the spec runs to the next one.
+        string device = path.Length > 1 ? System.Text.Rune.GetRuneAt(path, 1).ToString() : string.Empty;
+        int slash = path.IndexOf('/', 1 + device.Length);
         string head = slash < 0 ? path : path[..slash];
         rest = slash < 0 ? string.Empty : path[(slash + 1)..];
-        string device = head.Length > 1 ? System.Text.Rune.GetRuneAt(head, 1).ToString() : string.Empty;
         ResourceHandle root = attach(device, head[(1 + device.Length)..]);
         start = NamespaceChannel.Restore([new ChannelFrame(head, root)]);
         return true;
