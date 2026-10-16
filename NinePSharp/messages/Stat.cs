@@ -158,7 +158,10 @@ public readonly struct Stat
 
     public void WriteTo(Span<byte> data, ref int offset)
     {
-        int startOffset = offset;
+        if (Size != CalculateSize(Name, Uid, Gid, Muid, Dialect, Extension))
+        {
+            throw new InvalidOperationException($"stat size {Size} does not match its fields");
+        }
 
         // 1. Write size[2] (length of following data)
         BinaryPrimitives.WriteUInt16LittleEndian(data.Slice(offset, 2), (ushort)(Size - 2));
@@ -201,12 +204,6 @@ public readonly struct Stat
             offset += 4;
             BinaryPrimitives.WriteUInt32LittleEndian(data.Slice(offset, 4), NMuid ?? uint.MaxValue);
             offset += 4;
-        }
-
-        // Integrity Check
-        if (offset - startOffset != Size)
-        {
-            Console.WriteLine($"[Stat CRITICAL Mismatch] Name={Name}, ExpectedSize={Size}, ActualWritten={offset - startOffset}");
         }
     }
 }

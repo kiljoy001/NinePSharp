@@ -21,7 +21,6 @@ public readonly struct Tauth : ISerializable
         if (is9u && offset + 4 <= data.Length)
         {
             NUname = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(offset, 4));
-            offset += 4;
         }
         else
         {
@@ -68,7 +67,6 @@ public readonly struct Tauth : ISerializable
         if (is9u && NUname.HasValue)
         {
             BinaryPrimitives.WriteUInt32LittleEndian(data.Slice(offset, 4), NUname.Value);
-            offset += 4;
         }
     }
 

@@ -27,7 +27,7 @@ public class NinePHardlink : INinePNode
     public Stat GetStat(NinePDialect dialect)
     {
         var stat = inner.GetStat(dialect);
-        return new Stat(stat.Size, stat.Type, stat.Dev, stat.Qid, stat.Mode, stat.Atime, stat.Mtime, stat.Length, Name, stat.Uid, stat.Gid, stat.Muid, dialect);
+        return new Stat(0, stat.Type, stat.Dev, stat.Qid, stat.Mode, stat.Atime, stat.Mtime, stat.Length, Name, stat.Uid, stat.Gid, stat.Muid, dialect, stat.Extension, stat.NUid, stat.NGid, stat.NMuid);
     }
 
     public Task<byte[]> ReadAsync(ulong offset, uint count, CancellationToken ct) => inner.ReadAsync(offset, count, ct);
