@@ -98,16 +98,19 @@ public sealed class FileWStatRecordTests
         }
     }
 
+    // Plan 9's UTF-8, as validname takes a name: a surrogate is written as the rune it is, and a bad
+    // byte is read as a Runeerror rather than refused.
     [Fact]
-    public void TypedCodecRejectsInvalidUtf8AndNullRequests()
+    public void TypedCodecReadsAndWritesStringsAsPlan9AndRejectsNullRequests()
     {
         Assert.Throws<ArgumentNullException>(() => FileStatOperations.EncodeUpdate(null!));
-        Assert.Throws<System.Text.EncoderFallbackException>(() => FileStatOperations.EncodeUpdate(
-            ResourceWStat.Unchanged() with { Name = "\ud800" }));
+        byte[] surrogate = FileStatOperations.EncodeUpdate(ResourceWStat.Unchanged() with { Name = "\ud800" });
+        Assert.Equal(new byte[] { 3, 0, 0xED, 0xA0, 0x80 }, surrogate[41..46]);
+        Assert.Equal("\ud800", FileStatRecords.DecodeUpdate(surrogate).Name);
         byte[] bytes = FileStatOperations.EncodeUpdate(ResourceWStat.Unchanged() with { Name = "x" });
         bytes[43] = 0xff;
         Assert.NotEmpty(FileStatRecords.ValidateAndCopyUpdate(bytes));
-        Assert.Throws<NamespaceFidException>(() => FileStatRecords.DecodeUpdate(bytes));
+        Assert.Equal("\uFFFD", FileStatRecords.DecodeUpdate(bytes).Name);
     }
 
     [Fact]

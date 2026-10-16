@@ -22,7 +22,7 @@ public readonly struct Tattach : ISerializable
         Uname = uname ?? string.Empty;
         Aname = aname ?? string.Empty;
         NUname = nUname;
-        Size = (uint)(NinePConstants.HeaderSize + 4 + 4 + 2 + System.Text.Encoding.UTF8.GetByteCount(Uname) + 2 + System.Text.Encoding.UTF8.GetByteCount(Aname) + (nUname.HasValue ? 4 : 0));
+        Size = (uint)(NinePConstants.HeaderSize + 4 + 4 + ProtocolActions.StringSize(Uname) + ProtocolActions.StringSize(Aname) + (nUname.HasValue ? 4 : 0));
     }
 
     public Tattach(ReadOnlySpan<byte> data, bool is9u = false)

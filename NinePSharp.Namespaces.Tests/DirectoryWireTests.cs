@@ -36,6 +36,16 @@ public sealed class DirectoryWireTests
         DirectoryRecords.Validate(record, uint.MaxValue);
     }
 
+    // A directory entry's names are Plan 9's UTF-8: a surrogate is written as the rune it is.
+    [Fact]
+    public async Task AnEntryNameWithASurrogateIsWrittenAsTheRuneItIs()
+    {
+        await using var f = new StreamingDirectoryFixture();
+        ResourceStat original = await f.Files.Resources.StatAsync(f.Root, default);
+        byte[] bytes = f.Codec.Encode(original with { Name = "\ud800" });
+        Assert.Equal(new byte[] { 3, 0, 0xED, 0xA0, 0x80 }, bytes[41..46]);
+    }
+
     [Fact]
     public async Task StatAdapterUsesExplicitUniqueIdentityAndHonorsCount()
     {

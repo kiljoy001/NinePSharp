@@ -15,7 +15,7 @@ public readonly struct Rerror : ISerializable
         Ecode = ecode;
 
         uint size = NinePConstants.HeaderSize;
-        size += (uint)(2 + System.Text.Encoding.UTF8.GetByteCount(ename));
+        size += (uint)ProtocolActions.StringSize(ename);
         if (ecode.HasValue)
         {
             size += 4;
@@ -28,7 +28,7 @@ public readonly struct Rerror : ISerializable
     {
         Tag = tag;
         Ename = ename;
-        Size = (uint)(NinePConstants.HeaderSize + 2 + System.Text.Encoding.UTF8.GetByteCount(ename));
+        Size = (uint)(NinePConstants.HeaderSize + ProtocolActions.StringSize(ename));
     }
 
     public Rerror(ReadOnlySpan<byte> data, bool is9u = false)

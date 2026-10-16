@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Plan9.Utf;
 
 namespace NinePSharp.Namespaces;
 
@@ -60,7 +61,7 @@ public sealed class WStatRecoveryRequest
         byte[] stat)
     {
         using var buffer = new MemoryStream();
-        using var writer = new BinaryWriter(buffer, Encoding.UTF8);
+        using var writer = new BinaryWriter(buffer, Plan9Utf8Encoding.Instance);
         writer.Write(context.ProcessId);
         writer.Write(context.User);
         writer.Write(resource.Identity.Provider);

@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Plan9.Utf" Version="0.1.0" />
     <PackageReference Include="System.IO.Hashing" Version="10.0.3" />
   </ItemGroup>
 

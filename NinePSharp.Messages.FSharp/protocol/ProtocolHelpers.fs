@@ -5,7 +5,7 @@ open System.Buffers.Binary
 open NinePSharp.Constants
 open NinePSharp.Messages
 
-open System.Text
+open Plan9.Utf
 
 [<AutoOpen>]
 module ProtocolHelpers =
@@ -27,16 +27,16 @@ module ProtocolHelpers =
             BinaryPrimitives.WriteUInt16LittleEndian(span.Slice(offset, 2), 0us)
             offset <- offset + 2
         else
-            let count = uint16 (Encoding.UTF8.GetByteCount(value))
+            let count = uint16 (Plan9Utf8Encoding.Instance.GetByteCount(value))
             BinaryPrimitives.WriteUInt16LittleEndian(span.Slice(offset, 2), count)
             offset <- offset + 2
-            ignore (Encoding.UTF8.GetBytes(value, span.Slice(offset)))
+            ignore (Plan9Utf8Encoding.Instance.GetBytes(value, span.Slice(offset, int count)))
             offset <- offset + int count
 
     let inline readString (data: ReadOnlySpan<byte>) (offset: byref<int>) =
         let len = int (BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(offset, 2)))
         offset <- offset + 2
-        let value = Encoding.UTF8.GetString(data.Slice(offset, len))
+        let value = Plan9Utf8Encoding.Instance.GetString(data.Slice(offset, len))
         offset <- offset + len
         value
 

@@ -37,8 +37,8 @@ public readonly struct Tauth : ISerializable
         Aname = aname ?? string.Empty;
         NUname = nuname;
         Size = (uint)(NinePConstants.HeaderSize + 4 +
-                      2 + System.Text.Encoding.UTF8.GetByteCount(Uname) +
-                      2 + System.Text.Encoding.UTF8.GetByteCount(Aname) +
+                      ProtocolActions.StringSize(Uname) +
+                      ProtocolActions.StringSize(Aname) +
                       (nuname.HasValue ? 4 : 0));
     }
 

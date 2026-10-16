@@ -1,6 +1,6 @@
 namespace NinePSharp.Parser
 
-open System.Text
+open Plan9.Utf
 open NinePSharp.Messages
 open NinePSharp.Constants
 
@@ -15,7 +15,7 @@ module Validation =
         | Ok () -> next ()
 
     let private validateString fieldName (s: string) : Result<unit, string> =
-        if isNull s || Encoding.UTF8.GetByteCount(s) > MaxStringLength then
+        if isNull s || Plan9Utf8Encoding.Instance.GetByteCount(s) > MaxStringLength then
             Error $"Invalid {fieldName}"
         else
             Ok ()
@@ -46,7 +46,7 @@ module Validation =
             Error "Too many walk components"
         else
             wnames
-            |> Array.tryFind (fun n -> isNull n || Encoding.UTF8.GetByteCount(n) > MaxStringLength)
+            |> Array.tryFind (fun n -> isNull n || Plan9Utf8Encoding.Instance.GetByteCount(n) > MaxStringLength)
             |> function
                 | Some _ -> Error "Invalid walk component string"
                 | None -> Ok ()

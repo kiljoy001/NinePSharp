@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
-using System.Text;
 using NinePSharp.Constants;
+using Plan9.Utf;
 
 namespace NinePSharp.Protocol;
 
@@ -14,7 +14,15 @@ public static class ProtocolActions
     private const int QidSize = 13;
 
     /// <summary>
-    /// Writes a UTF-8 string to the byte span with a 2-byte length prefix.
+    /// Gets the bytes a string takes in a 9P message, its 2-byte length included: Plan 9's UTF-8,
+    /// in which an unpaired surrogate is written as the rune it is.
+    /// </summary>
+    /// <param name="value">The string, where null is written as the empty string.</param>
+    /// <returns>The string's size on the wire.</returns>
+    public static int StringSize(string? value) => StringLengthPrefixSize + Plan9Utf8Encoding.Instance.GetByteCount(value ?? string.Empty);
+
+    /// <summary>
+    /// Writes a string to the byte span as Plan 9's UTF-8 with a 2-byte length prefix.
     /// </summary>
     /// <param name="data">The target byte span.</param>
     /// <param name="value">The string value to write.</param>
@@ -23,7 +31,7 @@ public static class ProtocolActions
     {
         ArgumentNullException.ThrowIfNull(value);
 
-        var length = Encoding.UTF8.GetByteCount(value);
+        var length = Plan9Utf8Encoding.Instance.GetByteCount(value);
         if (length > ushort.MaxValue)
         {
             throw new InvalidOperationException("9P string exceeds the 65535-byte length limit.");
@@ -33,13 +41,14 @@ public static class ProtocolActions
 
         BinaryPrimitives.WriteUInt16LittleEndian(data.Slice(byteIndex, StringLengthPrefixSize), (ushort)length);
         var valueIndex = byteIndex + StringLengthPrefixSize;
-        Encoding.UTF8.GetBytes(value, data.Slice(valueIndex, length));
+        Plan9Utf8Encoding.Instance.GetBytes(value, data.Slice(valueIndex, length));
 
         byteIndex += StringLengthPrefixSize + length;
     }
 
     /// <summary>
-    /// Reads a UTF-8 string from the byte span using its 2-byte length prefix.
+    /// Reads a string from the byte span using its 2-byte length prefix, as Plan 9 reads UTF-8: each
+    /// bad byte is a Runeerror.
     /// </summary>
     /// <param name="data">The source byte span.</param>
     /// <param name="byteIndex">The current index in the span, updated after reading.</param>
@@ -52,7 +61,7 @@ public static class ProtocolActions
         var valueIndex = byteIndex + StringLengthPrefixSize;
         EnsureReadable(data, valueIndex, length, "the string payload");
 
-        var value = Encoding.UTF8.GetString(data.Slice(valueIndex, length));
+        var value = Plan9Utf8Encoding.Instance.GetString(data.Slice(valueIndex, length));
         byteIndex += StringLengthPrefixSize + length;
         return value;
     }

@@ -1,4 +1,5 @@
 using System.Text;
+using Plan9.Utf;
 
 namespace NinePSharp.Namespaces;
 
@@ -43,7 +44,7 @@ public sealed class DirectoryStatOperations : IDirectoryStatOperations
             d.Provider == stat.Resource.Identity.Provider && d.ResourceDevice == stat.Resource.Identity.Device)
             ?? throw new IOException("unmapped resource device identity");
         byte[][] strings = new[] { stat.Name, stat.User, stat.Group, stat.LastModifier }
-            .Select(Encoding.UTF8.GetBytes).ToArray();
+            .Select(Plan9Utf8Encoding.Instance.GetBytes).ToArray();
         int size = 49 + strings.Sum(s => s.Length);
         if (size - 2 > ushort.MaxValue)
         {
@@ -51,7 +52,7 @@ public sealed class DirectoryStatOperations : IDirectoryStatOperations
         }
 
         using var buffer = new MemoryStream(size);
-        using var writer = new BinaryWriter(buffer, Encoding.UTF8);
+        using var writer = new BinaryWriter(buffer, Plan9Utf8Encoding.Instance);
         writer.Write((ushort)(size - 2));
         writer.Write(binding.Type);
         writer.Write(binding.Device);

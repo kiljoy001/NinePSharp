@@ -12,7 +12,7 @@ public readonly struct Tversion : ISerializable
         Tag = tag;
         MSize = msize;
         Version = version;
-        Size = (uint)(NinePConstants.HeaderSize + 4 + 2 + System.Text.Encoding.UTF8.GetByteCount(version));
+        Size = (uint)(NinePConstants.HeaderSize + 4 + ProtocolActions.StringSize(version));
     }
 
     public Tversion(ReadOnlySpan<byte> data)

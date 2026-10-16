@@ -1,5 +1,6 @@
 using System.Text;
 using NinePSharp.Messages;
+using Plan9.Utf;
 
 namespace NinePSharp.Namespaces;
 
@@ -96,8 +97,9 @@ internal sealed class DirectoryCursor(Func<CancellationToken, ValueTask<IReadOnl
     private static Stat Encode(ResourceStat entry)
     {
         // Stat.Size uses ushort storage; validate before its unchecked size conversion.
-        long size = 49L + Encoding.UTF8.GetByteCount(entry.Name) + Encoding.UTF8.GetByteCount(entry.User)
-            + Encoding.UTF8.GetByteCount(entry.Group) + Encoding.UTF8.GetByteCount(entry.LastModifier);
+        Plan9Utf8Encoding utf = Plan9Utf8Encoding.Instance;
+        long size = 49L + utf.GetByteCount(entry.Name) + utf.GetByteCount(entry.User)
+            + utf.GetByteCount(entry.Group) + utf.GetByteCount(entry.LastModifier);
         if (size > ushort.MaxValue)
         {
             throw new IOException("directory stat record exceeds supported size");

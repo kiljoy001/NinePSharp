@@ -1,18 +1,12 @@
 using System.Buffers.Binary;
-using System.Text;
-using System.Text.Unicode;
 using NinePSharp.Constants;
 using NinePSharp.Messages;
+using Plan9.Utf;
 
 namespace NinePSharp.Namespaces;
 
 internal static class FileStatRecords
 {
-    private static readonly Encoding StrictUtf8 = Encoding.GetEncoding(
-        Encoding.UTF8.CodePage,
-        EncoderFallback.ExceptionFallback,
-        DecoderFallback.ExceptionFallback);
-
     internal static byte[] ValidateAndCopyUpdate(ReadOnlyMemory<byte> stat)
     {
         ReadOnlySpan<byte> bytes = stat.Span;
@@ -87,7 +81,7 @@ internal static class FileStatRecords
     {
         ArgumentNullException.ThrowIfNull(stat);
         byte[][] strings = new[] { stat.Name, stat.User, stat.Group, stat.LastModifier }
-            .Select(StrictUtf8.GetBytes).ToArray();
+            .Select(Plan9Utf8Encoding.Instance.GetBytes).ToArray();
         int size = 49 + strings.Sum(value => value.Length);
         if (size - 2 > ushort.MaxValue)
         {
@@ -146,7 +140,7 @@ internal static class FileStatRecords
             return reply.ToArray();
         }
 
-        byte[] encoded = Encoding.UTF8.GetBytes(name);
+        byte[] encoded = Plan9Utf8Encoding.Instance.GetBytes(name);
         int previous = BinaryPrimitives.ReadUInt16LittleEndian(reply.Span[41..]);
         int length = size - previous;
         if (encoded.Length > ushort.MaxValue + 2 - length)
@@ -194,13 +188,8 @@ internal static class FileStatRecords
     {
         int length = ReadUInt16(bytes, ref offset);
         ReadOnlySpan<byte> raw = bytes.Slice(offset, length);
-        if (!Utf8.IsValid(raw))
-        {
-            throw new NamespaceFidException("bad UTF-8 in stat");
-        }
-
         offset += length;
-        return StrictUtf8.GetString(raw);
+        return Plan9Utf8Encoding.Instance.GetString(raw);
     }
 
     private static void WriteUInt16(Span<byte> bytes, ref int offset, ushort value)

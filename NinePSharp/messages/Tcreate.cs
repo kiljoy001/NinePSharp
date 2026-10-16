@@ -16,7 +16,7 @@ public readonly struct Tcreate : ISerializable
         Name = name;
         Perm = perm;
         Mode = mode;
-        Size = (uint)(NinePConstants.HeaderSize + 4 + 2 + Encoding.UTF8.GetByteCount(name) + 4 + 1);
+        Size = (uint)(NinePConstants.HeaderSize + 4 + ProtocolActions.StringSize(name) + 4 + 1);
     }
 
     public Tcreate(ReadOnlySpan<byte> data)

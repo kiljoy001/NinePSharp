@@ -140,15 +140,15 @@ public readonly struct Stat
         int payloadSize = 39;
 
         // 2. Variable string fields: 2 bytes length + UTF8 bytes
-        payloadSize += 2 + Encoding.UTF8.GetByteCount(name ?? string.Empty);
-        payloadSize += 2 + Encoding.UTF8.GetByteCount(uid ?? string.Empty);
-        payloadSize += 2 + Encoding.UTF8.GetByteCount(gid ?? string.Empty);
-        payloadSize += 2 + Encoding.UTF8.GetByteCount(muid ?? string.Empty);
+        payloadSize += ProtocolActions.StringSize(name);
+        payloadSize += ProtocolActions.StringSize(uid);
+        payloadSize += ProtocolActions.StringSize(gid);
+        payloadSize += ProtocolActions.StringSize(muid);
 
         // 3. 9P2000.u extensions
         if (is9u)
         {
-            payloadSize += 2 + Encoding.UTF8.GetByteCount(extension ?? string.Empty);
+            payloadSize += ProtocolActions.StringSize(extension);
             payloadSize += 4 + 4 + 4; // n_uid[4] n_gid[4] n_muid[4]
         }
 
