@@ -11,6 +11,8 @@ public sealed class DescriptorLease : IAsyncDisposable
     /// <summary>Gets the provider handle retained by this operation.</summary>
     public ResourceOpenHandle Handle => channel.Handle;
 
+    internal OpenDescriptorChannel Channel => channel;
+
     internal string? VisibleName => channel.VisibleName;
 
     /// <summary>Gets a value indicating whether the mount point was in place when this channel was opened.</summary>

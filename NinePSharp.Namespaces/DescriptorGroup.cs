@@ -79,6 +79,24 @@ public sealed class DescriptorGroup
             visibleName,
             isMountPoint);
 
+    /// <summary>
+    /// Installs another reference to a leased channel in the lowest free slot, as srvopen gives
+    /// an opener the channel posted in #s. The lease remains the caller's to release.
+    /// </summary>
+    public int Share(DescriptorLease lease, bool closeOnExec = false)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        lock (gate)
+        {
+            EnsureOpen();
+            int fd = FindFree();
+            Grow(fd);
+            lease.Channel.Retain();
+            slots.Add(fd, new Entry(lease.Channel, closeOnExec));
+            return fd;
+        }
+    }
+
     /// <summary>Acquires an I/O reference that remains valid after its slot is closed.</summary>
     public DescriptorLease Acquire(int fd)
     {

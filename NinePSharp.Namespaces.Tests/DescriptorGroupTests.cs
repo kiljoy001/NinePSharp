@@ -41,6 +41,47 @@ public sealed class DescriptorGroupTests
         Assert.Equal(2, closed);
     }
 
+    [Fact]
+    public async Task ShareInstallsTheLeasedChannelInAnotherTableUntilEveryReferenceIsReleased()
+    {
+        var (table, poster) = CreateProcess();
+        var (_, opener) = CreateProcess();
+        int closed = 0;
+        var posted = Handle("posted");
+        poster.Descriptors.Install(posted, () =>
+        {
+            closed++;
+            return ValueTask.CompletedTask;
+        });
+        opener.Descriptors.Install(Handle("first"), () => ValueTask.CompletedTask);
+        DescriptorLease lease = poster.Descriptors.Acquire(0);
+        await poster.Descriptors.CloseAsync(0);
+
+        Assert.Equal(1, opener.Descriptors.Share(lease, closeOnExec: true));
+        Assert.Equal(new DescriptorSlot(1, posted, true), opener.Descriptors.Snapshot()[1]);
+        await lease.DisposeAsync();
+        Assert.Equal(0, closed);
+        await opener.Descriptors.CloseAsync(1);
+        Assert.Equal(1, closed);
+        await table.TerminateAsync(poster.Id);
+    }
+
+    [Fact]
+    public async Task ShareGrowsAFullTableAndRefusesAClosedOne()
+    {
+        var (table, process) = CreateProcess();
+        for (int fd = 0; fd < 20; fd++)
+        {
+            process.Descriptors.Install(Handle($"f{fd}"), () => ValueTask.CompletedTask);
+        }
+
+        await using DescriptorLease lease = process.Descriptors.Acquire(0);
+        Assert.Equal(20, process.Descriptors.Share(lease));
+        DescriptorGroup group = process.Descriptors;
+        await table.TerminateAsync(process.Id);
+        Assert.Throws<ObjectDisposedException>(() => group.Share(lease));
+    }
+
     [Theory]
     [InlineData(-1, 0)]
     [InlineData(0, -1)]
