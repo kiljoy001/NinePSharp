@@ -67,7 +67,7 @@ public sealed class DescriptorGroupTests
     }
 
     [Fact]
-    public async Task ShareGrowsAFullTableAndRefusesAClosedOne()
+    public async Task ShareGrowsAFullTableToItsLimitAndRefusesANullLeaseOrAClosedTable()
     {
         var (table, process) = CreateProcess();
         for (int fd = 0; fd < 20; fd++)
@@ -77,6 +77,15 @@ public sealed class DescriptorGroupTests
 
         await using DescriptorLease lease = process.Descriptors.Acquire(0);
         Assert.Equal(20, process.Descriptors.Share(lease));
+        for (int fd = 21; fd < 5000; fd++)
+        {
+            process.Descriptors.Install(Handle($"f{fd}"), () => ValueTask.CompletedTask);
+        }
+
+        // growfd refuses a table already at its limit, as Install does.
+        Assert.Throws<ArgumentOutOfRangeException>(() => process.Descriptors.Share(lease));
+        Assert.Equal(5000, process.Descriptors.Snapshot().Count);
+        Assert.Throws<ArgumentNullException>(() => process.Descriptors.Share(null!));
         DescriptorGroup group = process.Descriptors;
         await table.TerminateAsync(process.Id);
         Assert.Throws<ObjectDisposedException>(() => group.Share(lease));
