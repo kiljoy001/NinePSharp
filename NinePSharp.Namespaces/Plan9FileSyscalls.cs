@@ -417,7 +417,7 @@ public sealed class Plan9FileSyscalls
             retained.UpdateCurrent(opened.Resource);
             IDirectoryCursor cursor = directoryReadMode == DirectoryReadMode.ProviderStream
                 ? new ProviderDirectoryCursor(dataPlane, opened, union, contextFactory, directoryStats)
-                : new DirectoryCursor(token => dataPlane.ReadDirectoryAsync(retained, token));
+                : new DirectoryCursor(token => dataPlane.ReadDirectoryAsync(retained, token), fileStats);
             return process.InstallDescriptor(
                 opened,
                 Close,

@@ -28,6 +28,16 @@ public sealed class DirectoryCursorTests
     }
 
     [Fact]
+    public async Task DirectoryRecordsCarryTheTypeAndDeviceTheFileStatOperationsGiveEachFile()
+    {
+        await using var f = new FileSyscallFixture();
+        Assert.All(Decode(await f.Calls.ReadAsync(await f.Calls.OpenAsync("/", new(0)), 1024)), d => Assert.Equal((0, 0u), (d.Type, d.Dev)));
+        var calls = new Plan9FileSyscalls(f.Process, f.Plane, f.Context, fileStats: new Devices());
+        Stat[] records = Decode(await calls.ReadAsync(await calls.OpenAsync("/", new(0)), 1024));
+        Assert.Equal(new[] { ("file", 'M', 7u), ("other", 'M', 7u) }, records.Select(d => (d.Name, (char)d.Type, d.Dev)));
+    }
+
+    [Fact]
     public async Task PositionedDirectoryReadsAdvanceSharedCursorAndAcceptOnlyZeroOrCurrentOffset()
     {
         await using var f = new FileSyscallFixture();
@@ -328,5 +338,19 @@ public sealed class DirectoryCursorTests
         }
 
         return result.ToArray();
+    }
+
+    // File stat operations that give every file the device M7, and stat nothing.
+    private sealed class Devices : IFileStatOperations
+    {
+        public (ushort Type, uint Device) DeviceOf(ResourceHandle resource) => ('M', 7);
+
+        public ValueTask<ReadOnlyMemory<byte>> StatAsync(ResourceHandle resource, uint count, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ValueTask<ReadOnlyMemory<byte>> StatAsync(ResourceOpenHandle handle, uint count, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ValueTask<uint> WStatAsync(ResourceHandle resource, ReadOnlyMemory<byte> stat, ResourceOperationContext context, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ValueTask<uint> WStatAsync(ResourceOpenHandle handle, ReadOnlyMemory<byte> stat, ResourceOperationContext context, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 }

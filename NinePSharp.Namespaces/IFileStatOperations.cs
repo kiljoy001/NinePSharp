@@ -14,6 +14,12 @@ public interface IFileStatOperations
     /// <summary>Stats the retained provider open instance, without looking its name up again or consuming it.</summary>
     ValueTask<ReadOnlyMemory<byte>> StatAsync(ResourceOpenHandle handle, uint count, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The type and device a stat of the resource gives, which each record of a directory read
+    /// carries as devdir and mntdirfix give them; none by default.
+    /// </summary>
+    (ushort Type, uint Device) DeviceOf(ResourceHandle resource) => (0, 0);
+
     /// <summary>Applies one validated raw update to a resolved resource.</summary>
     ValueTask<uint> WStatAsync(
         ResourceHandle resource,

@@ -7,9 +7,12 @@ namespace NinePSharp.Namespaces;
 /// <summary>
 /// A shared metadata-backed directory cursor. The current provider contract supplies
 /// a whole listing; this adapter returns bounded, complete native 9P2000 stat records.
-/// Rewind discards the listing so the next read refreshes it.
+/// Rewind discards the listing so the next read refreshes it. Each record carries the type and
+/// device the file stat operations give for its file, or none without them.
 /// </summary>
-internal sealed class DirectoryCursor(Func<CancellationToken, ValueTask<IReadOnlyList<ResourceStat>>> load) : IDirectoryCursor
+internal sealed class DirectoryCursor(
+    Func<CancellationToken, ValueTask<IReadOnlyList<ResourceStat>>> load,
+    IFileStatOperations? fileStats = null) : IDirectoryCursor
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     private IReadOnlyList<ResourceStat>? entries;
@@ -94,7 +97,7 @@ internal sealed class DirectoryCursor(Func<CancellationToken, ValueTask<IReadOnl
         }
     }
 
-    private static Stat Encode(ResourceStat entry)
+    private Stat Encode(ResourceStat entry)
     {
         // Stat.Size uses ushort storage; validate before its unchecked size conversion.
         Plan9Utf8Encoding utf = Plan9Utf8Encoding.Instance;
@@ -105,10 +108,11 @@ internal sealed class DirectoryCursor(Func<CancellationToken, ValueTask<IReadOnl
             throw new IOException("directory stat record exceeds supported size");
         }
 
+        (ushort type, uint device) = fileStats?.DeviceOf(entry.Resource) ?? (0, 0);
         return new Stat(
             (ushort)size,
-            0,
-            0,
+            type,
+            device,
             entry.Resource.Qid,
             entry.Mode,
             entry.AccessTime,
