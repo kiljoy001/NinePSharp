@@ -90,12 +90,14 @@ type NinePFSDispatcherEngine(handler: INinePRequestHandler) =
             let completion = TaskCompletionSource<unit>()
             let inFlight = { Tag = tag; Cts = cts; Completion = completion }
             session.InFlightRequests.[tag] <- inFlight
+            // The source is not disposed: a Tflush or a session's close may take the request from the
+            // table just before it ends and cancel it just after, which must do nothing rather than
+            // fail. A source with no timer holds nothing to release.
             try
                 return! action cts.Token
             finally
                 completion.TrySetResult(()) |> ignore
                 session.InFlightRequests.TryRemove(tag) |> ignore
-                cts.Dispose()
         }
 
     let getChannelOrThrow (fid: uint32) (session: SessionBox) : Channel =
